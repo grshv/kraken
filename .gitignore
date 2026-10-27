@@ -1,0 +1,39 @@
+# Local secrets and configuration
+.env
+.env.*
+!.env.example
+secrets/
+*.key
+*.pem
+*.p12
+*.pfx
+*.crt
+
+# Runtime and diagnostic data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
+*.log
+logs/
+cache/
+backups/
+data/
+
+# Build and dependencies
+node_modules/
+web/dist/
+/bin/
+/dist/
+coverage/
+*.test
+*.out
+__pycache__/
+*.pyc
+.venv/
+
+# OS/editor local state
+.DS_Store
+.idea/
+.vscode/

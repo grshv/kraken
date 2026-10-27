@@ -1,0 +1,1382 @@
+{
+  "openapi": "3.1.1",
+  "info": {
+    "title": "Squid Control API",
+    "version": "0.1.0-design",
+    "description": "Proposed critical-path contract. No server implemented. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF."
+  },
+  "servers": [
+    {
+      "url": "https://control.example.test/api/v1",
+      "description": "Illustrative origin only"
+    }
+  ],
+  "security": [
+    {
+      "sessionCookie": []
+    }
+  ],
+  "paths": {
+    "/session": {
+      "get": {
+        "operationId": "getSession",
+        "summary": "Get session state and CSRF token",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "security": [],
+        "description": "Creates bounded pre-auth CSRF context if unauthenticated. Response is Cache-Control: no-store."
+      },
+      "post": {
+        "operationId": "login",
+        "summary": "Log in",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Session"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "description": "Validates pre-auth CSRF and allowed Origin; sets Secure HttpOnly SameSite cookie; throttled."
+      },
+      "delete": {
+        "operationId": "logout",
+        "summary": "Revoke session",
+        "responses": {
+          "204": {
+            "description": "No content"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ]
+      }
+    },
+    "/status": {
+      "get": {
+        "operationId": "getStatus",
+        "summary": "Observe control and data plane separately",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Status"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      }
+    },
+    "/configuration/draft": {
+      "get": {
+        "operationId": "getDraft",
+        "summary": "Read full desired configuration",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": []
+      },
+      "put": {
+        "operationId": "updateDraft",
+        "summary": "Replace draft with optimistic concurrency",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateDraft"
+              }
+            }
+          }
+        },
+        "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes."
+      }
+    },
+    "/revisions": {
+      "post": {
+        "operationId": "createRevision",
+        "summary": "Freeze a draft snapshot",
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRevision"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/revisions/{id}": {
+      "get": {
+        "operationId": "getRevision",
+        "summary": "Read immutable revision",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/revisions/{id}/preview": {
+      "get": {
+        "operationId": "previewRevision",
+        "summary": "Preview generated configuration and semantic diff",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/operations": {
+      "post": {
+        "operationId": "createOperation",
+        "summary": "Validate, apply or roll back a revision",
+        "responses": {
+          "202": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 128
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OperationRequest"
+              }
+            }
+          }
+        },
+        "description": "Creates a durable SQLite operation intent before the in-process worker runs. 409 for conflicting key/revision; busy is explicit. Apply requires validated exact inputs. Rollback uses the local Squid adapter and is verified. No separate runner or Docker API."
+      }
+    },
+    "/operations/{id}": {
+      "get": {
+        "operationId": "getOperation",
+        "summary": "Read durable operation status",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Operation"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/events": {
+      "get": {
+        "operationId": "listEvents",
+        "summary": "Read bounded, sanitized proxy events",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "failures_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
+        ],
+        "description": "No arbitrary path or shell filter. Tunnel events do not reveal origin URL path or status. Unknown historical revision stays null."
+      }
+    },
+    "/certificates": {
+      "get": {
+        "operationId": "listCertificates",
+        "summary": "Read public certificate metadata",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/Certificate"
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "description": "Returns installed inventory metadata, never private keys; local provisioning only in first version."
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "sessionCookie": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "__Host-session"
+      }
+    },
+    "schemas": {
+      "Error": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "message",
+          "request_id"
+        ],
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "operation_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "Session": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "authenticated",
+          "username",
+          "csrf_token",
+          "expires_at"
+        ],
+        "properties": {
+          "authenticated": {
+            "type": "boolean"
+          },
+          "username": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "csrf_token": {
+            "type": "string"
+          },
+          "expires_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "writeOnly": true
+          }
+        }
+      },
+      "Destination": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "include_subdomains"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 253,
+            "description": "Canonical ASCII domain; no scheme/path/glob/CRLF."
+          },
+          "include_subdomains": {
+            "type": "boolean"
+          }
+        }
+      },
+      "Client": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "source_networks",
+          "enabled",
+          "policy_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1024
+          },
+          "source_networks": {
+            "type": "array",
+            "minItems": 1,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            }
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "policy_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "Policy": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "mode",
+          "destinations",
+          "tls_profile_id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "all_web",
+              "allowlist"
+            ]
+          },
+          "destinations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Destination"
+            }
+          },
+          "tls_profile_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "TLSProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "mode",
+          "proxy_transport",
+          "cert_ref",
+          "ca_ref",
+          "bypass_domains"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "tunnel",
+              "inspect"
+            ]
+          },
+          "proxy_transport": {
+            "type": "string",
+            "enum": [
+              "http",
+              "tls"
+            ]
+          },
+          "cert_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ca_ref": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bypass_domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Destination"
+            }
+          }
+        }
+      },
+      "ConfigurationSnapshot": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "schema_version",
+          "clients",
+          "policies",
+          "tls_profiles"
+        ],
+        "properties": {
+          "schema_version": {
+            "type": "integer",
+            "const": 1
+          },
+          "clients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Client"
+            }
+          },
+          "policies": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Policy"
+            }
+          },
+          "tls_profiles": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TLSProfile"
+            }
+          }
+        }
+      },
+      "Draft": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "version",
+          "snapshot",
+          "updated_at"
+        ],
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ConfigurationSnapshot"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "UpdateDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version",
+          "snapshot"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ConfigurationSnapshot"
+          }
+        }
+      },
+      "CreateRevision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_draft_version"
+        ],
+        "properties": {
+          "expected_draft_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "Revision": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "draft_version",
+          "policy_hash",
+          "compiler_version",
+          "image_digest",
+          "created_at",
+          "snapshot"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "draft_version": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "policy_hash": {
+            "type": "string"
+          },
+          "compiler_version": {
+            "type": "string"
+          },
+          "image_digest": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/ConfigurationSnapshot"
+          }
+        }
+      },
+      "Preview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "revision_id",
+          "policy_hash",
+          "summary",
+          "generated_config",
+          "warnings",
+          "expected_applied_revision"
+        ],
+        "properties": {
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "policy_hash": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "generated_config": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_applied_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "ValidateRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "revision_id",
+          "expected_applied_revision"
+        ],
+        "properties": {
+          "action": {
+            "const": "validate",
+            "type": "string"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_applied_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "ApplyRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "revision_id",
+          "validation_operation_id",
+          "expected_applied_revision"
+        ],
+        "properties": {
+          "action": {
+            "const": "apply",
+            "type": "string"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "validation_operation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_applied_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "RollbackRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action",
+          "revision_id",
+          "expected_applied_revision"
+        ],
+        "properties": {
+          "action": {
+            "const": "rollback",
+            "type": "string"
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "expected_applied_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "OperationRequest": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ValidateRequest"
+          },
+          {
+            "$ref": "#/components/schemas/ApplyRequest"
+          },
+          {
+            "$ref": "#/components/schemas/RollbackRequest"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "action",
+          "mapping": {
+            "validate": "#/components/schemas/ValidateRequest",
+            "apply": "#/components/schemas/ApplyRequest",
+            "rollback": "#/components/schemas/RollbackRequest"
+          }
+        }
+      },
+      "Operation": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "action",
+          "revision_id",
+          "status",
+          "findings",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "validate",
+              "apply",
+              "rollback"
+            ]
+          },
+          "revision_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "accepted",
+              "staged",
+              "validating",
+              "validated",
+              "promoting",
+              "reloading",
+              "verifying",
+              "succeeded",
+              "rejected",
+              "rolling_back",
+              "rolled_back",
+              "degraded"
+            ]
+          },
+          "findings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ComponentStatus": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "state",
+          "observed_at",
+          "stale"
+        ],
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down",
+              "unknown",
+              "degraded"
+            ]
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "detail": {
+            "type": "string"
+          }
+        }
+      },
+      "Status": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "web",
+          "runtime",
+          "squid",
+          "applied_revision",
+          "observed_config_hash",
+          "capabilities"
+        ],
+        "properties": {
+          "web": {
+            "$ref": "#/components/schemas/ComponentStatus"
+          },
+          "squid": {
+            "$ref": "#/components/schemas/ComponentStatus"
+          },
+          "applied_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "observed_config_hash": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "runtime": {
+            "$ref": "#/components/schemas/ComponentStatus",
+            "description": "Internal management module health, not a remote runner."
+          }
+        }
+      },
+      "Event": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "timestamp",
+          "client_id",
+          "source_ip",
+          "destination",
+          "method",
+          "proxy_result",
+          "tls_mode"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "source_ip": {
+            "type": "string"
+          },
+          "destination": {
+            "type": "string"
+          },
+          "method": {
+            "type": "string"
+          },
+          "proxy_result": {
+            "type": "string"
+          },
+          "proxy_http_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "duration_ms": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "bytes_observed": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "tls_mode": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "tunnel",
+              "inspect",
+              "splice"
+            ]
+          },
+          "revision_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          }
+        }
+      },
+      "EventPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor",
+          "gap",
+          "observed_at"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Event"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Certificate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "ref",
+          "purpose",
+          "subject",
+          "issuer",
+          "fingerprint_sha256",
+          "not_after"
+        ],
+        "properties": {
+          "ref": {
+            "type": "string"
+          },
+          "purpose": {
+            "type": "string",
+            "enum": [
+              "panel",
+              "proxy_server",
+              "inspection_ca"
+            ]
+          },
+          "subject": {
+            "type": "string"
+          },
+          "issuer": {
+            "type": "string"
+          },
+          "sans": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "fingerprint_sha256": {
+            "type": "string"
+          },
+          "not_after": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "public_chain_pem": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}
