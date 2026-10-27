@@ -11,8 +11,10 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/exec"
@@ -82,12 +84,24 @@ func (m *Manager) lock() (func(), error) {
 	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close(); m.mu.Unlock() }, nil
 }
 func Atomic(path string, b []byte) error {
+	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
+		return e
+	}
 	f, e := os.CreateTemp(filepath.Dir(path), ".stage-")
 	if e != nil {
 		return e
 	}
 	name := f.Name()
-	defer os.Remove(name)
+	// Track whether the staged temp has been promoted via rename. The deferred
+	// cleanup used to call os.Remove(name) unconditionally, which silently
+	// errored after a successful rename — harmless, but confusing when reading
+	// the code and noisy if anyone ever wires errno-level logging.
+	renamed := false
+	defer func() {
+		if !renamed {
+			os.Remove(name)
+		}
+	}()
 	if e = f.Chmod(0600); e != nil {
 		f.Close()
 		return e
@@ -106,6 +120,7 @@ func Atomic(path string, b []byte) error {
 	if e = os.Rename(name, path); e != nil {
 		return e
 	}
+	renamed = true
 	d, e := os.Open(filepath.Dir(path))
 	if e != nil {
 		return e
@@ -160,6 +175,12 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 			p = p[:space]
 		}
 		b.Buffer.Write(p)
+		// Once we hit the cap, mark that further output was dropped. The error
+		// message is preserved with redaction by the caller, but at least the
+		// truncation is visible in operator logs instead of silently dropping.
+		if b.Len() == 16384 {
+			b.Buffer.WriteString("\n...truncated...\n")
+		}
 	}
 	return n, nil
 }
@@ -205,8 +226,14 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 	defer unlock()
 	prev, e := m.ReadManifest()
 	if errors.Is(e, os.ErrNotExist) {
-		if _, je := os.Stat(filepath.Join(m.Dir, "journal.json")); !errors.Is(je, os.ErrNotExist) {
-			return errors.New("missing LKG with existing journal")
+		// Allow safe re-entry when a first_run marker exists between
+		// Persist(active.conf) and write(lkg.json): the recovery logic is the
+		// same idempotent init either way.
+		if jb, je2 := os.ReadFile(filepath.Join(m.Dir, "journal.json")); je2 == nil {
+			var existing Journal
+			if jerr := json.Unmarshal(jb, &existing); jerr == nil && existing.Stage != "first_run" {
+				return errors.New("missing LKG with existing journal")
+			}
 		}
 		s := policy.Empty()
 		c, ce := policy.Render(s, m.Options)
@@ -217,10 +244,18 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		if e = m.parse(ctx, c); e != nil {
 			return e
 		}
+		// Durable first_run marker records that init is in progress; a crash
+		// before lkg.json becomes a clean re-run of this same branch.
+		if e = m.write("journal.json", Journal{Stage: "first_run", Candidate: prev}); e != nil {
+			return e
+		}
 		if e = m.Persist(m.ActivePath(), []byte(c)); e != nil {
 			return e
 		}
-		return m.write("lkg.json", prev)
+		if e = m.write("lkg.json", prev); e != nil {
+			return e
+		}
+		return m.write("journal.json", Journal{Stage: "terminal", Outcome: "initialised", Candidate: prev})
 	}
 	if e != nil {
 		return e
@@ -242,8 +277,15 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 			return e
 		}
 		if !offline {
+			// Pebble starts `squid` and `control` in parallel; if we crashed during an
+			// apply, this branch runs before Squid may be listening. `squid -k
+			// reconfigure` then fails for an operational reason (no Squid yet) that
+			// would otherwise loop the container. active.conf is restored to prev on
+			// disk, so Status() will report drift if Squid serving state diverges.
+			// This is non-fatal: surface the warning and let startup proceed.
 			if e = m.reloadVerify(ctx, prev.Hash); e != nil {
-				return e
+				slog.Warn("post-recovery reload did not verify; squid may not be running yet", "error", e)
+				e = nil
 			}
 		}
 		if e = m.write("lkg.json", prev); e != nil {
@@ -292,6 +334,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	if e = m.write("journal.json", j); e != nil {
 		return "rejected", e
 	}
+	lkgPromoted := false
 	if e = m.Persist(m.ActivePath(), []byte(config)); e == nil {
 		j.Stage = "reloading"
 		e = m.write("journal.json", j)
@@ -301,6 +344,9 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	}
 	if e == nil {
 		e = m.write("lkg.json", next)
+		if e == nil {
+			lkgPromoted = true
+		}
 	}
 	if e == nil {
 		j.Stage = "terminal"
@@ -311,11 +357,23 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 		}
 	}
 	original := e
+	if lkgPromoted {
+		// We are about to roll back even though `next` was already promoted to
+		// active.conf, reloadVerify succeeded and lkg.json was written. The
+		// terminal-journal marker write failed; on next Recover the journal
+		// Stage != "terminal" branch will restore prev and overwrite the LKG.
+		// This is a legitimate operational surprise — surface it loudly so an
+		// operator notices that a momentarily-working apply is being reverted.
+		slog.Error("successful apply will be rolled back because terminal journal write failed; recovery will finalize prev on next start", "operation_id", id, "error", e)
+	}
 	rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 	defer cancelRollback()
 	j.Stage = "rolling_back"
 	if e = m.write("journal.json", j); e != nil {
-		return "degraded", errors.Join(original, e)
+		// Avoid triple-wrapping the original "configuration output withheld"
+		// message; surface a single rolled-back summary plus the rollback step
+		// error without repeating the redaction phrase.
+		return "degraded", fmt.Errorf("apply failed: %w; rollback journal write failed: %v", original, e)
 	}
 	if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e == nil {
 		e = m.reloadVerify(rollbackCtx, prev.Hash)
@@ -324,12 +382,12 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 		e = m.write("lkg.json", prev)
 	}
 	if e != nil {
-		return "degraded", errors.Join(original, fmt.Errorf("rollback failed: %w", e))
+		return "degraded", fmt.Errorf("apply failed: %w; rollback failed: %v", original, e)
 	}
 	j.Stage = "terminal"
 	j.Outcome = "rolled_back"
 	if e = m.write("journal.json", j); e != nil {
-		return "degraded", errors.Join(original, e)
+		return "degraded", fmt.Errorf("apply failed: %w; terminal journal write failed: %v", original, e)
 	}
 	return "rolled_back", original
 }
@@ -342,17 +400,53 @@ func (m *Manager) reloadVerify(ctx context.Context, hash string) error {
 	return m.Verify(ctx, hash)
 }
 
+// verifyBudget matches the value promised by docs/architecture/configuration-lifecycle.md
+// ("verify 30 s"). It is the worst-case time the loop below waits for Squid to start
+// serving a freshly reconfigured fingerprint after `squid -k reconfigure` returned.
+const verifyBudget = 30 * time.Second
+
 // Verify reads a header on a mandatory-denied loopback destination. It never fetches a user URL.
 func (m *Manager) Verify(ctx context.Context, hash string) error { return m.Probe(ctx, hash) }
+// probeTargetFor extracts the diagnostic http_port listener that the policy
+// compiler emits for the canary probe. The directive is always written by
+// policy.Render as a literal line; comments are skipped so a "# http_port
+// 127.0.0.1:3130" annotation cannot shadow the real target.
+func probeTargetFor(config string) (string, bool) {
+	for _, raw := range strings.Split(config, "\n") {
+		line := strings.TrimSpace(raw)
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == "http_port" && strings.HasPrefix(fields[1], "127.0.0.1:3130") {
+			return "127.0.0.1:3130", true
+		}
+	}
+	return "", false
+}
+
 func (m *Manager) verify(ctx context.Context, hash string) error {
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(verifyBudget)
 	var last error
 	for {
 		d := net.Dialer{Timeout: time.Second}
-		// Old revisions keep their original 3128 probe during migration/rollback.
+		// The probe target is the diagnostic 3130 listener when active.conf
+		// enables the canary listener. We resolve it structurally by reading
+		// lkg.json's Config (which is rewritten atomically on every Apply)
+		// rather than by grepping the file body — a comment line such as
+		// "# http_port 127.0.0.1:3130" would otherwise match the substring
+		// sniff and route probes to the wrong port.
 		target := "127.0.0.1:3128"
-		if config, e := os.ReadFile(m.ActivePath()); e == nil && strings.Contains(string(config), "http_port 127.0.0.1:3130\n") {
-			target = "127.0.0.1:3130"
+		if manifest, e := m.ReadManifest(); e == nil {
+			if probe, ok := probeTargetFor(manifest.Config); ok {
+				target = probe
+			}
+		} else if cfg, e := os.ReadFile(m.ActivePath()); e == nil {
+			// Fallback: only used when lkg.json is missing (bootstrap). Match
+			// the listener directive literally, not inside a comment.
+			if probe, ok := probeTargetFor(string(cfg)); ok {
+				target = probe
+			}
 		}
 		c, e := d.DialContext(ctx, "tcp", target)
 		if e == nil {
@@ -360,7 +454,7 @@ func (m *Manager) verify(ctx context.Context, hash string) error {
 			_, e = io.WriteString(c, "GET http://127.0.0.1/ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
 			if e == nil {
 				var r *http.Response
-				r, e = http.ReadResponse(bufio.NewReader(c), nil)
+				r, e = http.ReadResponse(bufio.NewReader(io.LimitReader(c, 64*1024)), nil)
 				if e == nil {
 					if r.StatusCode == 403 && r.Header.Get("X-Squid-Control-Revision") == hash {
 						r.Body.Close()
@@ -388,6 +482,42 @@ func (m *Manager) verify(ctx context.Context, hash string) error {
 	}
 }
 func (m *Manager) Status() map[string]any {
+	// Use a non-blocking TryLock so a long-running Apply does not stall status
+	// reads. When Apply owns the lock the in-process mutation is mid-flight, so
+	// active.conf may transiently differ from lkg.json — surfacing that as
+	// "degraded" would be a false positive. Mark the runtime as "up,
+	// operation in progress" instead.
+	if m.mu.TryLock() {
+		defer m.mu.Unlock()
+	} else {
+		return m.statusInFlight()
+	}
+	return m.statusLocked()
+}
+func (m *Manager) statusInFlight() map[string]any {
+	now := time.Now().UTC().Format(time.RFC3339)
+	component := func(s, d string) map[string]any {
+		return map[string]any{"state": s, "detail": d, "observed_at": now, "stale": false}
+	}
+	v, e := m.ReadManifest()
+	var revision any
+	if e == nil && v.Revision != "" {
+		revision = v.Revision
+	}
+	caps := []string{"http_proxy", "https_connect", "local_reload"}
+	if m.Options.ProxyCert != "" {
+		caps = append(caps, "tls_proxy_configured")
+	}
+	return map[string]any{
+		"web":                  component("up", ""),
+		"runtime":              component("up", "operation in progress"),
+		"squid":                component("up", "operation in progress"),
+		"applied_revision":     revision,
+		"observed_config_hash": v.Hash,
+		"capabilities":         caps,
+	}
+}
+func (m *Manager) statusLocked() map[string]any {
 	ctx, c := context.WithTimeout(context.Background(), time.Second)
 	defer c()
 	v, e := m.ReadManifest()
@@ -456,12 +586,19 @@ func (m *Manager) Events() ([]map[string]any, error) {
 		if len(parts) < 7 {
 			continue
 		}
+		// Logs are untrusted data per AGENTS.md. Validate source_ip at parse time
+		// so a malformed log cannot inject arbitrary text into the API response.
+		sourceAddr, addrErr := netip.ParseAddr(parts[2])
+		if addrErr != nil {
+			continue
+		}
 		dest := parts[6]
 		if strings.Contains(dest, "://") {
 			u, e := url.Parse(dest)
 			if e != nil || u.Hostname() == "" {
 				dest = "<invalid>"
 			} else {
+				// Keep only the host:port; URL path/query/userinfo is never surfaced.
 				dest = u.Host
 			}
 		} else {
@@ -479,6 +616,12 @@ func (m *Manager) Events() ([]map[string]any, error) {
 		timestamp := time.UnixMilli(int64(seconds * 1000)).UTC().Format(time.RFC3339Nano)
 		duration, _ := strconv.ParseInt(parts[1], 10, 64)
 		count, _ := strconv.ParseInt(parts[4], 10, 64)
+		if duration < 0 {
+			duration = 0
+		}
+		if count < 0 {
+			count = 0
+		}
 		codeParts := strings.Split(parts[3], "/")
 		var code any
 		if len(codeParts) == 2 {
@@ -491,7 +634,7 @@ func (m *Manager) Events() ([]map[string]any, error) {
 			mode = "tunnel"
 		}
 		lineHash := sha256.Sum256(scanner.Bytes())
-		items = append(items, map[string]any{"id": hex.EncodeToString(lineHash[:8]), "timestamp": timestamp, "client_id": nil, "source_ip": parts[2], "proxy_result": parts[3], "method": parts[5], "destination": dest, "proxy_http_status": code, "duration_ms": duration, "bytes_observed": count, "tls_mode": mode, "revision_id": nil})
+		items = append(items, map[string]any{"id": hex.EncodeToString(lineHash[:8]), "timestamp": timestamp, "client_id": nil, "source_ip": sourceAddr.String(), "proxy_result": parts[3], "method": parts[5], "destination": dest, "proxy_http_status": code, "duration_ms": duration, "bytes_observed": count, "tls_mode": mode, "revision_id": nil})
 	}
 	if len(items) > 100 {
 		items = items[len(items)-100:]
@@ -502,10 +645,18 @@ func (m *Manager) Events() ([]map[string]any, error) {
 	return items, scanner.Err()
 }
 
-// Maintain rotates only fixed known logs. It never interrupts apply or restarts Squid.
-func (m *Manager) Maintain(ctx context.Context) error {
+// Maintain rotates only fixed known logs and prunes historical state. It never
+// interrupts apply or restarts Squid.
+func (m *Manager) Maintain(ctx context.Context, prune func() error) error {
 	unlock, e := m.lock()
 	if errors.Is(e, ErrBusy) {
+		// Apply in flight: defer log rotation to the next tick, but pruning the
+		// SQLite history is independent of the runtime lock and can still run.
+		if prune != nil {
+			if pe := prune(); pe != nil {
+				slog.Warn("store prune failed", "error", pe)
+			}
+		}
 		return nil
 	}
 	if e != nil {
@@ -518,10 +669,17 @@ func (m *Manager) Maintain(ctx context.Context) error {
 			rotate = true
 		}
 	}
-	if !rotate {
-		return nil
+	if rotate {
+		c, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		if e = m.Command(c, "-f", m.ActivePath(), "-k", "rotate"); e != nil {
+			slog.Warn("log rotation failed", "error", e)
+		}
 	}
-	c, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
-	return m.Command(c, "-f", m.ActivePath(), "-k", "rotate")
+	if prune != nil {
+		if pe := prune(); pe != nil {
+			slog.Warn("store prune failed", "error", pe)
+		}
+	}
+	return nil
 }

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { defaultSettings } from "./model";
 import type { Snapshot, Settings } from "./model";
 
@@ -8,15 +8,37 @@ type Props = {
   onSave: (s: Snapshot) => Promise<void>;
   onTemplate: () => Promise<string>;
 };
+const tabs = [
+  "Сеть и ACL",
+  "Кеш",
+  "DNS и таймауты",
+  "Экспертный режим",
+  "Возможности",
+] as const;
 export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
   const [settings, setSettings] = useState<Settings>(
     structuredClone(snapshot.settings || defaultSettings),
   );
   const [mode, setMode] = useState(snapshot.configuration_mode || "structured");
   const [expert, setExpert] = useState(snapshot.expert_config || "");
-  const [tab, setTab] = useState("Сеть и ACL");
+  const [tab, setTab] = useState<(typeof tabs)[number]>("Сеть и ACL");
   const [dirty, setDirty] = useState(false);
   const [error, setError] = useState("");
+  // Last snapshot version we synchronised from. Used to distinguish an external
+  // update (server pushed a newer draft) from our own save: remounting the panel
+  // via key=draft.version threw away local tab/dirty/error state, which made
+  // even benign saves jump the user back to "Сеть и ACL".
+  const lastSnapshotRef = useRef(snapshot);
+  useEffect(() => {
+    if (snapshot === lastSnapshotRef.current) return;
+    lastSnapshotRef.current = snapshot;
+    setSettings(structuredClone(snapshot.settings || defaultSettings));
+    setMode(snapshot.configuration_mode || "structured");
+    setExpert(snapshot.expert_config || "");
+    setDirty(false);
+    setError("");
+  }, [snapshot]);
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings({ ...settings, [key]: value });
     setDirty(true);
@@ -52,6 +74,29 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
       setError((e as Error).message);
     }
   }
+  function cycleTab(direction: 1 | -1) {
+    const i = tabs.indexOf(tab);
+    const next = tabs[(i + direction + tabs.length) % tabs.length];
+    setTab(next);
+    tabRefs.current[next]?.focus();
+  }
+  function onTabKeyDown(e: React.KeyboardEvent<HTMLButtonElement>) {
+    if (e.key === "ArrowRight" || e.key === "ArrowDown") {
+      e.preventDefault();
+      cycleTab(1);
+    } else if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
+      e.preventDefault();
+      cycleTab(-1);
+    } else if (e.key === "Home") {
+      e.preventDefault();
+      setTab(tabs[0]);
+      tabRefs.current[tabs[0]]?.focus();
+    } else if (e.key === "End") {
+      e.preventDefault();
+      setTab(tabs[tabs.length - 1]);
+      tabRefs.current[tabs[tabs.length - 1]]?.focus();
+    }
+  }
   return (
     <section className="section settings">
       <div className="section-head">
@@ -66,24 +111,28 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
         role="tablist"
         aria-label="Разделы настроек"
       >
-        {[
-          "Сеть и ACL",
-          "Кеш",
-          "DNS и таймауты",
-          "Экспертный режим",
-          "Возможности",
-        ].map((name) => (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={tab === name}
-            key={name}
-            onClick={() => setTab(name)}
-            className={tab === name ? "selected" : ""}
-          >
-            {name}
-          </button>
-        ))}
+        {tabs.map((name) => {
+          const selected = tab === name;
+          return (
+            <button
+              type="button"
+              role="tab"
+              id={`settings-tab-${name}`}
+              aria-selected={selected}
+              aria-controls={`settings-panel-${name}`}
+              tabIndex={selected ? 0 : -1}
+              key={name}
+              ref={(el) => {
+                tabRefs.current[name] = el;
+              }}
+              onClick={() => setTab(name)}
+              onKeyDown={onTabKeyDown}
+              className={selected ? "selected" : ""}
+            >
+              {name}
+            </button>
+          );
+        })}
       </div>
       <form
         onSubmit={(e) => {
@@ -97,7 +146,12 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
         }}
       >
         {tab === "Сеть и ACL" && (
-          <div className="settings-grid">
+          <div
+            className="settings-grid"
+            role="tabpanel"
+            id="settings-panel-Сеть и ACL"
+            aria-labelledby="settings-tab-Сеть и ACL"
+          >
             {number(
               "http_port",
               "HTTP-порт внутри контейнера",
@@ -117,32 +171,33 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
               <input
                 value={settings.safe_ports.join(", ")}
                 required
-                onChange={(e) =>
-                  update(
-                    "safe_ports",
-                    e.target.value
-                      .split(/[,\s]+/)
-                      .filter(Boolean)
-                      .map(Number),
-                  )
-                }
+                onChange={(e) => {
+                  const next = e.target.value
+                    .split(/[,\s]+/)
+                    .filter(Boolean)
+                    .map((v) => Number(v))
+                    .filter((n) => Number.isFinite(n));
+                  update("safe_ports", next as never);
+                }}
               />
-              <small>Например: 80, 443, 8080. SMTP 25 запрещён.</small>
+              <small>
+                Например: 80, 443, 8080. Запрещены: 22, 23, 25, 110, 143, 465,
+                587, 993, 995, 9050, 9051.
+              </small>
             </label>
             <label>
               Порты CONNECT
               <input
                 value={settings.connect_ports.join(", ")}
                 required
-                onChange={(e) =>
-                  update(
-                    "connect_ports",
-                    e.target.value
-                      .split(/[,\s]+/)
-                      .filter(Boolean)
-                      .map(Number),
-                  )
-                }
+                onChange={(e) => {
+                  const next = e.target.value
+                    .split(/[,\s]+/)
+                    .filter(Boolean)
+                    .map((v) => Number(v))
+                    .filter((n) => Number.isFinite(n));
+                  update("connect_ports", next as never);
+                }}
               />
               <small>
                 Подмножество разрешённых портов. Туннель может передавать
@@ -174,7 +229,12 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
           </div>
         )}
         {tab === "Кеш" && (
-          <div className="settings-grid">
+          <div
+            className="settings-grid"
+            role="tabpanel"
+            id="settings-panel-Кеш"
+            aria-labelledby="settings-tab-Кеш"
+          >
             <label className="setting-toggle">
               <input
                 type="checkbox"
@@ -204,7 +264,12 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
           </div>
         )}
         {tab === "DNS и таймауты" && (
-          <div className="settings-grid">
+          <div
+            className="settings-grid"
+            role="tabpanel"
+            id="settings-panel-DNS и таймауты"
+            aria-labelledby="settings-tab-DNS и таймауты"
+          >
             <label>
               DNS-серверы
               <textarea
@@ -254,7 +319,12 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
           </div>
         )}
         {tab === "Экспертный режим" && (
-          <div className="expert-panel">
+          <div
+            className="expert-panel"
+            role="tabpanel"
+            id="settings-panel-Экспертный режим"
+            aria-labelledby="settings-tab-Экспертный режим"
+          >
             <label>
               Режим конфигурации
               <select
@@ -314,7 +384,12 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
           </div>
         )}
         {tab === "Возможности" && (
-          <div className="capability-list">
+          <div
+            className="capability-list"
+            role="tabpanel"
+            id="settings-panel-Возможности"
+            aria-labelledby="settings-tab-Возможности"
+          >
             <h3>Что доступно в этой сборке</h3>
             <dl>
               <dt>Визуально</dt>

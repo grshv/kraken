@@ -33,7 +33,7 @@ func TestExpertConfigAndTemplate(t *testing.T) {
 	}
 }
 func TestExpertProtectedRuntimeAndExecution(t *testing.T) {
-	for _, text := range []string{"ssl_unmanaged allow all", "security_unmanaged on", "ss\\l_unmanaged allow all", "include /data/app/*", "auth_param basic program /bin/sh -c bad", "url_rewrite_program /bin/sh", "pid_filename /data/app/a", "http_port 9000", "https_port 9443", "cache_dir ufs /data/app 50 16 256", "acl sc_safe_ports port 25", "http_access allow sc_probe_listener", "if true\nhttp_access allow all", "endif", "in\\clude /data/app/*", "url_rewrite_\\\nprogram /bin/sh", "request_header_add test value\\"} {
+	for _, text := range []string{"ssl_unmanaged allow all", "security_unmanaged on", "ss\\l_unmanaged allow all", "include /data/app/*", "auth_param basic program /bin/sh -c bad", "url_rewrite_program /bin/sh", "pid_filename /data/app/a", "http_port 9000", "https_port 9443", "snmp_port 3401", "icp_port 3130", "htcp_port 4827", "snmp_access allow all", "icp_access allow all", "htcp_access allow all", "adaptation_access allow all", "icap_service foo", "reply_header_access X-Squid-Control-Revision deny all", "reply_header_replace Server server/1.0", "reply_header_remove X-Squid-Control-Revision", "request_header_add X-Probe test", "cache_dir ufs /data/app 50 16 256", "acl sc_safe_ports port 25", "http_access allow sc_probe_listener", "if true\nhttp_access allow all", "endif", "in\\clude /data/app/*", "url_rewrite_\\\nprogram /bin/sh", "request_header_add test value\\"} {
 		s := fixture()
 		s.Mode = "expert"
 		s.Expert = text
@@ -65,7 +65,7 @@ func TestSettingsValidationAndRendering(t *testing.T) {
 	if strings.Contains(c, "http_access deny sc_private_dst") {
 		t.Fatal("explicit private destination choice ignored")
 	}
-	cases := map[string]func(*Settings){"reserved port": func(v *Settings) { v.HTTPPort = 3130 }, "SMTP": func(v *Settings) { v.SafePorts = []int{25, 443} }, "CONNECT mismatch": func(v *Settings) { v.ConnectPorts = []int{9999} }, "DNS injection": func(v *Settings) { v.DNSNameservers = []string{"1.1.1.1\nhttp_access allow all"} }, "timeout": func(v *Settings) { v.ReadTimeout = 0 }, "memory": func(v *Settings) { v.CacheMemoryMB = -1 }, "TTL": func(v *Settings) { v.NegativeDNSTTL = v.PositiveDNSTTL }}
+	cases := map[string]func(*Settings){"reserved port": func(v *Settings) { v.HTTPPort = 3130 }, "smtp": func(v *Settings) { v.SafePorts = []int{25, 443} }, "ssh": func(v *Settings) { v.SafePorts = []int{22, 443} }, "telnet": func(v *Settings) { v.SafePorts = []int{23, 443} }, "tor": func(v *Settings) { v.SafePorts = []int{9050, 443} }, "submission": func(v *Settings) { v.SafePorts = []int{587, 443} }, "CONNECT mismatch": func(v *Settings) { v.ConnectPorts = []int{9999} }, "DNS injection": func(v *Settings) { v.DNSNameservers = []string{"1.1.1.1\nhttp_access allow all"} }, "timeout": func(v *Settings) { v.ReadTimeout = 0 }, "memory": func(v *Settings) { v.CacheMemoryMB = -1 }, "TTL": func(v *Settings) { v.NegativeDNSTTL = v.PositiveDNSTTL }}
 	for name, mutate := range cases {
 		t.Run(name, func(t *testing.T) {
 			v := DefaultSettings()

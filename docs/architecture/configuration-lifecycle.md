@@ -69,9 +69,17 @@ mutations. При недоступной DB новая mutation не начин�
 10. При ошибке после promotion: journal `rolling_back`, вернуть предыдущий bundle,
     повторно parse/reload/verify; закончить `rolled_back` или `degraded`.
 
-Предварительные budgets: parse 15 s, reload acknowledgement 10 s, verify 30 s,
-rollback до 45 s. Значения конфигурируемы и проверяются spike, не обещание SLA.
-Нельзя убивать безопасное восстановление только потому, что браузер закрылся.
+Предварительные budgets: parse 15 s, reload acknowledgement 10 s, verify 30 s
+(соответствует `verifyBudget` в `manager.go`), rollback до 45 s. Значения
+конфигурируемы и проверяются spike, не обещание SLA. Нельзя убивать безопасное
+восстановление только потому, что браузер закрылся.
+
+Recover после рестарта читает journal; если `stage != "terminal"`, конфигурация
+откатывается к recorded previous manifest. На первом запуске (когда нет LKG)
+пишется durable `first_run` marker до persist `active.conf`, чтобы крах между
+шагами был идемпотентно повторяем. Online-recovery вызывает reloadVerify; если
+Squid ещё не стартовал (Pebble параллельный запуск), это не фатально — active.conf
+уже восстановлен на диск, последующий Status probe детектирует реальный drift.
 
 ## Что означает verify
 

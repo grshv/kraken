@@ -46,7 +46,10 @@ Apply использует snapshot целой конфигурации, не ч
 Включить foreign keys, busy timeout, WAL на local filesystem; bounded connection
 pool, короткие write transactions, контролируемый checkpoint. Режим synchronous
 и конкретный driver выбрать по результатам durability tests; не ослаблять fsync
-ради красивого benchmark. Не размещать DB на NFS.
+ради красивого benchmark. Не размещать DB на NFS. На практике `store.Open`
+включает `foreign_keys(1)`, `journal_mode=WAL)`, `busy_timeout=5000)`
+через DSN-прагмы, а `synchronous=FULL` — через `PRAGMA` после открытия, чтобы
+параметр не зависел от формы пула соединений.
 
 Backup через SQLite backup API или остановленный согласованный snapshot;
 копирование только main DB при активном WAL недопустимо как общая стратегия.
@@ -65,11 +68,21 @@ revision hashes, bounded findings, secret references и terminal outcome.
 Миграции вперёд нумеруются и checksum фиксируется. Перед изменением схемы — backup.
 Откат приложения возможен только при совместимой схеме, иначе restore согласованной
 копии, а не произвольное `down`. Compatibility window документируется в релизе.
+Первая миграция (`migrations/001.sql`) регистрируется в `schema_migrations` с
+checksum; будущие миграции обязаны следовать тому же шаблону.
 
 Предварительный retention: raw access logs 7 дней, агрегаты 30 дней, audit 90 дней,
 последние 20 конфигураций плюс закреплённая LKG. Сроки — предложения, не договорённость.
 Удаление по сроку дополняется лимитами bytes и disk watermark. Активная ревизия,
 LKG и ссылки незавершённых operations не удаляются. Не путать rotation с backup.
+
+`store.Prune` реализует базовый retention: удаляет audit_events старше cutoff (по
+умолчанию 90 дней) и оставшиеся сверху 5000 событий по capped-retention, а также
+ревизии, которые не ссылаются на succeeded operation и не входят в последние N
+(по умолчанию 20). Вызывается из периодического `Manager.Maintain`. Schema-level
+FK на сессии не накладывается: анонимные сессии (CSRF holder без пользователя)
+используют `username=''`, FK на users нарушил бы unauthenticated `GET /session`.
+Целостность обеспечивается на уровне приложения.
 
 ## Реализованное расширение
 

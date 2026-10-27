@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -52,7 +53,7 @@ func passwordMatches(encoded, password string) bool {
 		if n, e := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d%s", &memory, &iterations, &parallel, &trailing); n != 3 || e != io.EOF {
 			return false
 		}
-		if memory < 8192 || memory > 262144 || iterations < 1 || iterations > 10 || parallel < 1 || parallel > 8 {
+		if memory < 8192 || memory > 38912 || iterations < 1 || iterations > 4 || parallel < 1 || parallel > 2 {
 			return false
 		}
 		saltText, keyText = parts[4], parts[5]
@@ -99,8 +100,14 @@ func ResetPassword(s *store.Store, username, password string) error {
 	}
 	return tx.Commit()
 }
+// usernamePattern restricts bootstrap usernames to printable ASCII without
+// control characters, whitespace or quote/backslash characters that would
+// leak into audit logs as data. SQL is parameterized so this is not an
+// injection defense — it is hygiene for downstream rendering.
+var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+
 func Bootstrap(s *store.Store, username, password string) error {
-	if len(username) == 0 || len(username) > 128 || strings.TrimSpace(username) != username {
+	if !usernamePattern.MatchString(username) {
 		return errors.New("invalid username")
 	}
 	h, e := PasswordHash(password)
@@ -140,8 +147,16 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 		return v, errors.New("invalid cookie")
 	}
 	v.Hash = tokenHash(c.Value)
+	// SELECT and UPDATE last_seen_at in one transaction so a parallel password
+	// reset cannot delete the row between read and touch (the previous split-tx
+	// version would silently noop the UPDATE and continue with stale state).
+	tx, e := s.Store.DB.Begin()
+	if e != nil {
+		return v, e
+	}
+	defer tx.Rollback()
 	var last int64
-	e = s.Store.DB.QueryRow("SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", v.Hash).Scan(&v.User, &v.CSRF, &v.Expires, &last)
+	e = tx.QueryRow("SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", v.Hash).Scan(&v.User, &v.CSRF, &v.Expires, &last)
 	now := time.Now().Unix()
 	if e != nil {
 		return v, e
@@ -149,8 +164,10 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 	if now >= v.Expires || now-last > 1800 {
 		return v, errors.New("session expired")
 	}
-	_, e = s.Store.DB.Exec("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, v.Hash)
-	return v, e
+	if _, e = tx.Exec("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, v.Hash); e != nil {
+		return v, e
+	}
+	return v, tx.Commit()
 }
 func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...string) (session, error) {
 	token := rand.Text()
@@ -184,11 +201,17 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 	if _, e = tx.Exec("DELETE FROM sessions WHERE expires_at<? OR last_seen_at<?", time.Now().Unix(), time.Now().Add(-30*time.Minute).Unix()); e != nil {
 		return v, e
 	}
-	var count int
+	var count, anonCount int
 	if e = tx.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count); e != nil {
 		return v, e
 	}
-	if count >= 256 {
+	if e = tx.QueryRow("SELECT COUNT(*) FROM sessions WHERE username=''").Scan(&anonCount); e != nil {
+		return v, e
+	}
+	// Anonymous GET /session visitors only need a CSRF holder; cap them well below
+	// the authenticated ceiling so an unauthenticated attacker cannot exhaust the
+	// shared pool and lock the administrator out of login.
+	if count >= 256 || (user == "" && anonCount >= 32) {
 		return v, errors.New("session capacity reached")
 	}
 	if _, e = tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", v.Hash, user, v.CSRF, v.Expires, time.Now().Unix()); e != nil {
@@ -244,14 +267,24 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	if splitErr != nil {
 		host = r.RemoteAddr
 	}
-	key := host + ":" + input.Username
+	// Two independent throttle counters share the same backing map but use
+	// distinct key prefixes, so a distributed password-guessing attack that
+	// rotates source IPs cannot bypass the per-account ceiling, and a single
+	// host attacking multiple accounts cannot bypass the per-(host,account) one.
+	hostKey := "host:" + host + ":" + input.Username
+	acctKey := "acct:" + input.Username
 	s.throttleMu.Lock()
 	now := time.Now()
-	entry := s.attempts[key]
-	if now.Sub(entry.Start) > time.Minute {
-		entry = attempt{Start: now}
+	hostEntry := s.attempts[hostKey]
+	if now.Sub(hostEntry.Start) > time.Minute {
+		hostEntry = attempt{Start: now}
 	}
-	entry.Count++
+	hostEntry.Count++
+	acctEntry := s.attempts[acctKey]
+	if now.Sub(acctEntry.Start) > time.Minute {
+		acctEntry = attempt{Start: now}
+	}
+	acctEntry.Count++
 	if len(s.attempts) > 512 {
 		for k, a := range s.attempts {
 			if now.Sub(a.Start) > time.Minute {
@@ -259,15 +292,20 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	if len(s.attempts) >= 512 && entry.Count == 1 {
+	if len(s.attempts) >= 512 && hostEntry.Count == 1 {
 		s.throttleMu.Unlock()
 		fail(w, 429, "rate_limited", "Повторите вход позже")
 		return
 	}
-	s.attempts[key] = entry
+	s.attempts[hostKey] = hostEntry
+	s.attempts[acctKey] = acctEntry
 	s.throttleMu.Unlock()
-	if entry.Count > 5 {
+	if hostEntry.Count > 5 {
 		fail(w, 429, "rate_limited", "Слишком много попыток. Повторите через минуту")
+		return
+	}
+	if acctEntry.Count > 20 {
+		fail(w, 429, "rate_limited", "Слишком много попыток для этого имени. Повторите через минуту")
 		return
 	}
 	select {

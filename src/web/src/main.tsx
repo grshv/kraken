@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
@@ -47,9 +47,31 @@ async function api<T>(
     body: data === undefined ? undefined : JSON.stringify(data),
   });
   if (r.status === 204) return undefined as T;
+  // Treat invalid/expired sessions explicitly: a 401 from an authenticated
+  // call clears the cached CSRF token and bubbles a typed error so the caller
+  // can return the user to the login screen instead of looping on retries.
+  if (r.status === 401 && method !== "GET" && path !== "/session") {
+    csrf = "";
+    throw new SessionExpired();
+  }
+  // Reverse-proxies, TLS MITM pages and TCP resets return non-JSON bodies;
+  // parsing them as JSON throws a misleading SyntaxError that hides the real
+  // status. Inspect content-type first.
+  const ct = r.headers.get("content-type") || "";
+  if (!ct.toLowerCase().startsWith("application/json")) {
+    if (!r.ok) throw new Error(`Сервер недоступен (${r.status})`);
+    throw new Error(`Неожиданный ответ сервера (${r.status})`);
+  }
   const result = await r.json();
   if (!r.ok) throw new Error(result.message || `Ошибка ${r.status}`);
   return result;
+}
+
+class SessionExpired extends Error {
+  constructor() {
+    super("Сессия истекла. Войдите снова");
+    this.name = "SessionExpired";
+  }
 }
 function Pill({ value }: { value: string }) {
   return (
@@ -84,6 +106,49 @@ function App() {
     [mode, setMode] = useState<"all_web" | "allowlist">("allowlist"),
     [domains, setDomains] = useState(""),
     [transport, setTransport] = useState("http");
+  const modalRef = useRef<HTMLElement | null>(null);
+  // Escape closes the client modal unless a save is in flight. Focus is trapped
+  // to the dialog while it is open: Tab cycles among focusable children instead
+  // of leaking back to the underlying table which becomes inert under the
+  // aria-modal backdrop.
+  useEffect(() => {
+    if (!showForm) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== "Escape" || busy) return;
+      e.preventDefault();
+      setShowForm(false);
+    }
+    function onTab(e: KeyboardEvent) {
+      if (e.key !== "Tab" || !modalRef.current) return;
+      const focusable = modalRef.current.querySelectorAll<HTMLElement>(
+        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    document.addEventListener("keydown", onTab);
+    // Move focus to the first input when the dialog mounts. autofocus on the
+    // name field already exists but is unreliable across browsers when the
+    // modal is rendered into an existing tree.
+    const t = window.setTimeout(() => {
+      const first = modalRef.current?.querySelector<HTMLInputElement>("input,textarea,select");
+      first?.focus();
+    }, 0);
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.removeEventListener("keydown", onTab);
+      window.clearTimeout(t);
+    };
+  }, [showForm, busy]);
   async function load() {
     const [d, s, h] = await Promise.all([
       api<Draft>("/configuration/draft"),
@@ -112,7 +177,15 @@ function App() {
           if (active) setEvents(r.items);
         })
         .catch((e) => {
-          if (active) setError(e.message);
+          if (!active) return;
+          if (e instanceof SessionExpired) {
+            // Session expired mid-page: return the user to login instead of
+            // cascading 401s across subsequent polling calls.
+            setSession({ authenticated: false, username: null, csrf_token: "" });
+            setError(e.message);
+          } else {
+            setError(e.message);
+          }
         });
     refresh();
     const timer = setInterval(() => {
@@ -121,7 +194,12 @@ function App() {
         .then((s) => {
           if (active) setStatus(s);
         })
-        .catch(() => {});
+        .catch((e) => {
+          if (active && e instanceof SessionExpired) {
+            setSession({ authenticated: false, username: null, csrf_token: "" });
+            setError(e.message);
+          }
+        });
     }, 10000);
     return () => {
       active = false;
@@ -134,7 +212,14 @@ function App() {
     try {
       await fn();
     } catch (e) {
-      setError((e as Error).message);
+      if (e instanceof SessionExpired) {
+        // Drop the panel state back to the login view; preserve any uncommitted
+        // draft snapshot in localStorage-free memory by leaving `draft` in place.
+        setError(e.message);
+        setSession({ authenticated: false, username: null, csrf_token: "" });
+      } else {
+        setError((e as Error).message);
+      }
     } finally {
       setBusy(false);
     }
@@ -282,14 +367,27 @@ function App() {
         crypto.randomUUID(),
       );
       setOperation(op);
+      // The server worker keeps an Apply operation alive for up to 90 s, plus up
+      // to 45 s of rollback (see manager.go: rollbackCtx budget). Polling for
+      // only 50 s would hang the UI in "Применение/Проверка" if reconfigure is
+      // slow or the rollback engages. Continue until a terminal status is seen
+      // (or the request errors out), with periodic backoff.
       for (
         let i = 0;
-        i < 100 && ["pending", "validating", "reloading"].includes(op.status);
+        i < 360 && ["pending", "validating", "reloading"].includes(op.status);
         i++
       ) {
         await new Promise((r) => setTimeout(r, 500));
         op = await api<Operation>(`/operations/${op.id}`);
         setOperation(op);
+        if (
+          i === 200 &&
+          ["validating", "reloading"].includes(op.status)
+        ) {
+          setError(
+            "Операция выполняется дольше обычного. Панель продолжает опрос статуса.",
+          );
+        }
       }
       setHistory((await api<{ items: RevisionSummary[] }>("/revisions")).items);
       if (op.status === "validated") setValidated(op.id);
@@ -453,7 +551,6 @@ function App() {
           )}
           {page === "Настройки" && draft && (
             <SettingsPanel
-              key={draft.version}
               snapshot={draft.snapshot}
               busy={busy}
               onSave={(next) => work(() => save(next))}
@@ -760,9 +857,11 @@ function App() {
                   <span>
                     Операция <code>{operation.id.slice(0, 8)}</code>
                   </span>
-                  {operation.findings.map((f) => (
-                    <p key={f}>{f}</p>
-                  ))}
+                  <ul className="findings">
+                    {operation.findings.map((f) => (
+                      <li key={f}>{f}</li>
+                    ))}
+                  </ul>
                 </div>
               )}
             </section>
@@ -917,6 +1016,7 @@ function App() {
           }}
         >
           <section
+            ref={modalRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="client-title"

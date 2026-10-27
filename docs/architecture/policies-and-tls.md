@@ -53,6 +53,14 @@ TLSProfile: mode(tunnel), proxy_transport(http|tls), cert_ref
 Доступ к внутренним репозиториям разрешается явно через настройки и firewall;
 loopback/link-local/metadata остаются закрыты.
 
+### Опасные порты в `safe_ports`
+
+`safe_ports` администратора проходит через дополнительный denylist, не зависящий
+от выбора: ssh (22), telnet (23), smtp (25), pop3 (110), imap (143), smtps (465),
+submission (587), imaps (993), pop3s (995), tor (9050, 9051). `all_web` не
+отменяет этих запретов. Связные `connect_ports` являются подмножеством `safe_ports`
+и наследуют запреты.
+
 ## Три независимых слоя TLS
 
 | Слой | Что шифруется | Сертификаты и ограничения |
@@ -108,3 +116,12 @@ allow_private_destinations открывает их для внутренних �
 
 Expert mode заменяет визуальный ACL-блок. Служебные paths, executables и
 защитные sc_ ACL не передаются редактору. Подробнее — ADR 0007.
+
+Директивы владения listeners (`http_port`, `https_port`, `snmp_port`, `icp_port`,
+`htcp_port`) и связанные с ними access-правила (`snmp_access`, `icp_access`,
+`htcp_access`, `adaptation_access`, `icap_service`) запрещены в expert mode —
+приложение сохраняет единственное владение listener ports согласно ADR 0006/0007.
+`reply_header_add` runtime вешает canary `X-Squid-Control-Revision`, поэтому
+`reply_header_access`/`reply_header_replace`/`reply_header_remove` также закрыты,
+как и `request_header_add` — чтобы эксперт не мог изменить заголовки, влияющие на
+detect probe или скрыть canary из ответов.

@@ -139,7 +139,12 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 func respond(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(v)
+	if e := json.NewEncoder(w).Encode(v); e != nil {
+		// WriteHeader+headers already sent; the client will get a truncated body.
+		// At least surface the encoding failure so the request_id chain is not
+		// silently broken in operator logs.
+		slog.Warn("http response encode failed", "status", status, "error", e)
+	}
 }
 func fail(w http.ResponseWriter, status int, code, message string) {
 	respond(w, status, map[string]any{"code": code, "message": message, "request_id": store.ID()})
@@ -181,18 +186,43 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events", s.authenticated(s.events))
 	mux.HandleFunc("GET /api/v1/certificates", s.authenticated(s.certificates))
 	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
+		// Go 1.22 ServeMux would otherwise 405 a registered path with the wrong
+		// method; the generic catch-all here returns a clearer 404 to legacy
+		// clients, while MethodNotAllowed from registered patterns still surfaces.
 		fail(w, 404, "not_found", "Неизвестный endpoint")
 	})
 	mux.Handle("/", s.Static)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		rid := store.ID()
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
-		mux.ServeHTTP(w, r)
+		rw := &statusRecorder{ResponseWriter: w, status: 200}
+		defer func() {
+			if rv := recover(); rv != nil {
+				slog.Error("handler panic", "method", r.Method, "path", r.URL.Path, "remote", r.RemoteAddr, "request_id", rid, "recover", rv)
+				fail(rw, 500, "internal_error", "Внутренняя ошибка сервера")
+			}
+		}()
+		mux.ServeHTTP(rw, r)
+		slog.Info("http", "method", r.Method, "path", r.URL.Path, "status", rw.status, "duration_ms", time.Since(start).Milliseconds(), "request_id", rid, "remote", r.RemoteAddr)
 	})
+}
+
+// statusRecorder wraps http.ResponseWriter to capture the final status code for
+// access logging without buffering the body.
+type statusRecorder struct {
+	http.ResponseWriter
+	status int
+}
+
+func (r *statusRecorder) WriteHeader(code int) {
+	r.status = code
+	r.ResponseWriter.WriteHeader(code)
 }
 func (s *Server) getDraft(w http.ResponseWriter, r *http.Request, v session) {
 	var d Draft
@@ -340,10 +370,10 @@ func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, v session)
 	respond(w, 200, op)
 }
 func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v session) {
-	if s.persistenceFailed.Load() {
-		fail(w, 503, "recovery_required", "Не удалось сохранить исход предыдущей операции; требуется восстановление")
-		return
-	}
+	// Idempotent replay must always win over the recovery gate — the operation
+	// has already been accepted and may even be terminal, so returning 503
+	// here would lock users out of legitimate replays after a transient
+	// persistence failure on a separate operation.
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) < 16 || len(key) > 128 {
 		fail(w, 400, "invalid_key", "Нужен Idempotency-Key длиной 16–128 символов")
@@ -361,25 +391,44 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	hash := sha256.Sum256(b)
 	requestHash := hex.EncodeToString(hash[:])
 	var oldID, oldHash string
-	e := s.Store.DB.QueryRow("SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&oldID, &oldHash)
-	if e == nil {
+	if queryErr := s.Store.DB.QueryRow("SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&oldID, &oldHash); queryErr == nil {
 		if oldHash != requestHash {
 			fail(w, 409, "idempotency_conflict", "Ключ уже использован другим запросом")
 			return
 		}
-		op, e := s.loadOperation(oldID)
-		if e != nil {
+		op, loadErr := s.loadOperation(oldID)
+		if loadErr != nil {
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
 		respond(w, 202, op)
 		return
-	}
-	if !errors.Is(e, sql.ErrNoRows) {
+	} else if !errors.Is(queryErr, sql.ErrNoRows) {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
+	if s.persistenceFailed.Load() {
+		fail(w, 503, "recovery_required", "Не удалось сохранить исход предыдущей операции; требуется восстановление")
+		return
+	}
 	if !s.opsMu.TryLock() {
+		// A previous request may have inserted the operation between our SELECT and
+		// this lock; re-check idempotency so a legitimate replay of the same key
+		// returns the in-progress operation instead of a busy 409.
+		var retryID, retryHash string
+		if retryErr := s.Store.DB.QueryRow("SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&retryID, &retryHash); retryErr == nil {
+			if retryHash != requestHash {
+				fail(w, 409, "idempotency_conflict", "Ключ уже использован другим запросом")
+				return
+			}
+			op, loadErr := s.loadOperation(retryID)
+			if loadErr != nil {
+				fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+				return
+			}
+			respond(w, 202, op)
+			return
+		}
 		fail(w, 409, "busy", "Другая операция ещё выполняется")
 		return
 	}
@@ -503,7 +552,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 	if r.URL.Query().Get("failures_only") == "true" {
 		filtered := []map[string]any{}
 		for _, item := range items {
-			if strings.Contains(item["proxy_result"].(string), "DENIED") || strings.Contains(item["proxy_result"].(string), "FAIL") {
+			pr, _ := item["proxy_result"].(string)
+			if strings.Contains(pr, "DENIED") || strings.Contains(pr, "FAIL") {
 				filtered = append(filtered, item)
 			}
 		}
@@ -519,6 +569,13 @@ func (s *Server) certificates(w http.ResponseWriter, r *http.Request, v session)
 	for _, item := range []struct{ Ref, Purpose, Path string }{{"panel-server", "panel", s.PanelCert}, {"proxy-server", "proxy_server", s.Runtime.Options.ProxyCert}} {
 		if item.Path == "" {
 			continue
+		}
+		// Stat before ReadFile so an accidentally over-sized PEM cannot spike memory.
+		// 1 MiB is also the bound enforced for embedded bodies elsewhere in this handler.
+		st, e := os.Stat(item.Path)
+		if e != nil || st.Size() > 1024*1024 {
+			fail(w, 503, "certificate_unavailable", "Метаданные сертификата недоступны")
+			return
 		}
 		b, e := os.ReadFile(item.Path)
 		if e != nil || len(b) > 1024*1024 {

@@ -139,7 +139,13 @@ func run() error {
 			return e
 		}
 		s.PanelCert = env("SC_PANEL_CERT", "/data/certs/panel.crt")
-		server := &http.Server{Addr: env("SC_PANEL_LISTEN", ":8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{MinVersion: tls.VersionTLS12}}
+		server := &http.Server{Addr: env("SC_PANEL_LISTEN", "127.0.0.1:8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{
+			MinVersion:           tls.VersionTLS12,
+			MaxVersion:           tls.VersionTLS13,
+			CipherSuites:         []uint16{tls.TLS_AES_128_GCM_SHA256, tls.TLS_AES_256_GCM_SHA384, tls.TLS_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256},
+			CurvePreferences:     []tls.CurveID{tls.X25519, tls.CurveP256},
+			PreferServerCipherSuites: true,
+		}}
 		maintenanceCtx, stopMaintenance := context.WithCancel(context.Background())
 		defer stopMaintenance()
 		go func() {
@@ -150,8 +156,13 @@ func run() error {
 				case <-maintenanceCtx.Done():
 					return
 				case <-timer.C:
-					if e := m.Maintain(maintenanceCtx); e != nil {
-						slog.Warn("log rotation failed", "error", e)
+					prune := func() error {
+						// 90 days of audit events, last 20 unreferenced revisions.
+						// Matches docs/architecture/data-model.md retention.
+						return st.Prune(time.Now().Add(-90*24*time.Hour), 20)
+					}
+					if e := m.Maintain(maintenanceCtx, prune); e != nil {
+						slog.Warn("maintenance tick failed", "error", e)
 					}
 				}
 			}
@@ -161,9 +172,21 @@ func run() error {
 		defer signal.Stop(stop)
 		go func() {
 			<-stop
+			slog.Info("shutdown signal received, draining workers")
+			// First grace attempt: HTTP server shutdown with a 10 s budget. Workers
+			// can take up to ~135 s (90 s apply ctx + 45 s rollback); signal a
+			// second time to force an ungraceful exit if graceful drain stalls.
 			c, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 			defer cancel()
 			server.Shutdown(c)
+			done := make(chan struct{})
+			go func() { s.Wait(); close(done) }()
+			select {
+			case <-done:
+			case <-stop:
+				slog.Warn("second signal received, forcing exit")
+				os.Exit(1)
+			}
 		}()
 		slog.Info("HTTPS panel listening", "address", server.Addr)
 		e = server.ListenAndServeTLS(env("SC_PANEL_CERT", "/data/certs/panel.crt"), env("SC_PANEL_KEY", "/data/certs/panel.key"))
