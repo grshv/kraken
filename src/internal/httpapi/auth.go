@@ -77,30 +77,27 @@ func ResetPassword(s *store.Store, username, password string) error {
 	if e != nil {
 		return e
 	}
-	tx, e := s.DB.Begin()
+	tx, e := s.BeginTx()
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	result, e := tx.Exec("UPDATE users SET password_hash=? WHERE username=?", hash, username)
-	if e != nil {
-		return e
-	}
-	n, e := result.RowsAffected()
+	n, e := s.UpdateUserPasswordHash(tx, username, hash)
 	if e != nil {
 		return e
 	}
 	if n != 1 {
 		return errors.New("administrator not found")
 	}
-	if _, e = tx.Exec("DELETE FROM sessions WHERE username=?", username); e != nil {
+	if e = s.DeleteSessionsByUser(tx, username); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", "local-cli", "password_reset", username, time.Now().Unix()); e != nil {
+	if e = s.AuditTx(tx, "local-cli", "password_reset", username); e != nil {
 		return e
 	}
 	return tx.Commit()
 }
+
 // usernamePattern restricts bootstrap usernames to printable ASCII without
 // control characters, whitespace or quote/backslash characters that would
 // leak into audit logs as data. SQL is parameterized so this is not an
@@ -115,19 +112,19 @@ func Bootstrap(s *store.Store, username, password string) error {
 	if e != nil {
 		return e
 	}
-	tx, e := s.DB.Begin()
+	tx, e := s.BeginTx()
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	var n int
-	if e = tx.QueryRow("SELECT COUNT(*) FROM users").Scan(&n); e != nil {
+	n, e := s.UserCount(tx)
+	if e != nil {
 		return e
 	}
 	if n > 0 {
 		return errors.New("bootstrap already completed")
 	}
-	if _, e = tx.Exec("INSERT INTO users VALUES(?,?)", username, h); e != nil {
+	if e = s.InsertUser(tx, username, h); e != nil {
 		return e
 	}
 	return tx.Commit()
@@ -147,36 +144,42 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 	if len(c.Value) > 128 {
 		return v, errors.New("invalid cookie")
 	}
+	if strings.HasPrefix(c.Value, "anon.") {
+		return s.readAnonymousSession(c.Value)
+	}
 	v.Hash = tokenHash(c.Value)
 	// SELECT and UPDATE last_seen_at in one transaction so a parallel password
 	// reset cannot delete the row between read and touch (the previous split-tx
 	// version would silently noop the UPDATE and continue with stale state).
-	tx, e := s.Store.DB.Begin()
+	tx, e := s.Store.BeginTx()
 	if e != nil {
 		return v, e
 	}
 	defer tx.Rollback()
-	var last int64
-	e = tx.QueryRow("SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", v.Hash).Scan(&v.User, &v.CSRF, &v.Expires, &last)
 	now := time.Now().Unix()
+	var last int64
+	v.User, v.CSRF, v.Expires, last, e = s.Store.LookupSession(tx, v.Hash)
 	if e != nil {
 		return v, e
 	}
 	if now >= v.Expires || now-last > 1800 {
 		return v, errors.New("session expired")
 	}
-	if _, e = tx.Exec("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, v.Hash); e != nil {
+	if e = s.Store.TouchSession(tx, v.Hash, now); e != nil {
 		return v, e
 	}
 	return v, tx.Commit()
 }
+
+// credentials holds the verified password hash and previous token hash. The
+// transaction rechecks the hash before rotating into an authenticated session.
 func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...string) (session, error) {
+	if user == "" {
+		return s.newAnonymousSession(w), nil
+	}
 	token := rand.Text()
 	v := session{User: user, CSRF: rand.Text(), Hash: tokenHash(token), Expires: time.Now().Add(12 * time.Hour).Unix()}
-	if user == "" {
-		v.Expires = time.Now().Add(10 * time.Minute).Unix()
-	}
-	tx, e := s.Store.DB.Begin()
+	tx, e := s.Store.BeginTx()
 	if e != nil {
 		return v, e
 	}
@@ -185,45 +188,45 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 		if len(credentials) != 2 {
 			return v, errors.New("missing credential guard")
 		}
-		var currentHash string
-		if e = tx.QueryRow("SELECT password_hash FROM users WHERE username=?", user).Scan(&currentHash); e != nil {
+		currentHash, e := s.Store.UserPasswordHash(tx, user)
+		if e != nil {
 			return v, e
 		}
 		if subtle.ConstantTimeCompare([]byte(currentHash), []byte(credentials[0])) != 1 {
 			return v, errCredentialsChanged
 		}
-		if _, e = tx.Exec("DELETE FROM sessions WHERE token_hash=?", credentials[1]); e != nil {
-			return v, e
-		}
-		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", user, "login", "", time.Now().Unix()); e != nil {
+		if e = s.Store.DeleteSessionTx(tx, credentials[1]); e != nil {
 			return v, e
 		}
 	}
-	if _, e = tx.Exec("DELETE FROM sessions WHERE expires_at<? OR last_seen_at<?", time.Now().Unix(), time.Now().Add(-30*time.Minute).Unix()); e != nil {
+	now := time.Now().Unix()
+	if e = s.Store.DeleteExpiredSessions(tx, now, now-30*60); e != nil {
 		return v, e
 	}
-	var count, anonCount int
-	if e = tx.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count); e != nil {
+	count, _, e := s.Store.SessionCounts(tx)
+	if e != nil {
 		return v, e
 	}
-	if e = tx.QueryRow("SELECT COUNT(*) FROM sessions WHERE username=''").Scan(&anonCount); e != nil {
-		return v, e
-	}
-	// Anonymous GET /session visitors only need a CSRF holder; cap them well below
-	// the authenticated ceiling so an unauthenticated attacker cannot exhaust the
-	// shared pool and lock the administrator out of login.
-	if count >= 256 || (user == "" && anonCount >= 32) {
-		// Record the capacity event; actor is the (potentially empty) username
-		// being authenticated, or "" for the anonymous path. The audit row
-		// lets monitoring distinguish "session pool exhausted by anon flood"
-		// from "authenticated user denied because pool is full".
+	// Only authenticated sessions are persisted. Anonymous CSRF holders cannot
+	// exhaust this pool and all capacity-path writes use this same transaction.
+	if count >= 256 {
 		action := "session_capacity_reached"
-		if e := s.Store.Audit(user, action, ""); e != nil {
-			slog.Warn("audit write failed", "action", action, "actor", user, "error", e)
+		actor := user
+		if e := s.Store.AuditTx(tx, actor, action, ""); e != nil {
+			// Don't rollback the tx for an audit failure — the capacity
+			// rejection still needs to commit any cleanup done above. Log
+			// and continue; the gate remains enforced.
+			slog.Warn("audit write failed", "action", action, "actor", actor, "error", e)
+		}
+		if ce := tx.Commit(); ce != nil {
+			return v, ce
 		}
 		return v, errors.New("session capacity reached")
 	}
-	if _, e = tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", v.Hash, user, v.CSRF, v.Expires, time.Now().Unix()); e != nil {
+	if e = s.Store.InsertSession(tx, v.Hash, user, v.CSRF, v.Expires, now); e != nil {
+		return v, e
+	}
+	if e = s.Store.AuditTx(tx, user, "login", ""); e != nil {
 		return v, e
 	}
 	if e = tx.Commit(); e != nil {
@@ -337,7 +340,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var encoded string
-	e = s.Store.DB.QueryRow("SELECT password_hash FROM users WHERE username=?", input.Username).Scan(&encoded)
+	encoded, e = s.Store.UserPasswordHashStandalone(input.Username)
 	if errors.Is(e, sql.ErrNoRows) {
 		encoded = s.dummyHash
 	} else if e != nil {
@@ -413,7 +416,7 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, ses
 	}
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request, v session) {
-	if _, e := s.Store.DB.Exec("DELETE FROM sessions WHERE token_hash=?", v.Hash); e != nil {
+	if e := s.Store.DeleteSession(v.Hash); e != nil {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}

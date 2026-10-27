@@ -306,6 +306,18 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 	if je != nil && !errors.Is(je, os.ErrNotExist) {
 		return je
 	}
+	if je == nil && j.Stage == "first_run" {
+		// LKG was persisted but the final init marker was not. This is still
+		// initialisation, not an apply with a Previous manifest to roll back to.
+		if j.Candidate.Hash != prev.Hash || j.Candidate.Config != prev.Config {
+			return errors.New("initialisation journal does not match LKG")
+		}
+		if e = m.checkDrift(prev); e != nil {
+			return e
+		}
+		j.Stage, j.Outcome = "terminal", "initialised"
+		return m.write("journal.json", j)
+	}
 	if je == nil && j.Stage != "terminal" {
 		// The previous manifest in the durable journal is authoritative after a crash.
 		if j.Previous.Config == "" {
@@ -319,19 +331,19 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 			return e
 		}
 		if !offline {
-			// Pebble starts `squid` and `control` in parallel; if we crashed during an
-			// apply, this branch runs before Squid may be listening. `squid -k
-			// reconfigure` then fails for an operational reason (no Squid yet) that
-			// would otherwise loop the container. active.conf is restored to prev on
-			// disk, so Status() will report drift if Squid serving state diverges.
-			// This is non-fatal: surface the warning and let startup proceed.
 			if e = m.reloadVerify(ctx, prev.Hash); e != nil {
-				slog.Warn("post-recovery reload did not verify; squid may not be running yet", "error", e)
-				e = nil
+				// Keep the intent durable. A running Squid may still serve the
+				// candidate; retry recovery rather than claiming a verified rollback.
+				return fmt.Errorf("recovery reload not verified: %w", e)
 			}
 		}
 		if e = m.write("lkg.json", prev); e != nil {
 			return e
+		}
+		if offline {
+			// squid-start restores disk state before exec. The serving process
+			// must subsequently verify it before marking recovery terminal.
+			return nil
 		}
 		j.Stage = "terminal"
 		j.Outcome = "rolled_back"
@@ -454,6 +466,7 @@ const (
 
 // Verify reads a header on a mandatory-denied loopback destination. It never fetches a user URL.
 func (m *Manager) Verify(ctx context.Context, hash string) error { return m.Probe(ctx, hash) }
+
 // probeTargetFor extracts the diagnostic http_port listener that the policy
 // compiler emits for the canary probe. The directive is always written by
 // policy.Render as a literal line; comments are skipped so a "# http_port

@@ -104,3 +104,15 @@ Go race suite проверяет PHC и legacy hashes, атомарный reset/
 Он проверяет клиента, настройки, экспертный шаблон, diff/apply/rollback и mobile
 overflow. Self-signed доверие отключено только в этом disposable browser fixture;
 сетевая suite отдельно проверяет TLS chain.
+
+## Регрессии повторного ревью
+
+Сценарии и результаты: [review reliability](../plans/active/review-reliability.md).
+HTTP suite проверяет stateless anonymous CSRF, целостность/expiry/смену ключа,
+вход после потока anonymous GET и отсутствие deadlock при полном DB pool.
+Migration suite инъецирует ошибку перед version insert после переноса данных:
+проверяет rollback схемы/данных и успешный повтор. Runtime tests покрывают каждую
+запись first_run и сохранение pending journal при отказе reload/verify.
+Real-image suite восстанавливает previous ACL из pending journal после restart
+контейнера и проверяет фактические запросы. Browser suite проверяет GET/mutation
+expiry, обновление CSRF holder и вход после неверного пароля без reload страницы.

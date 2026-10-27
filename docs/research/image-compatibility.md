@@ -98,3 +98,13 @@ Squid; helper/storage provisioning остаётся отдельной рабо�
 `make check`, image build, реальные HTTP/CONNECT/TLS proxy и browser suite.
 Существующий локальный volume успешно поднят без bootstrap/reset.
 [Критерии и результат](../plans/active/tunnel-only.md).
+
+## Исправления повторного ревью, 27.10.2026
+
+Проверены anonymous CSRF без DB pool, атомарная миграция, first_run recovery и
+подтверждённый online rollback. Устранён регресс адреса панели: :8443 внутри
+контейнера, ограничение host exposure задаёт Compose. Real-image smoke прошёл,
+включая pending-journal restart с возвратом прежних ACL и реальными запросами;
+Playwright — 4 сценария, включая повторную авторизацию после GET/mutation expiry.
+[Полные критерии, результаты и ограничения](../plans/active/review-reliability.md).
+Тестовые контейнеры/volumes отдельные; существующая установка не обновлялась.

@@ -139,11 +139,13 @@ func run() error {
 			return e
 		}
 		s.PanelCert = env("SC_PANEL_CERT", "/data/certs/panel.crt")
-		server := &http.Server{Addr: env("SC_PANEL_LISTEN", "127.0.0.1:8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{
-			MinVersion:           tls.VersionTLS12,
-			MaxVersion:           tls.VersionTLS13,
-			CipherSuites:         []uint16{tls.TLS_AES_128_GCM_SHA256, tls.TLS_AES_256_GCM_SHA384, tls.TLS_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256},
-			CurvePreferences:     []tls.CurveID{tls.X25519, tls.CurveP256},
+		// Docker forwards the published port to the container interface, not its
+		// loopback. Host exposure is restricted by Compose port bindings.
+		server := &http.Server{Addr: env("SC_PANEL_LISTEN", ":8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{
+			MinVersion:               tls.VersionTLS12,
+			MaxVersion:               tls.VersionTLS13,
+			CipherSuites:             []uint16{tls.TLS_AES_128_GCM_SHA256, tls.TLS_AES_256_GCM_SHA384, tls.TLS_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256},
+			CurvePreferences:         []tls.CurveID{tls.X25519, tls.CurveP256},
 			PreferServerCipherSuites: true,
 		}}
 		maintenanceCtx, stopMaintenance := context.WithCancel(context.Background())

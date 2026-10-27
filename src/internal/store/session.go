@@ -1,0 +1,133 @@
+package store
+
+import (
+	"database/sql"
+	"time"
+)
+
+// Session and user CRUD helpers. httpapi used to issue these statements
+// inline against *sql.DB / *sql.Tx, which leaked the sessions/users schema
+// into the HTTP layer. These methods are the stable surface; multi-step
+// transactions (e.g. NewSession's password-check-then-insert) take a *sql.Tx
+// the caller has already started so the cross-statement atomicity is
+// preserved without exposing bare SQL to the caller.
+
+// BeginTx returns a transaction the caller can pass to the per-step session
+// helpers below. The transaction's lifecycle (Commit/Rollback) stays owned
+// by the caller so a multi-statement flow can rollback cleanly on a late
+// failure.
+func (s *Store) BeginTx() (*sql.Tx, error) { return s.DB.Begin() }
+
+// LookupSession loads (username, csrf, expires_at, last_seen_at) for the
+// given token hash within tx. Returns sql.ErrNoRows if not found.
+func (s *Store) LookupSession(tx *sql.Tx, tokenHash string) (username, csrf string, expires, lastSeen int64, err error) {
+	err = tx.QueryRow("SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", tokenHash).Scan(&username, &csrf, &expires, &lastSeen)
+	return
+}
+
+// TouchSession updates last_seen_at in place within tx. Used by readSession
+// for the visit timestamp update so a parallel password reset cannot delete
+// the row between read and touch.
+func (s *Store) TouchSession(tx *sql.Tx, tokenHash string, now int64) error {
+	_, e := tx.Exec("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, tokenHash)
+	return e
+}
+
+// DeleteSession removes one row by token hash. Used by logout and by
+// newSession when rotating an anonymous CSRF holder into an authenticated
+// session.
+func (s *Store) DeleteSession(tokenHash string) error {
+	_, e := s.DB.Exec("DELETE FROM sessions WHERE token_hash=?", tokenHash)
+	return e
+}
+
+// DeleteSessionTx is the within-transaction variant of DeleteSession.
+func (s *Store) DeleteSessionTx(tx *sql.Tx, tokenHash string) error {
+	_, e := tx.Exec("DELETE FROM sessions WHERE token_hash=?", tokenHash)
+	return e
+}
+
+// DeleteSessionsByUser removes every session for a user. Used by ResetPassword
+// to atomically revoke active sessions when the password changes.
+func (s *Store) DeleteSessionsByUser(tx *sql.Tx, username string) error {
+	_, e := tx.Exec("DELETE FROM sessions WHERE username=?", username)
+	return e
+}
+
+// DeleteExpiredSessions removes sessions that have passed their expiry or
+// have not been seen for 30 minutes, within tx. Used by newSession during
+// the pool guard step.
+func (s *Store) DeleteExpiredSessions(tx *sql.Tx, now int64, idleCutoff int64) error {
+	_, e := tx.Exec("DELETE FROM sessions WHERE expires_at<? OR last_seen_at<?", now, idleCutoff)
+	return e
+}
+
+// SessionCounts returns (total, anonymous) session counts within tx. Used by
+// newSession to enforce the persisted session capacity.
+func (s *Store) SessionCounts(tx *sql.Tx) (total, anonymous int, err error) {
+	if e := tx.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&total); e != nil {
+		return 0, 0, e
+	}
+	if e := tx.QueryRow("SELECT COUNT(*) FROM sessions WHERE username=''").Scan(&anonymous); e != nil {
+		return 0, 0, e
+	}
+	return total, anonymous, nil
+}
+
+// InsertSession writes one session row within tx.
+func (s *Store) InsertSession(tx *sql.Tx, hash, user, csrf string, expires, now int64) error {
+	_, e := tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", hash, user, csrf, expires, now)
+	return e
+}
+
+// UserPasswordHash loads the salted Argon2id PHC string for one user, or
+// returns sql.ErrNoRows. The lookup happens within tx so a parallel
+// ResetPassword cannot change the hash between read and use.
+func (s *Store) UserPasswordHash(tx *sql.Tx, username string) (string, error) {
+	var h string
+	e := tx.QueryRow("SELECT password_hash FROM users WHERE username=?", username).Scan(&h)
+	return h, e
+}
+
+// UserPasswordHashStandalone is the outside-transaction variant used by
+// login() before it has opened a tx.
+func (s *Store) UserPasswordHashStandalone(username string) (string, error) {
+	var h string
+	e := s.DB.QueryRow("SELECT password_hash FROM users WHERE username=?", username).Scan(&h)
+	return h, e
+}
+
+// UpdateUserPasswordHash updates the password_hash for an existing user
+// within tx. Caller checks RowsAffected to detect unknown user.
+func (s *Store) UpdateUserPasswordHash(tx *sql.Tx, username, hash string) (int64, error) {
+	result, e := tx.Exec("UPDATE users SET password_hash=? WHERE username=?", hash, username)
+	if e != nil {
+		return 0, e
+	}
+	return result.RowsAffected()
+}
+
+// UserCount returns the number of users within tx. Used by Bootstrap to
+// gate first-admin creation.
+func (s *Store) UserCount(tx *sql.Tx) (int, error) {
+	var n int
+	e := tx.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+	return n, e
+}
+
+// InsertUser adds one user row within tx. Used by Bootstrap.
+func (s *Store) InsertUser(tx *sql.Tx, username, hash string) error {
+	_, e := tx.Exec("INSERT INTO users VALUES(?,?)", username, hash)
+	return e
+}
+
+// AuditTx writes an audit_events row within an existing transaction. Used
+// when the audit insert must atomic with the action it describes (e.g.
+// ResetPassword changing the hash + revoking sessions + writing the audit
+// row in one tx). actor is the entity taking the action; for anonymous
+// paths caller should pass the remote host rather than "" so monitoring
+// can correlate events to a source even without an authenticated user.
+func (s *Store) AuditTx(tx *sql.Tx, actor, action, entity string) error {
+	_, e := tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
+	return e
+}

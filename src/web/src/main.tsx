@@ -90,6 +90,15 @@ function App() {
     [domains, setDomains] = useState(""),
     [transport, setTransport] = useState("http");
   const modalRef = useRef<HTMLElement | null>(null);
+  const sessionRefreshRef = useRef<Promise<void> | null>(null);
+  function refreshSession(): Promise<void> {
+    if (!sessionRefreshRef.current) {
+      sessionRefreshRef.current = api<Session>("/session")
+        .then((s) => { setCsrf(s.csrf_token); setSession(s); })
+        .finally(() => { sessionRefreshRef.current = null; });
+    }
+    return sessionRefreshRef.current;
+  }
   // api reads csrf/index from this closure, so every re-render produces a new
   // function bound to the current token. Benefits: 401 clearing naturally
   // rerenders consumers (no hidden state); tests that re-render App with a
@@ -114,11 +123,10 @@ function App() {
       signal,
     });
     if (r.status === 204) return undefined as T;
-    // Treat invalid/expired sessions explicitly: a 401 from an authenticated
-    // call clears the cached CSRF token and bubbles a typed error so the caller
-    // can return the user to the login screen instead of looping on retries.
-    if (r.status === 401 && method !== "GET" && path !== "/session") {
-      setCsrf("");
+    // Refresh the cookie and CSRF holder before showing login after any
+    // protected 401. /session itself keeps ordinary wrong-password semantics.
+    if (r.status === 401 && path !== "/session") {
+      await refreshSession();
       throw new SessionExpired();
     }
     // Reverse-proxies, TLS MITM pages and TCP resets return non-JSON bodies;
@@ -222,7 +230,6 @@ function App() {
           if (e instanceof SessionExpired) {
             // Session expired mid-page: return the user to login instead of
             // cascading 401s across subsequent polling calls.
-            setSession({ authenticated: false, username: null, csrf_token: "", expires_at: null });
             setError(e.message);
           } else if (!(e instanceof DOMException && e.name === "AbortError")) {
             setError(e.message);
@@ -237,7 +244,6 @@ function App() {
         })
         .catch((e) => {
           if (active && e instanceof SessionExpired) {
-            setSession({ authenticated: false, username: null, csrf_token: "", expires_at: null });
             setError(e.message);
           }
         });
@@ -265,7 +271,6 @@ function App() {
         // Drop the panel state back to the login view; preserve any uncommitted
         // draft snapshot in localStorage-free memory by leaving `draft` in place.
         setError(e.message);
-        setSession({ authenticated: false, username: null, csrf_token: "", expires_at: null });
       } else if (e instanceof DOMException && e.name === "AbortError") {
         // Abort from unmount or a new work() call: don't surface as an error,
         // just stop the in-flight sequence.

@@ -80,12 +80,16 @@ mutations. При недоступной DB новая mutation не начин�
 не обещание SLA. Нельзя убивать безопасное восстановление только потому, что
 браузер закрылся.
 
-Recover после рестарта читает journal; если `stage != "terminal"`, конфигурация
-откатывается к recorded previous manifest. На первом запуске (когда нет LKG)
-пишется durable `first_run` marker до persist `active.conf`, чтобы крах между
-шагами был идемпотентно повторяем. Online-recovery вызывает reloadVerify; если
-Squid ещё не стартовал (Pebble параллельный запуск), это не фатально — active.conf
-уже восстановлен на диск, последующий Status probe детектирует реальный drift.
+Recover после рестарта читает journal. Незавершённый apply восстанавливает
+recorded previous manifest. На первом запуске durable first_run marker пишется
+до active.conf. Если LKG ещё нет, инициализация повторяется; если LKG уже есть,
+проверяется совпадение candidate/LKG и active.conf, затем сохраняется initialised.
+Offline recovery перед стартом Squid восстанавливает файлы, сохраняя pending
+journal. Online recovery закрывает journal как rolled_back только после успешных
+reload и fingerprint probe. Ошибка, включая ещё не запущенный Squid, сохраняет
+pending journal и возвращается вызывающему коду; serve завершается, Pebble
+повторяет его запуск. Это не заменяется проверкой совпадения файлов на диске.
+Решение: [ADR 0010](../adr/0010-session-and-recovery-safety.md).
 
 ## Что означает verify
 

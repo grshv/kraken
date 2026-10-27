@@ -70,36 +70,43 @@ func Open(path string) (*Store, error) {
 	if _, e = db.Exec("PRAGMA synchronous=FULL"); e != nil {
 		return fail(e)
 	}
-	// 001.sql is bootstrap: every statement uses CREATE TABLE IF NOT EXISTS or
-	// INSERT OR IGNORE, so re-running it on an already-migrated DB is a no-op.
-	// It also creates the schema_migrations table itself, so the conditional
-	// apply loop below can rely on it. Subsequent migrations (version >= 2) are
-	// applied only when their version is absent from schema_migrations. A
-	// migration that fails leaves the DB partially-migrated and store.Open
-	// refuses to start; recovery is restore-from-backup, not silent retry.
-	if _, e := db.Exec(migrations.Initial); e != nil {
-		return fail(fmt.Errorf("migration 1: %w", e))
-	}
-	for _, m := range migrations.Ordered {
-		if m.Version <= 1 {
-			continue
-		}
-		var applied int
-		if e := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", m.Version).Scan(&applied); e != nil {
-			return fail(e)
-		}
-		if applied > 0 {
-			continue
-		}
-		if _, e := db.Exec(m.SQL); e != nil {
-			return fail(fmt.Errorf("migration %d: %w", m.Version, e))
-		}
+	if e = migrate(db); e != nil {
+		return fail(e)
 	}
 	if e = os.Chmod(path, 0600); e != nil {
 		return fail(e)
 	}
 	return &Store{db}, nil
 }
+
+// migrate commits schema changes, copied data and the version ledger together.
+// Both SQL errors and a killed process leave the previous schema intact.
+func migrate(db *sql.DB) error {
+	tx, e := db.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if _, e = tx.Exec(migrations.Initial); e != nil {
+		return fmt.Errorf("migration 1: %w", e)
+	}
+	for _, m := range migrations.Ordered {
+		if m.Version <= 1 {
+			continue
+		}
+		var applied int
+		if e = tx.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", m.Version).Scan(&applied); e != nil {
+			return e
+		}
+		if applied == 0 {
+			if _, e = tx.Exec(m.SQL); e != nil {
+				return fmt.Errorf("migration %d: %w", m.Version, e)
+			}
+		}
+	}
+	return tx.Commit()
+}
+
 func (s *Store) Get(key string, v any) error {
 	var raw string
 	e := s.DB.QueryRow("SELECT value FROM kv WHERE key=?", key).Scan(&raw)
@@ -116,6 +123,7 @@ func (s *Store) Put(key string, v any) error {
 	_, e = s.DB.Exec("INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, string(b))
 	return e
 }
+
 // Audit stamps are stored as INTEGER unix seconds since migration 002; TEXT
 // RFC3339 was used in 001.sql but mixed-type comparisons (audit_events TEXT vs
 // sessions INTEGER) blocked range queries. inbound callers should pass a
@@ -260,9 +268,9 @@ func (s *Store) InsertRevision(revID, revBody, actor, action string) error {
 // it" and "latest_status is the most recent operation status for that revision,
 // defaulting to 'draft'" — both mirrors of the httpapi contract.
 func (s *Store) ListRevisions() ([]struct {
-	Body          string
-	Applied       bool
-	LatestStatus  string
+	Body         string
+	Applied      bool
+	LatestStatus string
 }, error) {
 	rows, e := s.DB.Query(`SELECT value,
  EXISTS(SELECT 1 FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') AND json_extract(body,'$.status')='succeeded'),
@@ -273,15 +281,15 @@ func (s *Store) ListRevisions() ([]struct {
 	}
 	defer rows.Close()
 	out := []struct {
-		Body          string
-		Applied       bool
-		LatestStatus  string
+		Body         string
+		Applied      bool
+		LatestStatus string
 	}{}
 	for rows.Next() {
 		var item struct {
-			Body          string
-			Applied       bool
-			LatestStatus  string
+			Body         string
+			Applied      bool
+			LatestStatus string
 		}
 		if e = rows.Scan(&item.Body, &item.Applied, &item.LatestStatus); e != nil {
 			return nil, e

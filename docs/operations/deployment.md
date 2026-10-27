@@ -69,3 +69,11 @@ Health показывает состояния раздельно. Watchdog не
 нужно окно. Manifest содержит source commit, base/final digest, architecture,
 compiler/schema versions, toolchains, checksums, SBOM и capability evidence.
 Откат image согласуется со схемой DB и secret refs. HA не предусмотрено.
+
+## Привязка панели в контейнере
+
+По умолчанию SC_PANEL_LISTEN=:8443 внутри контейнера: Docker port forwarding
+должен достигать container interface. Ограничение внешнего доступа задаётся
+host binding в Compose (по умолчанию 127.0.0.1:8443), management firewall/VPN и
+HTTPS-аутентификацией. SC_PANEL_LISTEN=127.0.0.1:8443 внутри контейнера отключает
+доступ через обычный опубликованный Docker-порт и не подходит этому deployment.

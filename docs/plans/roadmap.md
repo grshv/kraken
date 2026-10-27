@@ -77,3 +77,12 @@ injection, SIGKILL тестового процесса на durable границ
 
 Оставшиеся D3/D4/D6: полная crash/reboot/storage matrix, события с retention/cursor,
 управление сертификатами, backup/restore drill, security scans и release packaging.
+
+## Повторное ревью 27.10.2026
+
+Исправлены session capacity deadlock, anonymous login pool, first_run после LKG,
+неподтверждённый rollback, неатомарная миграция, повторный вход после expiry и
+container panel bind. [Проверки](active/review-reliability.md) завершены.
+Следующий срез D4: история событий с курсорами и retention, фильтр по клиенту,
+аудит в панели и явные stale/unavailable состояния. Затем D6 backup/restore drill
+и release gates; эти этапы исправлением регрессий не считаются завершёнными.

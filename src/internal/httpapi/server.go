@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/x509"
@@ -77,6 +78,7 @@ type Server struct {
 	attempts          map[string]attempt
 	loginSlots        chan struct{}
 	dummyHash         string
+	anonymousKey      []byte
 	workers           sync.WaitGroup
 	// certCache avoids re-parsing the same PEM file on every polling tick of
 	// /api/v1/certificates. Entries are keyed by absolute path; the cached
@@ -105,7 +107,7 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 	if e != nil {
 		return nil, e
 	}
-	s := &Server{Store: st, Runtime: rt, Origin: origin, Static: static, Image: image, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, certCache: map[string]certCacheEntry{}}
+	s := &Server{Store: st, Runtime: rt, Origin: origin, Static: static, Image: image, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, anonymousKey: []byte(rand.Text()), certCache: map[string]certCacheEntry{}}
 	var d Draft
 	e = st.Get("draft", &d)
 	if errors.Is(e, sql.ErrNoRows) {

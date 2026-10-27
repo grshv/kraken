@@ -126,6 +126,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
             return d
         d=apply_snapshot(snap,d['version'])
         first_applied=api('/status')['applied_revision']
+        baseline_manifest=json.loads(docker('exec',proxy,'cat','/data/runtime/lkg.json'))
         assert wait_for(lambda: fetch(client))==200
         assert fetch(client,'http://denied.test/')==403
         assert fetch(client,'http://11.250.17.10/')==403
@@ -234,6 +235,23 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         session=api('/session','POST',{'username':'admin','password':replacement});csrf=session['csrf_token']
         assert api('/status')['squid']['state']=='up'
         print('PASS: real CLI password reset, revoked sessions, old-password rejection and new login')
+        # Exercise both startup processes on a durable unfinished promotion.
+        # Only this disposable fixture is mutated: the expert candidate denies
+        # the source identity while the previous structured revision allows it.
+        assert fetch(source)==403
+        docker('exec',proxy,'pebble','stop','control')
+        candidate_manifest=json.loads(docker('exec',proxy,'cat','/data/runtime/lkg.json'))
+        journal={'operation_id':str(uuid.uuid4()),'stage':'reloading','previous':baseline_manifest,'candidate':candidate_manifest}
+        docker('exec','-i','--user','13:13',proxy,'tee','/data/runtime/journal.json',input=json.dumps(journal))
+        docker('restart',proxy)
+        wait_for(lambda:api('/status'),seconds=60)
+        recovered=json.loads(docker('exec',proxy,'cat','/data/runtime/journal.json'))
+        assert recovered['stage']=='terminal' and recovered['outcome']=='rolled_back',recovered
+        recovered_status=api('/status')
+        assert recovered_status['applied_revision']==first_applied and recovered_status['squid']['state']=='up',recovered_status
+        assert fetch(source)==200 and fetch(client)==200
+        assert fetch(client,'http://denied.test/')==403
+        print('PASS: unfinished promotion recovers previous policy through Squid/control startup and verified rollback')
         print('ALL REAL-IMAGE SMOKE CHECKS PASSED')
     except Exception:
         if name+'-proxy' in containers:

@@ -148,3 +148,31 @@ test.describe.serial("panel e2e flow", () => {
     ).toBeVisible();
   });
 });
+
+
+test("expired GET and mutation sessions can log in again without reload", async () => {
+  async function signIn() {
+    await page.getByLabel("Имя пользователя").fill(fixture.username);
+    await page.getByLabel("Пароль", { exact: true }).fill(fixture.password);
+    await page.getByRole("button", { name: "Войти в панель" }).click();
+    await expect(page.getByRole("button", { name: "Выйти", exact: true })).toBeVisible();
+  }
+  await signIn();
+  await page.context().clearCookies();
+  await expect(page.getByRole("button", { name: "Войти в панель" })).toBeVisible({ timeout: 15000 });
+  await signIn();
+  await page.getByRole("button", { name: "Настройки", exact: true }).click();
+  await page.getByRole("tab", { name: "DNS и таймауты" }).click();
+  await page.getByLabel("Подключение к серверу, секунды").fill("46");
+  await page.context().clearCookies();
+  await page.getByRole("button", { name: "Сохранить настройки в черновик" }).click();
+  await expect(page.getByRole("button", { name: "Войти в панель" })).toBeVisible();
+  // A wrong password must retain the refreshed anonymous CSRF holder so the
+  // next attempt can succeed on the same page.
+  await page.getByLabel("Имя пользователя").fill(fixture.username);
+  await page.getByLabel("Пароль", { exact: true }).fill("wrong-test-password");
+  await page.getByRole("button", { name: "Войти в панель" }).click();
+  await expect(page.getByText("Неверное имя или пароль")).toBeVisible();
+  await signIn();
+  expect(errors).toEqual([]);
+});

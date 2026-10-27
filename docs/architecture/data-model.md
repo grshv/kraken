@@ -81,10 +81,10 @@ secret references и terminal outcome. Он связывается с запис
   created_at INTEGER)`. С migration 002 `created_at` хранится как INTEGER unix
   секунд (раньше был TEXT RFC3339); range-queries на Prune используют индекс
   на created_at.
-- `sessions` — без FK на `users`, потому что анонимные CSRF-holder сессии
-  используют `username=''`; FK на `users(username)` нарушил бы unauthenticated
-  `GET /session` flow. Integrity на уровне приложения (token_hash это sha256
-  от 128-байтного random token, никогда не сохраняемого в plaintext).
+- `sessions` — авторизованные sessions с hash случайного cookie token.
+  Новые анонимные CSRF holders подписываются в памяти без DB rows. FK пока не
+  добавлен для совместимости с прежними anonymous rows (`username=''`), которые
+  истекают и удаляются обычной очисткой; целостность проверяет приложение.
 
 Переход к полной реляционной схеме требует миграции 003+ и пересмотра
 `draftMu`/`opsMu` (см. ADR 0009).
@@ -96,6 +96,10 @@ secret references и terminal outcome. Он связывается с запис
 копии, а не произвольное `down`. Compatibility window документируется в релизе.
 Первая миграция (`migrations/001.sql`) регистрируется в `schema_migrations` с
 checksum; будущие миграции обязаны следовать тому же шаблону.
+Bootstrap, DDL, перенос данных и версия выполняются одной транзакцией SQLite.
+Ошибка откатывает весь переход, повторный запуск начинает с прежней схемы.
+Это не заменяет backup и не чинит автоматически частичную миграцию, созданную
+старой версией приложения. См. [ADR 0010](../adr/0010-session-and-recovery-safety.md).
 
 Предварительный retention: raw access logs 7 дней, агрегаты 30 дней, audit 90 дней,
 последние 20 конфигураций плюс закреплённая LKG. Сроки — предложения, не договорённость.
@@ -106,9 +110,8 @@ LKG и ссылки незавершённых operations не удаляютс�
 умолчанию 90 дней) и оставшиеся сверху 5000 событий по capped-retention, а также
 ревизии, которые не ссылаются на succeeded operation и не входят в последние N
 (по умолчанию 20). Вызывается из периодического `Manager.Maintain`. Schema-level
-FK на сессии не накладывается: анонимные сессии (CSRF holder без пользователя)
-используют `username=''`, FK на users нарушил бы unauthenticated `GET /session`.
-Целостность обеспечивается на уровне приложения.
+FK на сессии пока не добавлен из-за legacy anonymous rows; новые anonymous
+holders в таблицу не записываются. Целостность проверяется приложением.
 
 ## Реализованное расширение
 
