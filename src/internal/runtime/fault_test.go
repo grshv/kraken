@@ -76,7 +76,7 @@ func TestRuntimeCrashChild(t *testing.T) {
 		t.Skip("subprocess helper")
 	}
 	phase := os.Getenv("SC_TEST_CRASH_PHASE")
-	m := New(dir, "/unused", "/dev/null", "", "")
+	m := New(dir, "/unused", "/dev/null", "", "", "")
 	m.Command = func(context.Context, ...string) error { return nil }
 	m.Probe = func(context.Context, string) error { return nil }
 	m.Persist = func(path string, b []byte) error {

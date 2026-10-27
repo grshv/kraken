@@ -14,6 +14,8 @@
 | [0005](0005-agent-documentation.md) | Короткие инструкции, контракты и docs как код | Proposed |
 | [0006](0006-single-container.md) | Один image/контейнер, Go со static UI и Squid под Pebble | Accepted |
 | [0007](0007-general-clients-expert-configuration.md) | Общие клиенты, визуальные настройки и expert squid.conf | Accepted |
+| [0008](0008-kv-blob-mvp.md) | kv-blob MVP без реляционных таблиц (фактическая схема 001.sql) | Accepted |
+| [0009](0009-single-process-concurrency.md) | Single-process concurrency: mutex + SetMaxOpenConns(1) + Flock | Accepted |
 
 Новая запись использует [шаблон](../templates/adr.md). Accepted запись не переписывают
 так, будто прежнего решения не было: при замене создаётся новая и Superseded ссылка.

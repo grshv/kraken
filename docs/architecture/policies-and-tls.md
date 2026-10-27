@@ -61,6 +61,24 @@ submission (587), imaps (993), pop3s (995), tor (9050, 9051). `all_web` не
 отменяет этих запретов. Связные `connect_ports` являются подмножеством `safe_ports`
 и наследуют запреты.
 
+### Служебные и условно-служебные listener-порты
+
+| Порт | Владелец | Поведение |
+| --- | --- | --- |
+| 3130 | приложение | Loopback-only diagnostic listener, всегда эмитируется `policy.Render` как `http_port 127.0.0.1:3130`. Запрещён в `validateSettings` для HTTPPort/TLSPort. Verify-проба всегда идёт на 3130. |
+| 8443 | приложение | Panel listener. Запрещён в `validateSettings` для HTTPPort/TLSPort. |
+| 3128, 3129 | администратор | Конвенциональные Squid-порты для HTTP и TLS. Не зарезервированы — администратор волен их использовать. `DefaultSettings` возвращает именно эти значения. runtime verify не использует их как probe fallback (только канонический 3130), поэтому одновременное наличие пользовательского `http_port 3128` и probe `127.0.0.1:3130` не конфликтует. |
+
+### IPv4-mapped IPv6 и приватные destino
+
+`sc_protected_dst` включает `::ffff:0:0/96` (весь IPv4-mapped диапазон),
+`sc_private_dst` содержит plain IPv4 приватные сети. При
+`AllowPrivateDestinations=true` приватные IPv4 destinations открываются, но их
+IPv4-mapped аналоги (`::ffff:10.0.0.5`) остаются заблокированными через
+`sc_protected_dst`. Это safe-side: строже, чем требует семантика, исключает
+DNS-rebinding через mapped-адреса. Иocumented выбор: если администратору нужны
+mapped-private, это требует отдельной директивы, не вводимой в текущем slice.
+
 ## Три независимых слоя TLS
 
 | Слой | Что шифруется | Сертификаты и ограничения |

@@ -49,7 +49,8 @@ pool, короткие write transactions, контролируемый checkpoi
 ради красивого benchmark. Не размещать DB на NFS. На практике `store.Open`
 включает `foreign_keys(1)`, `journal_mode=WAL)`, `busy_timeout=5000)`
 через DSN-прагмы, а `synchronous=FULL` — через `PRAGMA` после открытия, чтобы
-параметр не зависел от формы пула соединений.
+параметр не зависел от формы пула соединений. Connection pool `SetMaxOpenConns(1)`
+сериализует writers (см. ADR 0009).
 
 Backup через SQLite backup API или остановленный согласованный snapshot;
 копирование только main DB при активном WAL недопустимо как общая стратегия.
@@ -57,11 +58,36 @@ Backup через SQLite backup API или остановленный согла
 [Backup API](https://www.sqlite.org/backup.html).
 
 Runtime journal хранит operation ID, request hash, stage, previous/candidate
-revision hashes, bounded findings, secret references и terminal outcome.
-Он связывается с записью operations по одному ID: отдельного runner_id/IPC нет.
-Записи и manifest crash-safe; lock общий для web worker и startup gate того же
-бинарника. LKG/recovery metadata доступны gate при недоступной web DB; новые
-изменения без DB/audit не допускаются. Формат проверяется fault injection.
+manifest (compiler_version, revision_id, hash, image_digest, config, snapshot),
+secret references и terminal outcome. Он связывается с записью operations по
+одному ID: отдельного runner_id/IPC нет. Записи и manifest crash-safe; lock
+общий для web worker и startup gate того же бинарника. LKG/recovery metadata
+доступны gate при недоступной web DB; новые изменения без DB/audit не
+допускаются. Формат проверяется fault injection.
+
+## Фактическая схема MVP (ADR 0008)
+
+Вместо полной реляционной схемы из верхней таблицы реализован kv-blob MVP:
+
+- `draft` и `revision:<id>` хранятся в таблице `kv(key, value)` как opaque JSON.
+  Целостность клиентов/политик/TLS-профилей проверяется на уровне приложения
+  в `policy.Validate`. Optimistic-lock `expected_version` для draft — в
+  `store.Change`. Совместимость ревизии с image/compiler — в `createOperation`.
+- `operations` — отдельная таблица `(id, idempotency_key UNIQUE, request_hash,
+  body)` с индексом на `json_extract(body,'$.revision_id')`. Idempotency-key
+  lookup и CountSucceededByRevision идут через store.Store методы, raw SQL в
+  HTTP handlers не используется.
+- `audit_events` — отдельная таблица `(id, actor, action, entity_id,
+  created_at INTEGER)`. С migration 002 `created_at` хранится как INTEGER unix
+  секунд (раньше был TEXT RFC3339); range-queries на Prune используют индекс
+  на created_at.
+- `sessions` — без FK на `users`, потому что анонимные CSRF-holder сессии
+  используют `username=''`; FK на `users(username)` нарушил бы unauthenticated
+  `GET /session` flow. Integrity на уровне приложения (token_hash это sha256
+  от 128-байтного random token, никогда не сохраняемого в plaintext).
+
+Переход к полной реляционной схеме требует миграции 003+ и пересмотра
+`draftMu`/`opsMu` (см. ADR 0009).
 
 ## Миграции и архивирование
 

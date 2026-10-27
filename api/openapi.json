@@ -1187,19 +1187,15 @@
             "type": "string",
             "enum": [
               "pending",
-              "accepted",
-              "staged",
               "validating",
               "validated",
-              "promoting",
               "reloading",
-              "verifying",
               "succeeded",
               "rejected",
-              "rolling_back",
               "rolled_back",
               "degraded"
-            ]
+            ],
+            "description": "Statuses actually emitted by the server: pending (intent persisted, worker not started), validating/validated (standalone Validate operation), reloading (Apply worker staging/reloading), succeeded/rejected/rolled_back/degraded (terminal). The DRAFT value used by listRevisions COALESCE for revisions without any operation is exposed via RevisionSummary.latest_status, not here. Internal Journal stages (staged/promoting/reloading/rolling_back/terminal/first_run/initialised) remain in the durable journal but are not surfaced as public Operation.status."
           },
           "findings": {
             "type": "array",
@@ -1475,7 +1471,8 @@
           "maximum_object_kb": {
             "type": "integer",
             "minimum": 1,
-            "maximum": 1048576
+            "maximum": 1048576,
+            "description": "Server-side validator additionally requires maximum_object_kb ≤ cache_memory_mb * 1024, so the effective ceiling scales with the configured cache. The absolute maximum 1048576 (1 GiB) is reachable only when cache_memory_mb is at its own ceiling of 1024."
           },
           "positive_dns_ttl_seconds": {
             "type": "integer",

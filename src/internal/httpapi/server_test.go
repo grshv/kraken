@@ -22,7 +22,7 @@ func fixtureServer(t *testing.T) (*Server, http.Handler) {
 	if e = Bootstrap(st, "admin", "test-password-only-123"); e != nil {
 		t.Fatal(e)
 	}
-	rt := local.New(t.TempDir(), "/unused", "/dev/null", "", "")
+	rt := local.New(t.TempDir(), "/unused", "/dev/null", "", "", "test-image")
 	rt.Command = func(context.Context, ...string) error { return nil }
 	rt.Probe = func(context.Context, string) error { return nil }
 	if e = rt.Recover(context.Background(), true); e != nil {

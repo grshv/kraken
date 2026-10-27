@@ -37,7 +37,7 @@ func env(key, def string) string {
 	return def
 }
 func manager() *local.Manager {
-	return local.New(env("SC_RUNTIME_STATE_DIR", "/data/runtime"), env("SC_SQUID_BINARY", "/usr/sbin/squid"), env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"))
+	return local.New(env("SC_RUNTIME_STATE_DIR", "/data/runtime"), env("SC_SQUID_BINARY", "/usr/sbin/squid"), env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"), baseImage)
 }
 func main() {
 	if e := run(); e != nil {

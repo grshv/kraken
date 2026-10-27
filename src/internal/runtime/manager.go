@@ -32,11 +32,12 @@ var ErrBusy = errors.New("runtime busy")
 var ErrDrift = errors.New("configuration drift detected")
 
 type Manifest struct {
-	Compiler string          `json:"compiler_version,omitempty"`
-	Revision string          `json:"revision_id"`
-	Hash     string          `json:"hash"`
-	Config   string          `json:"config"`
-	Snapshot policy.Snapshot `json:"snapshot"`
+	Compiler    string          `json:"compiler_version,omitempty"`
+	Revision    string          `json:"revision_id"`
+	Hash        string          `json:"hash"`
+	ImageDigest string          `json:"image_digest,omitempty"`
+	Config      string          `json:"config"`
+	Snapshot    policy.Snapshot `json:"snapshot"`
 }
 type Journal struct {
 	Operation string   `json:"operation_id"`
@@ -49,6 +50,11 @@ type Manager struct {
 	Dir     string
 	Binary  string
 	Options policy.Options
+	// Image is the build-time base image digest (e.g.
+	// ubuntu/squid@sha256:...). Recorded into every Manifest the runtime
+	// produces so an operator reading lkg.json knows which image produced
+	// this LKG without having to cross-reference the revision row.
+	Image   string
 	Command func(context.Context, ...string) error
 	mu      sync.Mutex
 	Persist func(string, []byte) error
@@ -67,10 +73,11 @@ type Manager struct {
 	VerifyBudget  time.Duration
 }
 
-func New(dir, binary, logPath, cert, key string) *Manager {
+func New(dir, binary, logPath, cert, key, image string) *Manager {
 	m := &Manager{
 		Dir:           dir,
 		Binary:        binary,
+		Image:         image,
 		Options:       policy.Options{StateDir: dir, LogPath: logPath, ProxyCert: cert, ProxyKey: key},
 		ParseTimeout:  parseTimeoutDefault,
 		ReloadTimeout: reloadTimeoutDefault,
@@ -275,7 +282,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		if ce != nil {
 			return ce
 		}
-		prev = Manifest{Compiler: policy.CompilerVersion, Hash: policy.Fingerprint(s, m.Options), Config: c, Snapshot: s}
+		prev = Manifest{Compiler: policy.CompilerVersion, ImageDigest: m.Image, Hash: policy.Fingerprint(s, m.Options), Config: c, Snapshot: s}
 		if e = m.parse(ctx, c); e != nil {
 			return e
 		}
@@ -364,7 +371,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	if e = m.parse(ctx, config); e != nil {
 		return "rejected", e
 	}
-	next := Manifest{Compiler: policy.CompilerVersion, Revision: revision, Hash: policy.Fingerprint(s, m.Options), Config: config, Snapshot: s}
+	next := Manifest{Compiler: policy.CompilerVersion, ImageDigest: m.Image, Revision: revision, Hash: policy.Fingerprint(s, m.Options), Config: config, Snapshot: s}
 	j := Journal{Operation: id, Stage: "promoting", Previous: prev, Candidate: next}
 	if e = m.write("journal.json", j); e != nil {
 		return "rejected", e

@@ -10,7 +10,7 @@ import (
 
 func testManager(t *testing.T) *Manager {
 	t.Helper()
-	m := New(t.TempDir(), "/unused", "/dev/null", "", "")
+	m := New(t.TempDir(), "/unused", "/dev/null", "", "", "")
 	m.Command = func(context.Context, ...string) error { return nil }
 	m.Probe = func(context.Context, string) error { return nil }
 	if e := m.Recover(context.Background(), true); e != nil {

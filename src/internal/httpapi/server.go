@@ -573,7 +573,19 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 	if len(items) > limit {
 		items = items[:limit]
 	}
-	respond(w, 200, map[string]any{"items": items, "next_cursor": nil, "gap": true, "observed_at": stamp()})
+	// gap indicates "more history exists beyond the slice returned". Two
+	// conditions set it: (1) we hit the requested limit, which means more
+	// events of the same tail would have been returned with a larger limit;
+	// (2) the source access log is larger than the 128 KiB tail the parser
+	// reads, so even with few returned items the older entries exist on disk.
+	// Previously this was hard-coded to true, which was technically contract-
+	// conformant (cursor pagination is not implemented) but lied to the UI
+	// about the existence of older events when the log was empty or small.
+	gap := len(items) >= limit
+	if st, e := os.Stat(s.Runtime.Options.LogPath); e == nil && st.Size() > 128*1024 && len(items) > 0 {
+		gap = true
+	}
+	respond(w, 200, map[string]any{"items": items, "next_cursor": nil, "gap": gap, "observed_at": stamp()})
 }
 func (s *Server) certificates(w http.ResponseWriter, r *http.Request, v session) {
 	items := []map[string]any{}

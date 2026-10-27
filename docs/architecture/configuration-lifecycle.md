@@ -57,7 +57,11 @@ mutations. При недоступной DB новая mutation не начин�
    отсутствие пустого allow-all, соответствие политики и ACL. Parse недостаточно.
 6. Зафиксировать journal `promoting` до замены. Атомарно заменить активный config
    pointer/root file через rename в смонтированном **каталоге**, затем fsync dir.
-   Многофайловый bundle выбирается одной ссылкой/корневым файлом, не серией замен.
+   MVP реализует single-file `active.conf`, заменяемый целиком через `rename`.
+   Спецификация выше описывает «многофайловый bundle, выбираемый одной ссылкой/
+   корневым файлом» — это целевая форма для future TLS-profile rotation с
+   собственным cert bundle, в первом рабочем срезе не реализованная. Single-file
+   достаточно, потому что каждый Apply переписывает всю конфигурацию целиком.
 7. Journal `reloading`. Выполнить проверенный для image control command Squid
    без shell и без сигнала PID 1 наугад. Timeout ограничен; stdout/stderr обрезаны.
 8. Journal `verifying`. Проверить process health, наблюдаемые ошибки reload,
@@ -70,9 +74,11 @@ mutations. При недоступной DB новая mutation не начин�
     повторно parse/reload/verify; закончить `rolled_back` или `degraded`.
 
 Предварительные budgets: parse 15 s, reload acknowledgement 10 s, verify 30 s
-(соответствует `verifyBudget` в `manager.go`), rollback до 45 s. Значения
-конфигурируемы и проверяются spike, не обещание SLA. Нельзя убивать безопасное
-восстановление только потому, что браузер закрылся.
+(соответствует `VerifyBudget` в `manager.go`), rollback до 45 s. Значения
+конфигурируемы через env `SC_PARSE_TIMEOUT` / `SC_RELOAD_TIMEOUT` /
+`SC_VERIFY_BUDGET` (Go duration syntax, диапазон (0, 5 m]) и проверяются spike,
+не обещание SLA. Нельзя убивать безопасное восстановление только потому, что
+браузер закрылся.
 
 Recover после рестарта читает journal; если `stage != "terminal"`, конфигурация
 откатывается к recorded previous manifest. На первом запуске (когда нет LKG)
@@ -119,10 +125,23 @@ stateDiagram-v2
     rolling_back --> degraded
 ```
 
+Implementation stages in the durable journal: `first_run`, `promoting`,
+`reloading`, `rolling_back`, `terminal` (+ outcome `initialised`/`succeeded`/
+`rolled_back`). The OpenAPI `Operation.status` enum exposes only the
+public-facing subset (`pending`, `validating`, `validated`, `reloading`,
+`succeeded`, `rejected`, `rolled_back`, `degraded`); internal stages like
+`staged`/`promoting`/`verifying`/`accepted` from the diagram above are not
+emitted by the current worker (the worker transitions straight from `pending`
+to `validating` or `reloading` without separate acknowledgement markers).
+Either alignment is a future slice: code could emit `staged` between `pending`
+and `validating`, or the spec could be trimmed to the emitted statuses only.
+
 `rejected`: активная конфигурация не менялась.
 `rolled_back`: предыдущая конфигурация восстановлена и проверена.
 `degraded`: итоговое состояние не доказано; новые изменения блокируются до recovery.
 Отдельная операция validate завершается `validated` или `rejected`, без promotion.
+`draft` (не на диаграмме) используется listRevisions COALESCE для ревизий без
+операций; это не operation status, а summary visibility.
 
 ## Восстановление после сбоя
 
