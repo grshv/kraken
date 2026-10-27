@@ -1,7 +1,7 @@
 # План реализации
 
 D0 завершён. D1/D2/D3/D4/D6 выполнены частично первым рабочим срезом;
-D5 проверен для TLS proxy, SSL Bump unsupported в текущей базе.
+D5 проверен для TLS proxy; HTTPS сайтов передаётся сквозным CONNECT.
 Факты и ограничения: [capability report](../research/image-compatibility.md).
 Полный этап не считается завершённым по одному happy-path тесту.
 
@@ -15,7 +15,7 @@ security/operations, контракты, ADR, шаблоны и работающ
 
 Выполнить [image-compatibility](image-compatibility.md), выбрать digest,
 подтвердить Pebble/paths/UID и deny-all/allowlist на реальных source identities.
-Проверить TLS proxy и SSL Bump раздельно и в комбинации; составить capability matrix.
+Проверить TLS proxy и HTTPS CONNECT; составить capability matrix.
 Результат: воспроизводимый прототип и manifest, а не список предположений.
 
 ## D2 — скелет и вертикальный срез
@@ -41,14 +41,11 @@ UI по interface spec, клиентские режимы, domain lists, events/
 Результат: администратор объясняет отказ без SSH и ручного чтения squid.conf.
 Точные исторические ACL-причины показывать лишь при наличии источника.
 
-## D5 — транспорт TLS и управляемое inspection
+## D5 — TLS-подключение к прокси
 
-TLS к proxy включить после client compatibility. SSL Bump: provisioning issuer,
-trust instructions, выбор клиентов, bypass/splice, cert DB, upstream validation,
-CA rotation, privacy limits. Если transport TLS уже реализован в D2/D4,
-не дублировать работу — закрыть оставшуюся matrix.
-Результат: AC-11/12 и тесты из TLS matrix. Не обещать inspect до capability gate.
-Включение SSL Bump в первую поставку зависит от решения владельца о сроке/приоритете.
+Проверить client compatibility, доверие к серверному сертификату и ротацию.
+HTTPS сайтов остаётся сквозным CONNECT с исходным сертификатом сайта.
+Результат: AC-11/12 и TLS matrix для панели, proxy transport и HTTPS origin.
 
 ## D6 — поставка и эксплуатация
 

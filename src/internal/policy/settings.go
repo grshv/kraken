@@ -120,7 +120,7 @@ func validateExpert(text string) error {
 		return errors.New("unfinished expert continuation")
 	}
 	depth := 0
-	forbidden := map[string]bool{"include": true, "pid_filename": true, "cache_log": true, "access_log": true, "cache_store_log": true, "logfile_daemon": true, "cache_effective_user": true, "cache_effective_group": true, "chroot": true, "chdir": true, "coredump_dir": true, "workers": true, "debug_options": true, "external_acl_type": true, "auth_param": true, "ecap_service": true, "loadable_modules": true, "sslcrtd_program": true, "security_file_certgen": true, "reply_header_add": true, "http_port": true, "https_port": true, "cache_dir": true, "mime_table": true, "error_directory": true}
+	forbidden := map[string]bool{"include": true, "pid_filename": true, "cache_log": true, "access_log": true, "cache_store_log": true, "logfile_daemon": true, "cache_effective_user": true, "cache_effective_group": true, "chroot": true, "chdir": true, "coredump_dir": true, "workers": true, "debug_options": true, "external_acl_type": true, "auth_param": true, "ecap_service": true, "loadable_modules": true, "reply_header_add": true, "http_port": true, "https_port": true, "cache_dir": true, "mime_table": true, "error_directory": true}
 	for i, line := range strings.Split(logical, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -128,9 +128,13 @@ func validateExpert(text string) error {
 		}
 		fields := strings.Fields(line)
 		directive := strings.ToLower(strings.Trim(strings.ReplaceAll(fields[0], "\\", ""), "\"'"))
-		managedPath:=false
-        for _,suffix:=range []string{"_log","_file","_filename","_directory","_dir","_path","_program","_helper"}{if strings.HasSuffix(directive,suffix){managedPath=true}}
-        if forbidden[directive]||managedPath {
+		managedPath := false
+		for _, suffix := range []string{"_log", "_file", "_filename", "_directory", "_dir", "_path", "_program", "_helper"} {
+			if strings.HasSuffix(directive, suffix) {
+				managedPath = true
+			}
+		}
+		if forbidden[directive] || managedPath || strings.HasPrefix(directive, "ssl_") || strings.HasPrefix(directive, "security_") {
 			return fmt.Errorf("line %d: %s is managed by runtime or requires a separately provisioned helper/storage profile", i+1, directive)
 		}
 		matches := reservedName.FindAllString(strings.ToLower(strings.ReplaceAll(line, "\\", "")), -1)

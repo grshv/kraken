@@ -15,8 +15,7 @@ SQLite и journal обслуживает один Go executable, но транз
 | client_networks | client_id, canonical_cidr | Нет пересечений enabled clients; проверка в транзакции |
 | policies | id, name, mode, tls_profile_id, version | Только известный enum; пустой allowlist закрывает доступ |
 | destinations | policy_id, domain_ascii, include_subdomains | Уникальная нормализованная цель |
-| tls_profiles | id, mode, transport, cert_ref, ca_ref, version | Ссылки на секреты; ключей в DB нет |
-| tls_bypass_domains | profile_id, domain_ascii, include_subdomains | Не обходят access policy |
+| tls_profiles | id, mode(tunnel), transport, cert_ref, version | Ссылки на секреты; ключей в DB нет |
 | revisions | id, snapshot_json, policy_hash, compiler_version, image_digest, created_by, created_at | Immutable; содержит snapshot всех clients/policies |
 | validations | id, revision_id, capability_hash, status, findings, expires_at | Действительна только для точного набора inputs |
 | operations | id, idempotency_key, request_hash, revision_id, expected_revision, action, status, timestamps | Один key — один payload |

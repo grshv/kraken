@@ -47,9 +47,7 @@
       "name": "TLS proxy with opaque tunnel",
       "mode": "tunnel",
       "proxy_transport": "tls",
-      "cert_ref": "proxy-server-v1",
-      "ca_ref": null,
-      "bypass_domains": []
+      "cert_ref": "proxy-server-v1"
     }
   ]
 }

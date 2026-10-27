@@ -23,7 +23,7 @@ Go builder **1.27.3-bookworm**, Node builder **24-alpine** закреплены 
 Squid и squid-control запускаются от `proxy:13:13`, без root web и Docker socket.
 Общий UID позволяет локальный parse/reconfigure и чтение persistent LKG/config.
 Он не защищает конфиг/ключи от скомпрометированного Go-процесса; изоляция CA от
-web внутри одного UID не заявляется. CA inspection пока не используется.
+web внутри одного UID не заявляется.
 Pebble PID 1 управляет сервисами отдельно; `run --hold` не запускает сервисы,
 поэтому production command нашего image — `run --verbose`.
 
@@ -42,7 +42,6 @@ Apply перед изменением проверяет old runtime canary; в 
 | HTTPS CONNECT | Supported | TLS origin с проверкой сертификата |
 | TLS до proxy | Supported | GnuTLS listener, trusted server cert |
 | Защита transport от downgrade | Supported | TLS-профиль на HTTP listener получает 403 |
-| SSL Bump | Unsupported | Нет OpenSSL/helper; API отклоняет inspect |
 | TLS до proxy + TLS CONNECT в комбинации | Not tested | Не выводится из отдельных проверок |
 | Parse / reload / canary | Supported | Локальный бинарник и revision response header |
 | Independent Go restart | Supported | PID Squid сохраняется, открытый CONNECT проверяется smoke |
@@ -55,7 +54,7 @@ Apply перед изменением проверяет old runtime canary; в 
 Runtime canary — HTTP 403 обязательного loopback deny с fingerprint compiler,
 snapshot и installed options. Это проверяет перечитывание конфигурации и защитный
 запрет, не доказывает каждый ACL; поведение клиентских политик проверяется отдельно.
-Compiler v3 использует отдельный listener 127.0.0.1:3130, который не публикуется
+Начиная с compiler v3 используется отдельный listener 127.0.0.1:3130, который не публикуется
 Docker. Для сохранённых конфигураций прежнего compiler probe совместим с 3128.
 
 ## Исполняемые доказательства
@@ -83,10 +82,19 @@ logs, полная disk-full/process-kill/reboot fault matrix, backup/restore и
 ENOSPC здесь инъецируется в слой атомарной записи, а SIGKILL выполняется над
 отдельным тестовым процессом. Это не испытание переполненного реального диска,
 отключения питания или reboot всей VM. Expert guard не является полным sandbox
-Squid; helper/storage provisioning и SSL Bump остаются недоступными.
+Squid; helper/storage provisioning остаётся отдельной работой. HTTPS сайтов сквозной.
 
 Финальная проверка расширения: `make check`, `make image`, Docker build target
 `verify` (Go race/vet на Linux/arm64), real-image smoke и Playwright пройдены.
 Сохранённый локальный Compose volume поднят новой версией: `/healthz` и `/`
 возвращают 200 при проверке доверия к panel certificate, оба Pebble services active,
 `check` успешен. Bootstrap/reset существующего администратора не выполнялись.
+
+## Сквозной HTTPS, уточнение 27.10.2026
+
+Единственный TLS mode для сайтов — `tunnel`. API 0.3.0 исключает прежние
+неиспользуемые поля TLS profile. Compiler v4 учитывает новую сериализацию;
+сохранённый runtime bundle продолжает работать до нового apply. Проверены
+`make check`, image build, реальные HTTP/CONNECT/TLS proxy и browser suite.
+Существующий локальный volume успешно поднят без bootstrap/reset.
+[Критерии и результат](../plans/active/tunnel-only.md).

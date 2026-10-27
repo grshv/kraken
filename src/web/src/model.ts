@@ -27,8 +27,6 @@ export type Snapshot = {
     mode: string;
     proxy_transport: string;
     cert_ref: string | null;
-    ca_ref: string | null;
-    bypass_domains: Destination[];
   }[];
 };
 export type Draft = { version: number; snapshot: Snapshot; updated_at: string };

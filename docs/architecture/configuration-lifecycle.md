@@ -52,7 +52,7 @@ mutations. При недоступной DB новая mutation не начин�
 4. Parse **весь bundle** локальным бинарником Squid из того же итогового image,
    в этом же контейнере. Фиксированные argv/paths, без shell и Docker API.
    Candidate использует изолированные writable paths; проверить, что parse не
-   меняет live PID/cache/log/cert DB. Подмена host Squid не допускается.
+   меняет live PID/cache/log. Подмена host Squid не допускается.
 5. Semantic validation: неизменность защитных правил, неизвестная VM deny,
    отсутствие пустого allow-all, соответствие политики и ACL. Parse недостаточно.
 6. Зафиксировать journal `promoting` до замены. Атомарно заменить активный config

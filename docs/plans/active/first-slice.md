@@ -6,7 +6,7 @@
 Критерии: bootstrap без default password; login/session/CSRF; desired snapshot;
 preview/parse/apply; неизвестный src deny; all_web/allowlist; независимый restart
 Go; persistent config/journal; воспроизводимые проверки и точный capability report.
-TLS proxy/inspection включаются только после подтверждения сборки и тестов.
+TLS к прокси включается после подтверждения сборки и тестов; HTTPS сайтов сквозной.
 
 - [x] Измерить реальный ubuntu/squid, pin digest, UID/control и TLS capabilities.
 - [x] Go domain/compiler, storage/auth, локальный runtime adapter и recovery gate.

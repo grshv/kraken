@@ -102,12 +102,10 @@ def check_policy_example(policy: dict, errors: list[str]) -> None:
                 assert re.fullmatch(r"[a-z0-9.-]+", target["domain"]), "noncanonical example domain"
                 assert type(target["include_subdomains"]) is bool, "subdomain flag must be bool"
         for profile in profiles:
-            assert profile["mode"] in {"tunnel", "inspect"}, "invalid TLS mode"
+            assert profile["mode"] == "tunnel", "invalid TLS mode"
             assert profile["proxy_transport"] in {"http", "tls"}, "invalid proxy transport"
             if profile["proxy_transport"] == "tls":
                 assert profile["cert_ref"], "TLS transport requires certificate reference"
-            if profile["mode"] == "inspect":
-                assert profile["ca_ref"], "inspection requires CA reference"
     except (AssertionError, KeyError, TypeError, ValueError) as exc:
         errors.append(f"examples/policy.json: invalid example: {exc}")
 

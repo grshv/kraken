@@ -47,8 +47,8 @@ SC_PROXY_CERT_FILE=/absolute/path/proxy.crt SC_PROXY_KEY_FILE=/absolute/path/pro
 ```
 
 Затем поднимите ту же конфигурацию с `up -d`. TLS listener — 3129. Клиент с TLS-профилем
-не получает доступ через HTTP listener. Server TLS и SSL Bump — разные функции:
-inspection недоступен текущей GnuTLS-сборке и не включается выдачей server cert.
+не получает доступ через HTTP listener. Серверный сертификат защищает
+подключение к прокси; HTTPS сайтов остаётся сквозным CONNECT.
 Ротация/смена установленных путей требует проверки и пересоздания контейнера;
 web provisioning ключей не реализован. Production ключи не помещать в Git/image.
 

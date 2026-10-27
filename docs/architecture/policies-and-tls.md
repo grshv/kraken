@@ -20,7 +20,7 @@ NAT, скрывающий всех клиентов за одним IP, дела
 Client: id, name, kind(host|network|group), source_networks[], enabled, policy_id
 Policy: id, name, mode(all_web|allowlist), destinations[], tls_profile_id
 Destination: kind(domain), value, include_subdomains
-TLSProfile: mode(tunnel|inspect), proxy_transport(http|tls), bypass_domains[]
+TLSProfile: mode(tunnel), proxy_transport(http|tls), cert_ref
 ```
 
 - `all_web`: внешние HTTP/HTTPS назначения на разрешённых web-портах.
@@ -50,8 +50,8 @@ TLSProfile: mode(tunnel|inspect), proxy_transport(http|tls), bypass_domains[]
 разрешения адресов проверяются на выбранной версии. Firewall egress на proxy VM
 дублирует запрет доступа к metadata/management, с отдельным разрешением нужного DNS.
 Нельзя считать текстовый domain allowlist полноценной защитой от DNS rebinding.
-Внутренние репозитории потребуют точечных исключений с проверками; широкое
-`allow private` не добавляется.
+Доступ к внутренним репозиториям разрешается явно через настройки и firewall;
+loopback/link-local/metadata остаются закрыты.
 
 ## Три независимых слоя TLS
 
@@ -60,12 +60,6 @@ TLSProfile: mode(tunnel|inspect), proxy_transport(http|tls), bypass_domains[]
 | HTTPS панели | Браузер → web-панель | Серверный сертификат с SAN панели |
 | HTTPS proxy | Клиент → Squid | Отдельный серверный сертификат proxy; клиент доверяет issuer |
 | HTTPS origin через CONNECT | Клиент → внешний сайт внутри туннеля | Обычный сертификат сайта, Squid не читает содержимое |
-| SSL Bump | Squid завершает TLS сайта и создаёт новый upstream TLS | Управляемый signing CA на Squid и доверие к CA на выбранных VM |
-
-HTTPS proxy и SSL Bump не заменяют друг друга. Их комбинация требует проверки
-конкретного listener и клиента. Наличие директивы в документации Squid не доказывает,
-что выбранный `ubuntu/squid` собран с нужной TLS-библиотекой и helper.
-Источник: [Squid HTTPS](https://wiki.squid-cache.org/Features/HTTPS).
 
 ## Привязка transport к listener
 
@@ -73,11 +67,7 @@ HTTPS proxy и SSL Bump не заменяют друг друга. Их комб
 клиентской инструкции. Compiler обязан отклонять запрос клиента на другом listener,
 чтобы TLS-профиль нельзя было незаметно обойти через оставленный HTTP-порт.
 Способ определения listener (например localport ACL) проверяется на выбранном image.
-На одном TLS listener используется один согласованный server cert reference;
-разные cert_ref для того же listener — validation error. Per-VM signing CA и
-произвольные дополнительные listener в первой модели не поддерживаются:
-inspection использует один установленный issuer, разным VM назначаются
-inspect/tunnel и bypass. Более сложная PKI потребует расширения модели.
+На одном TLS listener используется один согласованный server cert reference.
 
 ## Профиль tunnel
 
@@ -89,36 +79,6 @@ inspect/tunnel и bypass. Более сложная PKI потребует ра�
 HTTPS-содержимое не кешируется Squid в этом режиме. Для HTTP кеширование зависит
 от cache headers и параметров объекта. Не менять репозитории на HTTP автоматически.
 
-## Профиль inspect (SSL Bump)
-
-Предусматривается **выборочно для VM**, после отдельного этапа проверки:
-
-- Capability gate: TLS/SSL Bump compile options, cert generation helper,
-  writable cert DB, права, startup/Pebble и доступность директив подтверждены.
-- Выпускается выделенный intermediate CA для inspection. Root CA по возможности
-  хранится offline. Signing key не передаётся web-приложению и не попадает в export.
-- Trust CA ставится на выбранные VM и при необходимости в отдельные trust stores
-  Java, Python, контейнеров и приложений. Установка только в OS store недостаточна
-  для всех клиентов. Pinning и mTLS могут потребовать splice или отказ.
-- Режим по умолчанию — tunnel. Bump не включается в результате смены обычного
-  серверного сертификата. Нужны явное назначение профиля и инструкция клиентам.
-- В bypass-списке домены с pinning/mTLS и другие согласованные исключения.
-  Bypass выбирает splice после проверки правил доступа; не даёт обход allowlist.
-- ACL origin/CONNECT/SNI и порядок SslBump steps проектируются вместе:
-  peek/splice/bump нельзя генерировать шаблоном без интеграционных тестов.
-- Для inspect сравнивать CONNECT authority, доступный SNI и HTTP Host/authority;
-  несоответствие не должно давать выход за allowlist. Правила повторных запросов
-  внутри TLS tunnel и origin selection проверяются отдельно, включая bypass.
-- Upstream сертификаты проверяются. Ошибка доверия — отказ, не silent insecure.
-- URL-path policy и расширенные HTTP diagnostics разрешаются только для
-  подтверждённо инспектируемого трафика; для splice действуют ограничения tunnel.
-- Даже после расшифровки кеширование не гарантировано: Cache-Control, Authorization,
-  Range и refresh rules влияют на пригодность. Приоритет проекта остаётся доступ.
-
-Если нужных возможностей нет в выбранном образе, не заменять его другим silently:
-выбрать совместимый Canonical tag/digest или согласовать производный build.
-Доказательства и отклонение описать в ADR и compatibility manifest.
-
 ## Прямой egress и обход
 
 Proxy-настройка — добровольный маршрут приложения. Если VM обязана пользоваться
@@ -129,8 +89,8 @@ IPv4/IPv6 интернет и UDP/443. Это правило должно сто
 
 Доменный контроль CONNECT ограничен запрошенным host:port; разрешённый CDN или
 web-сервис сам может предоставлять tunneling. Для строгой изоляции требуется
-отдельная модель ресурсов и угроз. Inspection расширяет видимость, но не является
-полноценным DLP или гарантией запрета любого обхода.
+отдельная модель ресурсов и угроз. Domain allowlist не является полноценным DLP
+или гарантией запрета любого обхода.
 
 ## Отключение клиента
 

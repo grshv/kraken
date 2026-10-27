@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.2.0",
+    "version": "0.3.0",
     "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint."
   },
   "servers": [
@@ -828,9 +828,7 @@
           "name",
           "mode",
           "proxy_transport",
-          "cert_ref",
-          "ca_ref",
-          "bypass_domains"
+          "cert_ref"
         ],
         "properties": {
           "id": {
@@ -843,8 +841,7 @@
           "mode": {
             "type": "string",
             "enum": [
-              "tunnel",
-              "inspect"
+              "tunnel"
             ]
           },
           "proxy_transport": {
@@ -859,18 +856,6 @@
               "string",
               "null"
             ]
-          },
-          "ca_ref": {
-            "type": [
-              "string",
-              "null"
-            ]
-          },
-          "bypass_domains": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/Destination"
-            }
           }
         }
       },
@@ -1379,9 +1364,7 @@
             "type": "string",
             "enum": [
               "unknown",
-              "tunnel",
-              "inspect",
-              "splice"
+              "tunnel"
             ]
           },
           "revision_id": {
@@ -1443,8 +1426,7 @@
             "type": "string",
             "enum": [
               "panel",
-              "proxy_server",
-              "inspection_ca"
+              "proxy_server"
             ]
           },
           "subject": {

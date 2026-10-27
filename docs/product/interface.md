@@ -97,7 +97,7 @@ History содержит последние 100 revision summaries, время, 
 Login без публичной регистрации, default password и localStorage token.
 Пароль не показывается и не выдаётся из DB. Сброс — local CLI password-reset,
 со скрытым вводом и отзывом sessions, а не web-ссылка на восстановление старого.
-Server TLS cert и signing CA inspection — разные сущности; private keys не
+Сертификаты панели и TLS listener прокси — отдельные сущности; private keys не
 экспортируются через API. Certificate metadata endpoint есть; отдельная полная
 страница управления/ротации сертификатов ещё развивается.
 

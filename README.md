@@ -11,10 +11,10 @@ SQLite-черновик, индивидуальные политики, наст
 preview/diff/validate/apply, история и rollback из панели/API,
 журнал применения/LKG, recovery gate и ограниченный просмотр Squid access log.
 Базовый образ проверен на Linux/arm64: Squid 6.13/GnuTLS, TLS proxy и CONNECT.
-SSL Bump в этой сборке отсутствует и отклоняется сервером.
+HTTPS сайтов передаётся сквозным CONNECT с исходными сертификатами сайтов.
 
 Результаты и ограничения: [capability report](docs/research/image-compatibility.md).
-Полноценный backup/restore, роли, инспекция TLS, полная история событий и production
+Полноценный backup/restore, роли, полная история событий и production
 hardening ещё не завершены. Это не объявление готового production-релиза.
 
 ## Локальный запуск

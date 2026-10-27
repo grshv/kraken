@@ -141,7 +141,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
         assert fetch(client,'http://denied.test/')==403
         print('PASS: rejected injection leaves runtime unchanged')
         # Per-VM TLS transport must reject downgrade to the HTTP listener.
-        tls_id=str(uuid.uuid4());snap['tls_profiles'].append({'id':tls_id,'name':'TLS fixture','mode':'tunnel','proxy_transport':'tls','cert_ref':'proxy-server','ca_ref':None,'bypass_domains':[]});snap['policies'][1]['tls_profile_id']=tls_id
+        tls_id=str(uuid.uuid4());snap['tls_profiles'].append({'id':tls_id,'name':'TLS fixture','mode':'tunnel','proxy_transport':'tls','cert_ref':'proxy-server'});snap['policies'][1]['tls_profile_id']=tls_id
         d=apply_snapshot(snap,d['version'])
         assert fetch(client)==403
         assert fetch(client,tls_proxy=True)==200

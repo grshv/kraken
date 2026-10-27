@@ -11,7 +11,7 @@
 | [decisions-and-questions](product/decisions-and-questions.md) | Подтверждённые вводные, предложения, открытые вопросы | После обсуждений |
 | [interface](product/interface.md) | Страницы, состояния, визуальная система | Изменяются UI и пользовательские потоки |
 | [overview](architecture/overview.md) | Контекст, компоненты, deployment, структура кода | Меняются связи и сервисы |
-| [policies-and-tls](architecture/policies-and-tls.md) | ACL, идентификация VM, CONNECT, TLS и SSL Bump | Меняются сетевые правила |
+| [policies-and-tls](architecture/policies-and-tls.md) | ACL, идентификация клиентов, CONNECT и TLS к прокси | Меняются сетевые правила |
 | [configuration-lifecycle](architecture/configuration-lifecycle.md) | Apply, проверка, аварии, rollback | Любое изменение применения |
 | [data-model](architecture/data-model.md) | Таблицы, инварианты, retention, миграции | Меняются данные |
 | [OpenAPI](../api/openapi.json) | Начальный API критичного пути | До изменения обработчика |

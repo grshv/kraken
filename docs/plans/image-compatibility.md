@@ -1,7 +1,7 @@
 # Spike: совместимость ubuntu/squid
 
 Статус: **частично выполнен** на Linux/arm64; фактическая матрица и digest —
-[в отчёте](../research/image-compatibility.md). SSL Bump текущей базы unsupported.
+[в отчёте](../research/image-compatibility.md).
 План ниже сохраняется для оставшихся проверок и следующего digest.
 
 ## Записать в manifest
@@ -21,13 +21,13 @@ effective UID/GID, writable paths, log format и required capabilities.
 3. Проверить directory config mount, include/`-f`, atomic rename виден контейнеру,
    требуемые default files image не скрыты.
 4. Проверить локальный parse из Go в том же итоговом контейнере: fixed argv,
-   candidate paths и отсутствие записи в live PID/cache/log/cert DB.
+   candidate paths и отсутствие записи в live PID/cache/log.
 5. Проверить control command reload и способ доказать новую активную ревизию.
    PID 1 может быть Pebble — сигнал контейнеру не считать Squid reload.
 6. Протестировать source IP после Docker networking и все ACL fixtures.
 7. TLS proxy: compile TLS library, listener, cert/key permissions, client curl/APT.
-8. SSL Bump: OpenSSL support, cert helper, cert DB path/init, bump/splice steps,
-   selected VM profile, upstream trust и обходы. Отдельно nested TLS proxy+inspection.
+8. Проверить исходный сертификат HTTPS origin через CONNECT и комбинацию TLS к proxy
+   с CONNECT настоящим клиентом.
 9. Проверить permissions/non-root/read-only rootfs/capabilities без поломки image.
 10. Проверить собственный image со встроенным Go/UI: отдельные Pebble services,
     UID/GID, reload без root web, logs/rotation, cache init если нужен.
@@ -44,8 +44,6 @@ effective UID/GID, writable paths, log format и required capabilities.
 | HTTPS CONNECT | Unknown | Клиент видит origin cert, deny cases работают |
 | Per-source all_web/allowlist | Unknown | Разные identities, domain/subdomain/raw IP fixtures |
 | TLS к proxy | Unknown | Валидный TLS succeeds, wrong SAN/CA fails |
-| SSL Bump | Unknown | Свой issuer виден клиенту, upstream validation работает |
-| TLS proxy + SSL Bump | Unknown | Комбинация проверена настоящим клиентом |
 | Safe reload + verification | Unknown | Old/new canary и config fingerprint подтверждены |
 | Crash recovery | Unknown | Любой restart Squid/контейнера не запускает pending candidate |
 

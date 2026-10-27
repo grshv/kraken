@@ -35,7 +35,7 @@ flowchart LR
 | --- | --- | --- |
 | squid-control | HTTPS, auth, UI/API, drafts, operations, audit | Panel TLS key, SQLite, state/config/logs по необходимости |
 | internal/runtime | Типизированный compiler, parse, reload, verify, rollback | Фиксированные Squid paths/argv, lock и filesystem journal |
-| Squid/helper | Forward proxy, ACL, TLS и SSL Bump | Config read, logs/cache/cert DB write, нужные proxy/CA keys |
+| Squid | Forward proxy, ACL, CONNECT и TLS к прокси | Config read, logs/cache write, proxy server TLS keys |
 | Pebble | Запуск и независимый restart процессов | Только необходимое управление локальными сервисами |
 
 Runtime module — часть Go-приложения, не отдельный демон, не IPC API и не граница
@@ -71,7 +71,7 @@ proxy VM: Docker Engine / Compose
     /etc/squid/managed/               активный versioned config directory
     /var/log/squid/                   ограниченные logs
     /var/spool/squid/                 необязательный disposable cache
-    /run/secrets/...                  panel/proxy TLS keys и inspection issuer
+    /run/secrets/...                  panel/proxy server TLS keys
 ```
 
 Пути и порты целевые и проверяются image spike. Внешняя привязка панели только к

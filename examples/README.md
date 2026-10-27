@@ -18,7 +18,7 @@ Acquire::https::Proxy "http://proxy.example.test:3128/";
 CONNECT через незашифрованное до proxy подключение, затем TLS к origin.
 Для TLS **к proxy** нужен `https://proxy.example.test:3129/`, доверенный серверный
 CA и проверка именно установленной версии APT; это не автоматически совместимо
-со всеми приложениями. Для inspect дополнительно доверяется signing CA сайтов.
+со всеми приложениями.
 
 [APT HTTP](https://manpages.debian.org/bookworm/apt/apt-transport-http.1.en.html),
 [APT HTTPS](https://manpages.debian.org/trixie/apt/apt-transport-https.1.en.html).
@@ -33,9 +33,8 @@ curl --proxy https://proxy.example.test:3129 \
   https://packages.example.test/
 ```
 
-`--proxy-cacert` проверяет proxy server. В inspect-профиле доверие к подменённому
-сертификату origin задаётся системным trust store либо отдельно `--cacert` с
-inspection CA. Это разные проверки; ни одна не отключается для удобства.
+`--proxy-cacert` проверяет proxy server. Сертификат origin проверяется клиентом
+по обычному системному trust store. Ни одна из проверок не отключается для удобства.
 См. [официальный curl manual](https://curl.se/docs/manpage.html).
 
 Не менять источники APT на HTTP и не отключать подписи пакетов ради кеша.

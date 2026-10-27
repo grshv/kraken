@@ -213,8 +213,6 @@ function App() {
           mode: "tunnel",
           proxy_transport: transport,
           cert_ref: "proxy-server",
-          ca_ref: null,
-          bypass_domains: [],
         };
         snap.tls_profiles.push(profile);
       }
@@ -1019,8 +1017,8 @@ function App() {
                 </select>
               </label>
               <p className="notice">
-                SSL Bump недоступен в текущей GnuTLS-сборке. HTTPS сайтов
-                остаётся сквозным.
+                HTTPS сайтов проходит через CONNECT. Клиент проверяет исходный
+                сертификат сайта.
               </p>
               {error && (
                 <div className="error" role="alert">

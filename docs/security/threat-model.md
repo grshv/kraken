@@ -5,9 +5,9 @@
 ## Активы и границы
 
 Защищаются egress, изоляция клиентов, политика, пароли/сессии, Docker host,
-TLS/inspection CA keys, audit и сведения о ресурсах.
+Server TLS keys, audit и сведения о ресурсах.
 Границы: браузер → HTTPS Go → внутренний runtime module → процесс Squid → internet;
-отдельно клиент → Squid, Go → SQLite/journal/files и Squid/helper → signing CA.
+отдельно клиент → Squid, Go → SQLite/journal/files и Squid → server TLS keys.
 Runtime module не является security boundary: он в том же executable/process.
 
 ## Угрозы
@@ -17,7 +17,7 @@ Runtime module не является security boundary: он в том же exec
 | Open proxy | Bind, firewall, src ACL, deny-all | Запрос неизвестного источника запрещён |
 | Direct egress обходит ACL | Firewall/SG вне контроля VM, IPv6/UDP учтены | Негативный клиентский тест |
 | Web exploit меняет proxy | Минимальные права, typed config, отсутствие shell API | Injection и permissions review; остаточный риск признаётся |
-| Захват host через Docker | Нет socket/API, privileged, host PID/network/mounts | Inspect итогового deployment |
+| Захват host через Docker | Нет socket/API, privileged, host PID/network/mounts | Проверка итогового deployment |
 | Config/command injection | Строгая модель, фиксированные argv, без shell | CRLF/metacharacters/traversal fixtures |
 | SSRF и DNS rebinding | Destination ACL, fixed probes, egress firewall | Metadata/private/rebinding deny |
 | XSS в логах | Экранирование, CSP, bounded parser | HTML как текст |
@@ -25,7 +25,7 @@ Runtime module не является security boundary: он в том же exec
 | Перебор пароля | Argon2id, rate limit, local bootstrap | Login throttling/reset |
 | Apply/crash расширяет доступ | Durable journal, LKG, lock, startup gate | Crash на каждой границе и restart Squid |
 | Disk full | Quotas/rotation/watermarks | DB/journal/log failures без silent apply |
-| Утечка CA | Узкие UID/file permissions, local provisioning, offline root | Отсутствие keys в image/export/logs |
+| Утечка TLS key | Узкие UID/file permissions, local provisioning | Отсутствие keys в image/export/logs |
 | Подмена dependencies | Locks/digests/scans/SBOM | Проверенный единый release image |
 | Prompt injection | Логи и внешние страницы — данные | Review источников инструкций |
 
@@ -39,7 +39,7 @@ control API в сеть. Go использует локальный Squid contro
 Раздельные UID полезны, но сами по себе не гарантируют reload: проверить владельца
 Squid PID/master и допустимый control mechanism. Web не запускается root ради HUP.
 Если схема прав несовместима с image, capability gate должен это выявить до кода.
-Не заявлять изоляцию CA от web, если для validation реально выданы права читать ключ.
+Не заявлять изоляцию private keys от web, если процесс имеет права читать ключи.
 
 Один контейнер означает общую filesystem/network зону; web exploit может изменить
 доступ через разрешённые ему config paths. Минимальные mounts/capabilities,
@@ -54,7 +54,7 @@ Docker проверяются извне: одного ufw INPUT недоста�
 Служебные SSH/DNS/NTP и direct egress настраиваются отдельно.
 
 IP идентифицирует источник сетевого запроса, а не человека. CONNECT может нести иной TCP-протокол на
-разрешённом порту. Inspection требует trust rollout и не гарантирует pinning/mTLS.
+разрешённом порту. HTTPS сайты используют исходные сертификаты.
 Root/Docker администратор host обходит прикладные ограничения. Локальный audit
 не является tamper-proof при компрометации приложения/host; для этого нужен
 внешний append-only collector. Обновление общего image прерывает оба процесса.

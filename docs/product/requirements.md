@@ -52,9 +52,9 @@ sc_ namespace, includes и executables не передаются текстов�
 ## TLS и ограничения
 
 HTTPS панели обязателен. TLS к proxy и обычный HTTPS CONNECT — отдельные слои.
-SSL Bump заложен в архитектуре, но текущая GnuTLS-сборка не имеет нужного OpenSSL
-и helper; профиль inspect не включается молча и сейчас отклоняется.
-Даже после inspection пригодность кеширования зависит от HTTP semantics.
+HTTPS сайтов передаётся только через сквозной CONNECT. Клиент проверяет исходный
+сертификат сайта; прокси не получает URL-путь, заголовки и содержимое HTTPS.
+Кеширование применяется только к обычному HTTP с учётом HTTP semantics.
 
 Forward proxy не заменяет VPN, IP-маршрутизатор, DLP и запрет direct egress.
 Source IP не идентифицирует человека; NAT может скрывать разные устройства.
@@ -78,7 +78,7 @@ Source IP не идентифицирует человека; NAT может с�
 | AC-09 | Нет session/CSRF/Origin | Сервер отклоняет mutation |
 | AC-10 | HTTPS tunnel diagnostics | Нет выдуманных URL-path/origin status |
 | AC-11 | TLS proxy | Сертификат проверяется, plaintext downgrade закрыт |
-| AC-12 | SSL Bump | Отдельная проверенная сборка, trust rollout и bypass tests |
+| AC-12 | Сквозной HTTPS | Исходный сертификат сайта сохраняется, содержимое туннеля недоступно прокси |
 | AC-13 | Backup restore | Согласованы DB/LKG/secret refs и реальный запрос |
 | AC-14 | Отключение клиента | Новые запросы закрыты, открытые tunnels объяснены |
 | AC-15 | CLI password reset | Только новый hash, sessions revoked, old login не выпускает session |

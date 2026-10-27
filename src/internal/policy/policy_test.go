@@ -14,7 +14,7 @@ func fixture() Snapshot {
 func TestPolicyBoundaries(t *testing.T) {
 	cases := map[string]func(*Snapshot){"CRLF injection": func(s *Snapshot) { s.Policies[0].Destinations[0].Domain = "example.org\nhttp_access allow all" }, "raw IP": func(s *Snapshot) { s.Policies[0].Destinations[0].Domain = "1.1.1.1" }, "overlap": func(s *Snapshot) {
 		s.Clients = append(s.Clients, Client{ID: "d", Name: "Other", Networks: []string{"192.0.2.0/24"}, Enabled: true, PolicyID: "p"})
-	}, "IPv6 overlap": func(s *Snapshot) { s.Clients[0].Networks = []string{"2001:db8::1/128", "2001:db8::/64"} }, "default route": func(s *Snapshot) { s.Clients[0].Networks = []string{"0.0.0.0/0"} }, "mapped IPv6": func(s *Snapshot) { s.Clients[0].Networks = []string{"::ffff:192.0.2.1/128"} }, "unknown profile": func(s *Snapshot) { s.Policies[0].TLSProfileID = "missing" }, "silent bump": func(s *Snapshot) { s.TLSProfiles[0].Mode = "inspect" }, "overlapping domains": func(s *Snapshot) {
+	}, "IPv6 overlap": func(s *Snapshot) { s.Clients[0].Networks = []string{"2001:db8::1/128", "2001:db8::/64"} }, "default route": func(s *Snapshot) { s.Clients[0].Networks = []string{"0.0.0.0/0"} }, "mapped IPv6": func(s *Snapshot) { s.Clients[0].Networks = []string{"::ffff:192.0.2.1/128"} }, "unknown profile": func(s *Snapshot) { s.Policies[0].TLSProfileID = "missing" }, "invalid TLS mode": func(s *Snapshot) { s.TLSProfiles[0].Mode = "invalid-mode" }, "overlapping domains": func(s *Snapshot) {
 		s.Policies[0].Destinations = []Destination{{Domain: "example.org", IncludeSubdomains: true}, {Domain: "repo.example.org"}}
 	}}
 	for name, mutate := range cases {

@@ -56,7 +56,7 @@ LKG либо отдельное согласованное изменение м
 
 ## Disk full
 
-Остановить новые apply, проверить log/cache/cert DB budgets. Удалять только
+Остановить новые apply, проверить log/cache budgets. Удалять только
 проверенно disposable/retention-expired данные, не текущий journal/LKG/DB/WAL.
 Ошибка записи audit не должна сопровождаться незаметным изменением прав.
 Уменьшить нагрузку логов и расширить диск; проверить сохранность DB и runtime.
@@ -68,7 +68,7 @@ LKG либо отдельное согласованное изменение м
 войти в maintenance, чтобы DB и runtime bundle относились к одному состоянию.
 
 Копировать: SQLite согласованным backup API, versioned policy/config bundles,
-runtime journal/LKG manifest, deployment pins/UID mapping, TLS/CA secrets отдельным
+runtime journal/LKG manifest, deployment pins/UID mapping, Server TLS secrets отдельным
 защищённым архивом. Secret export не доступен из браузера. Cache не резервируется.
 Sessions в восстановленной DB инвалидировать; сохранённый пароль — только hash.
 
@@ -98,13 +98,13 @@ staging traffic test. Сделать backup; заранее сохранить �
 CONNECT — запланировать окно. Для обычного сбоя Go перезапускать только его
 Pebble service, без restart всего контейнера.
 Откат image не откатывает SQLite schema автоматически: использовать совместимую
-версию либо restore. Не удалять старый signer до окончания CA rotation overlap.
+версию либо restore.
 
 ## Истекающий/скомпрометированный сертификат
 
 Серверный cert: stage новый key+chain, name/expiry check, reload, TLS probe, audit.
-Inspection CA: сначала trust rollout, потом signer switch; при компрометации
-удаление доверия у клиентов обязательно. См. [lifecycle ключей](../security/authentication-and-certificates.md).
+При компрометации server TLS key заменить ключ и сертификат, отозвать старый
+сертификат у issuer. См. [lifecycle ключей](../security/authentication-and-certificates.md).
 
 ## Визуальные настройки и expert squid.conf
 

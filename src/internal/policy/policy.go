@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "3"
+const CompilerVersion = "4"
 
 type Destination struct {
 	Domain            string `json:"domain"`
@@ -35,13 +35,11 @@ type Policy struct {
 	TLSProfileID string        `json:"tls_profile_id"`
 }
 type TLSProfile struct {
-	ID        string        `json:"id"`
-	Name      string        `json:"name"`
-	Mode      string        `json:"mode"`
-	Transport string        `json:"proxy_transport"`
-	CertRef   *string       `json:"cert_ref"`
-	CARef     *string       `json:"ca_ref"`
-	Bypass    []Destination `json:"bypass_domains"`
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Mode      string  `json:"mode"`
+	Transport string  `json:"proxy_transport"`
+	CertRef   *string `json:"cert_ref"`
 }
 type Snapshot struct {
 	Settings    *Settings    `json:"settings,omitempty"`
@@ -61,7 +59,7 @@ type Options struct {
 
 func Empty() Snapshot {
 	v := DefaultSettings()
-	return Snapshot{Version: 1, Settings: &v, Mode: "structured", Clients: []Client{}, Policies: []Policy{}, TLSProfiles: []TLSProfile{{ID: "00000000-0000-4000-8000-000000000001", Name: "HTTP proxy / CONNECT", Mode: "tunnel", Transport: "http", Bypass: []Destination{}}}}
+	return Snapshot{Version: 1, Settings: &v, Mode: "structured", Clients: []Client{}, Policies: []Policy{}, TLSProfiles: []TLSProfile{{ID: "00000000-0000-4000-8000-000000000001", Name: "HTTP proxy / CONNECT", Mode: "tunnel", Transport: "http"}}}
 }
 
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9-]{1,64}$`)
@@ -93,8 +91,8 @@ func Validate(s Snapshot, o Options) error {
 		if !idPattern.MatchString(p.ID) || profiles[p.ID].ID != "" {
 			return errors.New("invalid/duplicate TLS profile id")
 		}
-		if p.Mode != "tunnel" || p.CARef != nil || len(p.Bypass) > 0 {
-			return errors.New("SSL Bump unsupported by pinned GnuTLS image")
+		if p.Mode != "tunnel" {
+			return errors.New("HTTPS requires tunnel mode")
 		}
 		if p.Transport != "http" && p.Transport != "tls" {
 			return errors.New("invalid proxy transport")

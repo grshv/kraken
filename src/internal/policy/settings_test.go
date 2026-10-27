@@ -33,7 +33,7 @@ func TestExpertConfigAndTemplate(t *testing.T) {
 	}
 }
 func TestExpertProtectedRuntimeAndExecution(t *testing.T) {
-	for _, text := range []string{"include /data/app/*", "auth_param basic program /bin/sh -c bad", "url_rewrite_program /bin/sh", "pid_filename /data/app/a", "http_port 9000", "https_port 9443", "cache_dir ufs /data/app 50 16 256", "acl sc_safe_ports port 25", "http_access allow sc_probe_listener", "if true\nhttp_access allow all", "endif", "in\\clude /data/app/*", "url_rewrite_\\\nprogram /bin/sh", "request_header_add test value\\"} {
+	for _, text := range []string{"ssl_unmanaged allow all", "security_unmanaged on", "ss\\l_unmanaged allow all", "include /data/app/*", "auth_param basic program /bin/sh -c bad", "url_rewrite_program /bin/sh", "pid_filename /data/app/a", "http_port 9000", "https_port 9443", "cache_dir ufs /data/app 50 16 256", "acl sc_safe_ports port 25", "http_access allow sc_probe_listener", "if true\nhttp_access allow all", "endif", "in\\clude /data/app/*", "url_rewrite_\\\nprogram /bin/sh", "request_header_add test value\\"} {
 		s := fixture()
 		s.Mode = "expert"
 		s.Expert = text

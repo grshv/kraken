@@ -62,7 +62,7 @@ Go module и frontend лежат в src/. Новые проверки добав
 ## Изменение решений
 
 ADR создаётся для существенного trade-off: права процессов, transport TLS,
-inspection, storage, HA. Не создавать ADR на переименование локальной переменной.
+TLS transport, storage, HA. Не создавать ADR на переименование локальной переменной.
 Статусы: Proposed → Accepted; позже Superseded со ссылкой на замену.
 Явные требования владельца в product decisions выше предложений архитектора.
 

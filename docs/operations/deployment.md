@@ -9,7 +9,7 @@
 - Linux VM, Docker Engine и Compose plugin; systemd приложения не требуется.
 - DNS и адреса management/client interfaces, сохранение исходных IP VM.
 - Проверенный base tag+digest+architecture и digest собственного итогового image.
-- Server TLS certificates панели/proxy; при inspection — CA и client trust rollout.
+- Server TLS certificates панели/proxy и доверие к их issuer у клиентов.
 - Local persistent storage, UID/GID, права на key/config/journal и backup location.
 - Firewall matrix, включая IPv6, metadata, DNS/NTP и возможный direct-egress запрет.
 
@@ -21,7 +21,7 @@
 2. Создать persistent volumes для SQLite, journal/LKG/revisions, managed config,
    logs и необязательного cache. Секреты подключить вне image/Git.
 3. Настроить UID/GID: минимум прав для Go, Squid/helper и startup gate.
-   Подтвердить reload без запуска web root; доступ к CA отделён насколько возможно.
+   Подтвердить reload без запуска web root; доступ к private keys ограничен нужными процессами.
 4. Настроить management IP:443 → container:8443 для HTTPS Go и client listeners.
    Go сам завершает TLS панели; mandatory edge container нет.
 5. При первом запуске recovery gate создаёт deny-all/LKG, затем Pebble запускает
@@ -44,8 +44,8 @@ egress VM, реализовать на контролируемой сетево
 ## Файлы и права
 
 Go: SQLite, runtime journal и managed config RW, Squid logs read; собственный
-panel TLS key read. Squid: managed config read, logs/cache/cert DB write и
-соответствующие server/inspection keys read. Секреты монтируются read-only, но
+panel TLS key read. Squid: managed config read, logs/cache write и
+соответствующие server TLS keys read. Секреты монтируются read-only, но
 какие UID имеют доступ, определяется Unix permissions, а не отдельным контейнером.
 Нет обещания, что внутренний модуль скроет секрет от скомпрометированного Go-процесса.
 

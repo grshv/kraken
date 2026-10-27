@@ -54,10 +54,6 @@ restart только Go без разрыва существующего CONNECT
 - Панель: SAN/chain/expiry, cookies, invalid origin/CSRF.
 - VM → proxy TLS: валидное доверие, неизвестный CA, wrong SAN, expiry.
 - HTTPS CONNECT: исходный issuer сайта сохраняется, URL-path не «наблюдается».
-- Inspect: тестовый issuer, клиентский trust, upstream validation,
-  bypass/splice, SNI/CONNECT mismatch, pinning/mTLS fixture, cert DB restart.
-- Несколько профилей одновременно; комбинация TLS proxy + inspection проверяется
-  отдельно. Её поддержка не следует из поддержки функций по отдельности.
 - APT: update + download тестового пакета, signature/hash checks включены,
   Range/redirect/metadata freshness при включении cache.
 
@@ -67,8 +63,8 @@ Unauthorized endpoints, CSRF, login throttling, session expiry/reset,
 escaped XSS logs, limits на request/log records, path traversal и произвольные
 process command/path attempts. В единственном контейнере отсутствуют Docker socket,
 privileged/host namespaces. Проверить UID/GID, права на PID/reload/config и ключи;
-локальный parse не меняет live cache/log/PID/cert DB. Проверить, что Go не root
-ради reload и signing key не выдаётся сверх подтверждённой необходимости.
+локальный parse не меняет live cache/log/PID. Проверить, что Go не root
+ради reload и private keys доступны только нужным процессам.
 
 ## Источники тестов
 

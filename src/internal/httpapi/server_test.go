@@ -104,10 +104,10 @@ func TestDraftConflictAndValidation(t *testing.T) {
 	if w.Code != 409 {
 		t.Fatal("stale draft overwrote newer version")
 	}
-	d.Snapshot.TLSProfiles[0].Mode = "inspect"
+	d.Snapshot.TLSProfiles[0].Mode = "invalid-mode"
 	w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": 2, "snapshot": d.Snapshot}, cookie, csrf, "https://panel.test")
 	if w.Code != 422 {
-		t.Fatal("unsupported inspection accepted")
+		t.Fatal("invalid tunnel mode accepted")
 	}
 }
 func TestBootstrapIsNotPublicRegistration(t *testing.T) {
