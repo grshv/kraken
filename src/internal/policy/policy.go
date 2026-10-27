@@ -12,20 +12,25 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "4"
+const CompilerVersion = "5"
+
+// Squid Basic TTL zero never becomes valid. A separate uncached generation
+// check on every allowed request enforces reset/disable despite Basic caching.
+const ProxyCredentialTTLSeconds = 1
 
 type Destination struct {
 	Domain            string `json:"domain"`
 	IncludeSubdomains bool   `json:"include_subdomains"`
 }
 type Client struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Description string   `json:"description,omitempty"`
-	Kind        string   `json:"kind,omitempty"`
-	Networks    []string `json:"source_networks"`
-	Enabled     bool     `json:"enabled"`
-	PolicyID    string   `json:"policy_id"`
+	ID            string   `json:"id"`
+	Name          string   `json:"name"`
+	Description   string   `json:"description,omitempty"`
+	Kind          string   `json:"kind,omitempty"`
+	Networks      []string `json:"source_networks"`
+	Enabled       bool     `json:"enabled"`
+	PolicyID      string   `json:"policy_id"`
+	ProxyUsername string   `json:"proxy_username,omitempty"`
 }
 type Policy struct {
 	ID           string        `json:"id"`
@@ -51,10 +56,11 @@ type Snapshot struct {
 	TLSProfiles []TLSProfile `json:"tls_profiles"`
 }
 type Options struct {
-	StateDir  string
-	LogPath   string
-	ProxyCert string
-	ProxyKey  string
+	StateDir     string
+	LogPath      string
+	ProxyCert    string
+	ProxyKey     string
+	AuthDatabase string
 }
 
 func Empty() Snapshot {
@@ -63,6 +69,7 @@ func Empty() Snapshot {
 }
 
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9-]{1,64}$`)
+var proxyUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 var domainPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
 func Validate(s Snapshot, o Options) error {
@@ -139,8 +146,9 @@ func Validate(s Snapshot, o Options) error {
 		policies[p.ID] = p
 	}
 	type source struct {
-		prefix netip.Prefix
-		owner  string
+		prefix   netip.Prefix
+		owner    string
+		username string
 	}
 	var sources []source
 	for _, c := range s.Clients {
@@ -154,6 +162,20 @@ func Validate(s Snapshot, o Options) error {
 		if _, ok := policies[c.PolicyID]; !ok {
 			return errors.New("missing client policy")
 		}
+		if c.ProxyUsername != "" {
+			if !proxyUsernamePattern.MatchString(c.ProxyUsername) {
+				return errors.New("invalid proxy username")
+			}
+			if o.AuthDatabase == "" || !strings.HasPrefix(o.AuthDatabase, "/") {
+				return errors.New("proxy authentication requires installed database")
+			}
+			if profiles[policies[c.PolicyID].TLSProfileID].Transport != "tls" {
+				return errors.New("password proxy authentication requires TLS transport")
+			}
+			if c.Enabled && s.Mode == "expert" {
+				return errors.New("proxy authentication clients require structured mode")
+			}
+		}
 		for _, raw := range c.Networks {
 			n, err := netip.ParsePrefix(raw)
 			if err != nil || n.Bits() == 0 || n != n.Masked() || n.Addr().Is4In6() || n.Addr().IsUnspecified() || n.Addr().IsMulticast() {
@@ -162,14 +184,18 @@ func Validate(s Snapshot, o Options) error {
 			if c.Enabled {
 				for _, other := range sources {
 					if n.Overlaps(other.prefix) {
-						return errors.New("overlapping enabled source networks")
+						// Distinct credentials distinguish clients sharing a NAT source.
+						// IP-only and identical-credential overlaps remain ambiguous.
+						if c.ProxyUsername == "" || other.username == "" || c.ProxyUsername == other.username {
+							return errors.New("overlapping enabled source networks")
+						}
 					}
 				}
-				sources = append(sources, source{n, c.ID})
+				sources = append(sources, source{n, c.ID, c.ProxyUsername})
 			}
 		}
 	}
-	for _, p := range []string{o.StateDir, o.LogPath, o.ProxyCert, o.ProxyKey} {
+	for _, p := range []string{o.StateDir, o.LogPath, o.ProxyCert, o.ProxyKey, o.AuthDatabase} {
 		if strings.ContainsAny(p, "\r\n\t \"\\") {
 			return errors.New("unsafe installed filesystem path")
 		}
@@ -214,6 +240,25 @@ func Render(s Snapshot, o Options) (string, error) {
 		b.WriteString("http_access deny sc_private_dst\n")
 	}
 	fmt.Fprintf(&b, "reply_header_add X-Squid-Control-Revision %s all\n", h)
+	var authenticatedSources []string
+	for _, c := range s.Clients {
+		if c.Enabled && c.ProxyUsername != "" {
+			authenticatedSources = append(authenticatedSources, c.Networks...)
+		}
+	}
+	if len(authenticatedSources) > 0 {
+		sort.Strings(authenticatedSources)
+		unique := authenticatedSources[:0]
+		for _, network := range authenticatedSources {
+			if len(unique) == 0 || unique[len(unique)-1] != network {
+				unique = append(unique, network)
+			}
+		}
+		authenticatedSources = unique
+		fmt.Fprintf(&b, "auth_param basic program /usr/local/bin/squid-control proxy-auth --database %s\nauth_param basic children 2 startup=0 idle=1 queue-size=8 on-persistent-overload=ERR\nauth_param basic realm Squid Control\nauth_param basic casesensitive on\nauth_param basic credentialsttl 1 seconds\n", o.AuthDatabase)
+		fmt.Fprintf(&b, "external_acl_type sc_identity_state ttl=0 negative_ttl=0 cache=0 children-max=2 children-startup=0 children-idle=1 queue-size=8 %%LOGIN %%{sc_generation_}note %%DATA /usr/local/bin/squid-control proxy-auth --state --database %s\nacl sc_proxy_current external sc_identity_state\n", o.AuthDatabase)
+		fmt.Fprintf(&b, "acl sc_auth_sources src %s\nacl sc_proxy_authenticated proxy_auth REQUIRED\nhttp_access deny sc_auth_sources sc_http_listener\nhttp_access deny sc_auth_sources sc_tls_listener !sc_proxy_authenticated\n", strings.Join(authenticatedSources, " "))
+	}
 	b.WriteString("# BEGIN user policy\n")
 	if s.Mode == "expert" {
 		b.WriteString(s.Expert)
@@ -243,8 +288,13 @@ func Render(s Snapshot, o Options) (string, error) {
 			listener = "sc_tls_listener"
 		}
 		fmt.Fprintf(&b, "acl client_%d src %s\n", i, strings.Join(c.Networks, " "))
+		authCondition := ""
+		if c.ProxyUsername != "" {
+			fmt.Fprintf(&b, "acl sc_proxy_user_%d proxy_auth_regex ^%s$\n", i, strings.ReplaceAll(c.ProxyUsername, ".", "[.]"))
+			authCondition = fmt.Sprintf(" sc_proxy_user_%d sc_proxy_current", i)
+		}
 		if p.Mode == "all_web" {
-			fmt.Fprintf(&b, "http_access allow client_%d %s\n", i, listener)
+			fmt.Fprintf(&b, "http_access allow client_%d %s%s\n", i, listener, authCondition)
 			continue
 		}
 		if len(p.Destinations) == 0 {
@@ -259,7 +309,7 @@ func Render(s Snapshot, o Options) (string, error) {
 			ds = append(ds, v)
 		}
 		sort.Strings(ds)
-		fmt.Fprintf(&b, "acl destinations_%d dstdomain -n %s\nhttp_access allow client_%d %s destinations_%d\n", i, strings.Join(ds, " "), i, listener, i)
+		fmt.Fprintf(&b, "acl destinations_%d dstdomain -n %s\nhttp_access allow client_%d %s destinations_%d%s\n", i, strings.Join(ds, " "), i, listener, i, authCondition)
 	}
 	b.WriteString("# END user policy\n")
 	renderCacheFallback(&b, settings)

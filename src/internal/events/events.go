@@ -12,6 +12,7 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -28,6 +29,7 @@ type Event struct {
 	ClientName       *string `json:"client_name"`
 	ClientMatchBasis string  `json:"client_match_basis"`
 	SourceIP         string  `json:"source_ip"`
+	ProxyUsername    *string `json:"proxy_username"`
 	Destination      string  `json:"destination"`
 	Method           string  `json:"method"`
 	ProxyResult      string  `json:"proxy_result"`
@@ -211,6 +213,8 @@ func Read(path string, previous Checkpoint) ([]Event, Checkpoint, error) {
 	return items, next, nil
 }
 
+var loggedUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+
 func Parse(line string) (Event, bool) {
 	v := Event{ClientMatchBasis: "unknown"}
 	if len(line) > MaxRecord || !utf8.ValidString(line) {
@@ -249,6 +253,9 @@ func Parse(line string) (Event, bool) {
 	}
 	v.Timestamp = time.UnixMilli(int64(seconds * 1000)).UTC().Format(time.RFC3339Nano)
 	v.SourceIP = ip.Unmap().String()
+	if len(p) > 7 && p[7] != "-" && loggedUsernamePattern.MatchString(p[7]) {
+		v.ProxyUsername = &p[7]
+	}
 	v.Destination = u.Host
 	v.Method = p[5]
 	v.ProxyResult = p[3]

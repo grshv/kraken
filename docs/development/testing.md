@@ -142,3 +142,21 @@ Real-image suite проверяет ingestion настоящих Squid logs, cur
 rotation, отдельный restart control и сохранённый audit reset. Browser suite
 добавляет клиентский фильтр, более ранние записи, audit, безопасный текст вместо
 HTML и сохранение строк с предупреждением при API 503, desktop/mobile screenshots.
+
+## Users/roles, proxy passwords и shadcn/ui
+
+Migration/HTTP/store tests проверяют сохранение прежнего admin/hash/sessions,
+viewer/API403, last-admin guard при конкурентных demotions, атомарный audit/revoke,
+password work slots. Credential Hash/Matches сохраняют PHC/legacy совместимость.
+Helper tests проверяют Basic encoding/limits, read-only missing DB, recheck после
+Argon при reset/disable и generation state guard против старых кешированных creds.
+Generated config parse отдельно проверен на Squid 6.13; это не заменяет HTTP smoke.
+
+Real-image suite выполняет verified TLS proxy login, 407, plaintext403, NAT с
+разными policies, exact REQUIRED/case-sensitive username, пароль с пробелом/+/%
+и reset/disable на повторно используемом TLS connection. Отдельный viewer login
+проверяет 403 и отзыв sessions. Пароли передаются fixture только stdin; проверяется
+отсутствие plaintext/Basic values в persistent volume. Browser suite расширена
+users/roles и proxy accounts, новая компоновка shadcn/ui проверяется на 1440/390 px.
+Мобильные переходы открывают Sheet и закрывают его после выбора; повторный вход
+проверяется и при скрытой боковой панели. Вкладки и диалог используют Radix.

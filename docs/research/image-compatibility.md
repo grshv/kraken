@@ -80,8 +80,8 @@ storage failure и простые процедуры эксплуатации. �
 подсистема не требуется. Перед распространяемым релизом — scans и короткие notes.
 
 Rotation/truncation, migrations, история/cursor/retention уже реализованы и
-проверены в срезах ниже. Дополнительные users/roles и proxy auth включены владельцем в дальнейший
-объём, но их реализация и совместимость proxy mechanisms пока не подтверждены.
+проверены в срезах ниже. Дополнительные users/roles и proxy auth реализованы и
+проверены на указанной сборке, подробности — в последнем срезе ниже.
 Certificate UI, агрегаты/расширенный поиск, произвольные helpers, SSO и HA исключены. Отсутствие проверки не превращается
 в Supported: конкретные гарантии доступа по-прежнему требуют своих tests.
 Один контейнер — единая точка обновления/отказа, это известное ограничение.
@@ -126,3 +126,30 @@ retry, source stale/unavailable, rotation/truncation, реальные Squid з�
 сценариев. make check и image build прошли; screenshots desktop/mobile проверены.
 Compiler v4 и правила трафика не изменены; существующая установка не обновлялась.
 [Критерии и оставшиеся ограничения](../plans/active/diagnostics-history.md).
+
+## Локальные пользователи, proxy passwords и shadcn/ui, 27.10.2026
+
+API 0.5.0, migrations 004/005, compiler v5. Две роли admin/viewer, серверные
+permissions, создание/блокировка/смена пароля, session revoke и last-admin guard.
+Миграционный тест сохраняет прежние admin/hash/session. Отдельные proxy accounts
+используют Argon2id и управляемые Basic/state helpers того же executable.
+
+На pinned Squid 6.13/GnuTLS Linux/arm64 проверены verified TLS proxy auth,
+HTTP 407/403, разные identities за NAT с разными destinations, literal REQUIRED,
+case-sensitive username, пароль с пробелом/+/% и reset/disable на живом повторно
+используемом TLS-соединении. Проверен CONNECT с независимой проверкой сертификата
+сайта внутри TLS-подключения к прокси. Тестовый volume просканирован на исходные
+пароли и Basic values; совпадений нет. Начатый до reset запрос и открытый CONNECT
+могут завершиться; принудительное закрытие существующих туннелей не реализовано.
+
+React UI переведён на shadcn/ui (New York/Radix), Tailwind 4, Inter и Lucide.
+Sidebar/Sheet, Button, Input/NativeSelect/Textarea, Table, Badge, Card, Dialog и
+Tabs установлены из официального registry; общие states принадлежат компонентам.
+Проверены реальные desktop/mobile screenshots обзора, событий, аудита и accounts.
+Все 6 Playwright сценариев прошли, включая permissions/403 и отзыв viewer session.
+
+`make check` (docs, type/build, Go race tests, vet, diff check), `make image`
+(включая Linux/arm64 verify stage), полный real-image smoke и браузерные сценарии
+пройдены. Тесты используют отдельные контейнеры/volumes и случайные credentials
+через stdin; существующий пароль для проверки не сбрасывался. Это подтверждение
+указанной сборки и сценариев, не новой целевой архитектуры или реального APT.

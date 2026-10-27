@@ -139,3 +139,17 @@ Audit использует прежние 90 дней/5000 строк. Cursor �
 SQL параметры связаны; произвольный cursor не расширяет доступ. Новые строки
 не сдвигают старые страницы, retention может сократить доступную историю.
 Client labels фиксируются при сборе; revision_id null. См. [ADR 0011](../adr/0011-durable-diagnostics.md).
+
+## Учётные записи (migrations 004/005)
+
+users дополнен role (admin/viewer) и enabled; существующие users получают admin/true
+без изменения verifier. Серверный readSession читает актуальное состояние user.
+Role/enabled/password mutation и удаление его sessions/audit атомарны. Проверка
+последнего active admin входит в ту же transaction. Имена неизменяемы; вместо
+удаления используется блокировка с сохранением audit identity.
+
+proxy_accounts — отдельная таблица username/password_hash/enabled/created_at/updated_at.
+Пароль не входит в snapshot; Client.proxy_username — только ссылка. Фиксированные
+helper режимы читают таблицу read-only, не выполняют migrations. Generation
+SHA-256 от PHC verifier привязывает Basic auth к текущему состоянию без передачи
+verifier на сторону клиента. См. [ADR 0012](../adr/0012-local-users-and-proxy-passwords.md).

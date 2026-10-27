@@ -136,3 +136,16 @@ func TestTemporarilyMissingFileResumesWithoutReplay(t *testing.T) {
 		t.Fatal("missing source replayed its committed prefix")
 	}
 }
+
+func TestProxyUsernameIsMetadataNotCredentials(t *testing.T) {
+	value := strings.Replace(line, " - HIER_DIRECT/", " Build.Agent HIER_DIRECT/", 1)
+	event, ok := Parse(value)
+	if !ok || event.ProxyUsername == nil || *event.ProxyUsername != "Build.Agent" {
+		t.Fatal("proxy username missing")
+	}
+	value = strings.Replace(line, " - HIER_DIRECT/", " user:password HIER_DIRECT/", 1)
+	event, ok = Parse(value)
+	if !ok || event.ProxyUsername != nil {
+		t.Fatal("unsafe username persisted")
+	}
+}

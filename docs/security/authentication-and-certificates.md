@@ -84,13 +84,27 @@ API отдаёт subject, SAN, issuer, fingerprint и notAfter, без private k
 strings, Authorization, cookies и payload не сохранять; даже путь может содержать
 секрет. Расширенные диагностические данные требуют короткого retention.
 
-## Следующий согласованный объём аутентификации
+## Локальные пользователи и proxy accounts
 
-Владелец подтвердил дополнительные учётные записи/роли панели и отдельно proxy
-authentication по логину и паролю. Состав ролей и метод проверки credentials
-ещё не выбраны. Проверки прав будут серверными; блокировка/reset должны отзывать
-sessions, audit различать участников. Proxy credentials не означают доступ в
-панель или обход клиентской политики. Совместимость текущей сборки проверяется
-при реализации; сейчас поддержки proxy auth в продукте не заявляется.
-Аутентификация клиентскими сертификатами исключена. Серверный TLS сохраняется.
-SSO/IdP и собственный CA не планируются.
+Реализованы две роли по выбору владельца: admin и viewer. Admin управляет
+конфигурацией/применением/users/proxy accounts; viewer читает состояние, события,
+аудит и публичные metadata сертификатов. Draft/raw expert/revisions и учётные
+записи viewer не получает. Permissions проверяются на сервере, не только в UI.
+Role/enabled/password changes атомарно отзывают sessions. Последний активный admin
+защищён от блокировки/понижения. CLI password-reset работает для указанного user.
+
+Proxy login/password — отдельные учётные данные в proxy_accounts. В БД только
+Argon2id PHC verifier, никогда raw password. Выдачи прежнего пароля нет. Basic
+пароль передаётся только через TLS proxy; IP/CIDR и exact username совместно
+выбирают политику. mTLS, SSO/IdP и собственный CA не входят в объём.
+Squid Basic runtime может держать credentials в своей памяти и передавать их
+управляемому helper через закрытые stdin/stdout pipes; на диск/argv/env/logs
+пароль не записывается. Helpers не логируют запросы и открывают SQLite read-only.
+
+TTL Basic положительный (1 секунда), а managed external ACL на каждом разрешаемом
+запросе сверяет generation проверенного verifier с текущим hash/enabled без кеша.
+Это не позволяет старым credentials обходить reset/disable через кеш Squid.
+Сгенерированный конфиг управляет обоими fixed-argv режимами одного binary;
+сырой expert auth_param/external_acl_type по-прежнему запрещён. Auth-bound clients
+не совмещаются с expert mode. Начатые запросы/открытые CONNECT могут завершиться.
+Точные границы: [ADR 0012](../adr/0012-local-users-and-proxy-passwords.md).

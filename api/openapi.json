@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.4.0",
-    "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint."
+    "version": "0.5.0",
+    "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
   },
   "servers": [
     {
@@ -155,7 +155,8 @@
             }
           }
         },
-        "parameters": []
+        "parameters": [],
+        "description": "Available to admin and viewer."
       }
     },
     "/configuration/draft": {
@@ -184,7 +185,8 @@
             }
           }
         },
-        "parameters": []
+        "parameters": [],
+        "description": "Admin role required; viewer receives 403."
       },
       "put": {
         "operationId": "updateDraft",
@@ -233,7 +235,7 @@
             }
           }
         },
-        "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes."
+        "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes. Admin role required; viewer receives 403."
       }
     },
     "/revisions": {
@@ -283,7 +285,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Admin role required; viewer receives 403."
       },
       "get": {
         "operationId": "listRevisions",
@@ -311,7 +314,8 @@
               }
             }
           }
-        }
+        },
+        "description": "Admin role required; viewer receives 403."
       }
     },
     "/revisions/{id}": {
@@ -350,7 +354,8 @@
               "format": "uuid"
             }
           }
-        ]
+        ],
+        "description": "Admin role required; viewer receives 403."
       }
     },
     "/revisions/{id}/preview": {
@@ -389,7 +394,8 @@
               "format": "uuid"
             }
           }
-        ]
+        ],
+        "description": "Admin role required; viewer receives 403."
       }
     },
     "/operations": {
@@ -450,7 +456,7 @@
             }
           }
         },
-        "description": "Creates a durable SQLite operation intent before the in-process worker runs. 409 for conflicting key/revision; busy is explicit. Apply requires validated exact inputs. Rollback uses the local Squid adapter and is verified. No separate runner or Docker API."
+        "description": "Creates a durable SQLite operation intent before the in-process worker runs. 409 for conflicting key/revision; busy is explicit. Apply requires validated exact inputs. Rollback uses the local Squid adapter and is verified. No separate runner or Docker API. Admin role required; viewer receives 403."
       }
     },
     "/operations/{id}": {
@@ -489,7 +495,8 @@
               "format": "uuid"
             }
           }
-        ]
+        ],
+        "description": "Admin role required; viewer receives 403."
       }
     },
     "/events": {
@@ -555,7 +562,7 @@
             }
           }
         ],
-        "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Seven days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic."
+        "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Seven days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic. Available to admin and viewer."
       }
     },
     "/certificates": {
@@ -588,7 +595,7 @@
           }
         },
         "parameters": [],
-        "description": "Returns installed inventory metadata, never private keys; local provisioning only in first version."
+        "description": "Returns installed inventory metadata, never private keys; local provisioning only in first version. Available to admin and viewer."
       }
     },
     "/configuration/expert-template": {
@@ -615,14 +622,15 @@
               }
             }
           }
-        }
+        },
+        "description": "Admin role required; viewer receives 403."
       }
     },
     "/audit": {
       "get": {
         "operationId": "listAuditEvents",
         "summary": "Read administrative audit history",
-        "description": "Admin-only. Exact actor/action filters, stable earlier-page cursor. Retention 90 days and 5000 rows. Audit records accepted administrative actions; operation outcome is read from its operation object. No raw configuration, password, token or key bodies.",
+        "description": "Admin-only. Exact actor/action filters, stable earlier-page cursor. Retention 90 days and 5000 rows. Audit records accepted administrative actions; operation outcome is read from its operation object. No raw configuration, password, token or key bodies. Available to admin and viewer.",
         "parameters": [
           {
             "name": "cursor",
@@ -687,7 +695,7 @@
       "get": {
         "operationId": "listEventClients",
         "summary": "List up to 200 most recently observed client labels",
-        "description": "One latest label per stored client ID; names are source labels, not historical ACL matches.",
+        "description": "One latest label per stored client ID; names are source labels, not historical ACL matches. Available to admin and viewer.",
         "responses": {
           "200": {
             "description": "Success",
@@ -718,6 +726,308 @@
                       }
                     }
                   }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/users": {
+      "get": {
+        "operationId": "listPanelUsers",
+        "summary": "List PanelUser accounts; admin only",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/User"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Admin role required; viewer receives 403."
+      },
+      "post": {
+        "operationId": "createPanelUser",
+        "summary": "Create PanelUser; admin only",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUser"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Admin role required; viewer receives 403."
+      }
+    },
+    "/users/{username}": {
+      "patch": {
+        "operationId": "updatePanelUser",
+        "summary": "Update PanelUser; admin only",
+        "description": "Panel role/password/enabled mutations revoke sessions atomically; last active admin cannot be disabled/demoted. Admin role required; viewer receives 403.",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUser"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/User"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/proxy-accounts": {
+      "get": {
+        "operationId": "listProxyAccounts",
+        "summary": "List ProxyAccount accounts; admin only",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/ProxyAccount"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Admin role required; viewer receives 403."
+      },
+      "post": {
+        "operationId": "createProxyAccount",
+        "summary": "Create ProxyAccount; admin only",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProxyAccount"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProxyAccount"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "description": "Admin role required; viewer receives 403."
+      }
+    },
+    "/proxy-accounts/{username}": {
+      "patch": {
+        "operationId": "updateProxyAccount",
+        "summary": "Update ProxyAccount; admin only",
+        "description": "Update dedicated proxy verifier/enabled state; an uncached verifier-generation ACL rejects old cached Basic credentials on new requests. Existing CONNECT is not forcibly closed. Admin role required; viewer receives 403.",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateProxyAccount"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProxyAccount"
                 }
               }
             }
@@ -786,7 +1096,9 @@
           "authenticated",
           "username",
           "csrf_token",
-          "expires_at"
+          "expires_at",
+          "role",
+          "permissions"
         ],
         "properties": {
           "authenticated": {
@@ -807,6 +1119,31 @@
               "null"
             ],
             "format": "date-time"
+          },
+          "role": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "admin",
+              "viewer",
+              null
+            ]
+          },
+          "permissions": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "read",
+                "configure",
+                "apply",
+                "users",
+                "proxy_accounts",
+                "audit"
+              ]
+            }
           }
         }
       },
@@ -897,6 +1234,12 @@
               "group"
             ],
             "description": "Client metadata; not tied to virtualization."
+          },
+          "proxy_username": {
+            "type": "string",
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._-]*$",
+            "description": "Optional dedicated proxy account. Requires TLS transport. Source IP/CIDR AND exact username select policy; distinct usernames may share ranges. No password in snapshot."
           }
         }
       },
@@ -1428,7 +1771,8 @@
           "proxy_result",
           "tls_mode",
           "client_name",
-          "client_match_basis"
+          "client_match_basis",
+          "proxy_username"
         ],
         "properties": {
           "id": {
@@ -1505,6 +1849,13 @@
               "policy_at_ingest"
             ],
             "description": "Unique source IP/CIDR match at ingestion, not historical ACL proof."
+          },
+          "proxy_username": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Sanitized logged proxy username, not proof of successful authentication. No password."
           }
         }
       },
@@ -1865,6 +2216,151 @@
           "observed_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "User": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username",
+          "role",
+          "enabled"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "viewer"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        }
+      },
+      "ProxyAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username",
+          "enabled",
+          "created_at",
+          "updated_at"
+        ],
+        "properties": {
+          "username": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "CreateUser": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username",
+          "password",
+          "role"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "writeOnly": true,
+            "description": "12–1024 UTF-8 bytes; never returned or persisted as plaintext. Proxy passwords cannot contain NUL/CR/LF."
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "viewer"
+            ]
+          }
+        }
+      },
+      "UpdateUser": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "role": {
+            "type": "string",
+            "enum": [
+              "admin",
+              "viewer"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "writeOnly": true,
+            "description": "12–1024 UTF-8 bytes; never returned or persisted as plaintext. Proxy passwords cannot contain NUL/CR/LF."
+          }
+        }
+      },
+      "CreateProxyAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "username",
+          "password"
+        ],
+        "properties": {
+          "username": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^[A-Za-z0-9._-]+$"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "writeOnly": true,
+            "description": "12–1024 UTF-8 bytes; never returned or persisted as plaintext. Proxy passwords cannot contain NUL/CR/LF."
+          }
+        }
+      },
+      "UpdateProxyAccount": {
+        "type": "object",
+        "additionalProperties": false,
+        "minProperties": 1,
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024,
+            "writeOnly": true,
+            "description": "12–1024 UTF-8 bytes; never returned or persisted as plaintext. Proxy passwords cannot contain NUL/CR/LF."
           }
         }
       }

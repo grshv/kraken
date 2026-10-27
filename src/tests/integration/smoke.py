@@ -276,10 +276,130 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         audit=api('/audit?actor=local-cli&action=password_reset')['items']
         assert len(audit)==1 and audit[0]['entity_id']=='admin'
         print('PASS: durable event history, client filters/cursors, real rotation, control restart and administrative audit')
+        # Dedicated proxy credentials never grant panel access. Credentials are
+        # supplied only on stdin to a TLS client, never argv/env/files/logs.
+        proxy_password=secrets.token_urlsafe(18)+' +%'
+        other_password=secrets.token_urlsafe(18)+' +%'
+        api('/proxy-accounts','POST',{'username':'REQUIRED','password':proxy_password})
+        api('/proxy-accounts','POST',{'username':'Build.Agent','password':other_password})
+        auth_snapshot=copy.deepcopy(baseline_manifest['snapshot'])
+        tls_profile=str(uuid.uuid4())
+        auth_snapshot['tls_profiles'].append({'id':tls_profile,'name':'Proxy login TLS','mode':'tunnel','proxy_transport':'tls','cert_ref':'proxy-server'})
+        auth_snapshot['policies'][1]['tls_profile_id']=tls_profile
+        auth_snapshot['clients'][1]['proxy_username']='REQUIRED'
+        second_policy=str(uuid.uuid4());second_client=str(uuid.uuid4())
+        auth_snapshot['policies'].append({'id':second_policy,'name':'Other login','mode':'allowlist','destinations':[{'domain':'denied.test','include_subdomains':False}],'tls_profile_id':tls_profile})
+        auth_snapshot['clients'].append({'id':second_client,'name':'shared-source identity','kind':'host','source_networks':['11.250.17.20/32'],'enabled':True,'policy_id':second_policy,'proxy_username':'Build.Agent'})
+        auth_draft=api('/configuration/draft')
+        apply_snapshot(auth_snapshot,auth_draft['version'])
+        tls_client_code="""import base64,http.client,json,socket,ssl,sys
+c=http.client.HTTPConnection('proxy',3129,timeout=8)
+c.sock=ssl.create_default_context(cafile='/fixtures/panel.crt').wrap_socket(socket.create_connection(('proxy',3129),timeout=8),server_hostname='localhost')
+for line in sys.stdin:
+ d=json.loads(line)
+ headers={}
+ if 'username' in d: headers['Proxy-Authorization']='Basic '+base64.b64encode((d['username']+':'+d['password']).encode()).decode()
+ if d.get('connect'):
+  c.request('CONNECT','allowed.test:443',headers=headers)
+  head=b''
+  while b'\\r\\n\\r\\n' not in head:
+   chunk=c.sock.recv(1)
+   assert chunk,'proxy closed CONNECT response'
+   head+=chunk
+  connect_status=int(head.split(b' ')[1])
+  if connect_status!=200:print(connect_status,flush=True);continue
+  incoming=ssl.MemoryBIO();outgoing=ssl.MemoryBIO()
+  secured=ssl.create_default_context(cafile='/fixtures/origin.crt').wrap_bio(incoming,outgoing,server_side=False,server_hostname='allowed.test')
+  while True:
+   try:secured.do_handshake();break
+   except ssl.SSLWantReadError:
+    wire=outgoing.read()
+    if wire:c.sock.sendall(wire)
+    chunk=c.sock.recv(65536)
+    assert chunk,'origin closed during handshake'
+    incoming.write(chunk)
+  wire=outgoing.read()
+  if wire:c.sock.sendall(wire)
+  secured.write(b'GET / HTTP/1.0\\r\\nHost: allowed.test\\r\\n\\r\\n')
+  c.sock.sendall(outgoing.read())
+  while True:
+   try:
+    reply=secured.read(65536)
+    if reply:print(int(reply.split(b' ')[1]),flush=True);break
+   except ssl.SSLWantReadError:
+    chunk=c.sock.recv(65536)
+    assert chunk,'origin closed before HTTP response'
+    incoming.write(chunk)
+  continue
+ c.request('GET',d.get('target','http://allowed.test/'),headers=headers)
+ r=c.getresponse();r.read();print(r.status,flush=True)
+"""
+        def proxy_request(username=None,password=None,target='http://allowed.test/',connect=False):
+            value={'target':target,'connect':connect}
+            if username is not None:value.update(username=username,password=password)
+            return int(docker('exec','-i',client,'python','-c',tls_client_code,input=json.dumps(value)+'\n'))
+        assert fetch(client)==403
+        assert proxy_request()==407
+        assert proxy_request('REQUIRED','invalid-fixture-password')==407
+        assert proxy_request('REQUIRED',proxy_password)==200
+        assert proxy_request('REQUIRED',proxy_password,connect=True)==200
+        assert proxy_request('REQUIRED',proxy_password,'http://denied.test/')==403
+        assert proxy_request('Build.Agent',other_password,'http://denied.test/')==200
+        assert proxy_request('Build.Agent',other_password)==403
+        assert proxy_request('build.agent',other_password)==407
+        # Verify reset/disable on a reused TLS connection too, not just a fresh TCP connection.
+        persistent=subprocess.Popen(['docker','exec','-i',client,'python','-c',tls_client_code],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
+        def persistent_request(password):
+            persistent.stdin.write(json.dumps({'username':'REQUIRED','password':password})+'\n');persistent.stdin.flush()
+            return int(persistent.stdout.readline().strip())
+        assert persistent_request(proxy_password)==200
+        new_proxy_password=secrets.token_urlsafe(20)+' +%'
+        api('/proxy-accounts/REQUIRED','PATCH',{'password':new_proxy_password})
+        reset_status=persistent_request(proxy_password)
+        assert reset_status in (403,407),f'cached password after reset: {reset_status}'
+        assert persistent_request(new_proxy_password)==200
+        api('/proxy-accounts/REQUIRED','PATCH',{'enabled':False})
+        disabled_status=persistent_request(new_proxy_password)
+        assert disabled_status in (403,407),f'cached disabled identity: {disabled_status}'
+        persistent.stdin.close();persistent.wait(timeout=10)
+        assert persistent.returncode==0
+        api('/proxy-accounts/REQUIRED','PATCH',{'enabled':True})
+        assert proxy_request('REQUIRED',new_proxy_password)==200
+        assert proxy_request('admin',replacement)==407
+        # New panel users have server-enforced read-only scope and revoked sessions when blocked.
+        viewer_password=secrets.token_urlsafe(24)
+        api('/users','POST',{'username':'observer','password':viewer_password,'role':'viewer'})
+        viewer_opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPSHandler(context=context),urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        def viewer_api(path,method='GET',body=None,token=''):
+            req=urllib.request.Request(origin+'/api/v1'+path,data=None if body is None else json.dumps(body).encode(),method=method,headers={'Content-Type':'application/json','Origin':origin,'X-CSRF-Token':token})
+            with viewer_opener.open(req,timeout=15) as response:return json.load(response)
+        anon=viewer_api('/session')
+        viewer_session=viewer_api('/session','POST',{'username':'observer','password':viewer_password},anon['csrf_token'])
+        assert viewer_session['role']=='viewer' and viewer_api('/status')['squid']['state']=='up'
+        for restricted in ['/configuration/draft','/users','/proxy-accounts','/revisions']:
+            try:viewer_api(restricted);raise AssertionError('viewer crossed role boundary')
+            except urllib.error.HTTPError as exc:assert exc.code==403
+        api('/users/observer','PATCH',{'enabled':False})
+        try:viewer_api('/status');raise AssertionError('disabled session survived')
+        except urllib.error.HTTPError as exc:assert exc.code==401
+        scan_code="""import base64,json,pathlib,sys
+values=json.load(sys.stdin)
+markers=[v.encode() for v in values]
+markers += [base64.b64encode((u+':'+p).encode()) for u,p in [('REQUIRED',values[0]),('REQUIRED',values[1]),('Build.Agent',values[2])]]
+for path in pathlib.Path('/state').rglob('*'):
+ if path.is_file():
+  data=path.read_bytes()
+  assert not any(marker in data for marker in markers), 'credential persisted in '+str(path)
+print('OK')
+"""
+        assert docker('run','--rm','-i','--network','none','-v',volume+':/state:ro',PYTHON,'python','-c',scan_code,input=json.dumps([proxy_password,new_proxy_password,other_password,viewer_password]))=='OK'
+        print('PASS: password proxy auth over verified TLS, NAT identities, literal/case-sensitive users, live reset/disable cache invalidation, panel roles/session revocation')
         print('ALL REAL-IMAGE SMOKE CHECKS PASSED')
     except Exception:
         if name+'-proxy' in containers:
-            print(docker('logs','--tail','80',name+'-proxy'))
+            print(docker('logs','--tail','30',name+'-proxy'))
+            details=docker('exec',name+'-proxy','tail','-n','50','/data/runtime/cache.log')
+            print('\n'.join(line for line in details.splitlines() if any(term in line.lower() for term in ['helper','fatal','warning','error'])))
         raise
     finally:
         for container in reversed(containers):

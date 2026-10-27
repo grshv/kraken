@@ -143,3 +143,18 @@ Expert mode заменяет визуальный ACL-блок. Служебны
 `reply_header_access`/`reply_header_replace`/`reply_header_remove` также закрыты,
 как и `request_header_add` — чтобы эксперт не мог изменить заголовки, влияющие на
 detect probe или скрыть canary из ответов.
+
+## Парольные клиенты proxy
+
+Client.proxy_username связывает source networks с отдельной proxy account. Для
+такого клиента обязателен TLS transport и установленный proxy-server cert.
+Username case-sensitive и сопоставляется exact regex, включая буквальное REQUIRED
+и точки. Разные auth usernames могут иметь пересекающиеся source networks за NAT;
+пересечение IP-only клиента с auth-bound или одинаковых auth usernames запрещено.
+
+Managed Basic helper и uncached generation ACL — подрежимы того же executable,
+не пользовательские команды. Protected destination/port denies выполняются до
+аутентификации. Plaintext для auth sources запрещён, отсутствие/ошибка credentials
+не допускают трафик. Generic successful authentication не даёт чужую политику.
+Enabled auth clients не допускаются в expert mode, чтобы пользовательский ACL
+не обходил binding. IP-only clients сохраняют прежнее поведение.

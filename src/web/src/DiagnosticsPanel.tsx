@@ -1,3 +1,12 @@
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { NativeSelect } from "@/components/ui/native-select";
+import { Table } from "@/components/ui/table";
+import { TableHeader } from "@/components/ui/table";
+import { TableBody } from "@/components/ui/table";
+import { TableRow } from "@/components/ui/table";
+import { TableHead } from "@/components/ui/table";
+import { TableCell } from "@/components/ui/table";
 import { useEffect, useRef, useState } from "react";
 import type { Event } from "./model";
 
@@ -33,6 +42,11 @@ function date(value: string) {
   return new Date(value).toLocaleString("ru-RU", { timeZoneName: "short" });
 }
 const actions: Record<string, string> = {
+  create_user: "Создание пользователя",
+  update_user: "Изменение пользователя",
+  create_proxy_account: "Создание логина прокси",
+  update_proxy_account: "Изменение логина прокси",
+  reset_proxy_password: "Смена пароля прокси",
   login: "Вход",
   logout: "Выход",
   login_failed: "Ошибка входа",
@@ -150,14 +164,9 @@ export function DiagnosticsPanel({
           <h2>
             {kind === "events" ? "История запросов" : "Действия в панели"}
           </h2>
-          <p>
-            {kind === "events"
-              ? "До 7 дней и 50 000 записей. HTTPS виден только как CONNECT-туннель."
-              : "До 90 дней и 5 000 записей. Аудит фиксирует действия администратора и события входа."}
-          </p>
         </div>
-        <button
-          className="secondary"
+        <Button
+          variant="outline"
           disabled={loading}
           onClick={() => {
             setCursor("");
@@ -165,13 +174,13 @@ export function DiagnosticsPanel({
           }}
         >
           Последние записи
-        </button>
+        </Button>
       </div>
       {kind === "events" ? (
         <div className="diagnostic-filters">
           <label>
             Клиент
-            <select
+            <NativeSelect
               aria-label="Фильтр клиента"
               value={client}
               onChange={(e) => {
@@ -185,10 +194,10 @@ export function DiagnosticsPanel({
                   {c.name}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </label>
           <label className="checkbox">
-            <input
+            <Input
               type="checkbox"
               checked={failures}
               onChange={(e) => {
@@ -210,7 +219,7 @@ export function DiagnosticsPanel({
         >
           <label>
             Участник
-            <input
+            <Input
               aria-label="Участник аудита"
               value={actor}
               maxLength={256}
@@ -220,7 +229,7 @@ export function DiagnosticsPanel({
           </label>
           <label>
             Действие
-            <select
+            <NativeSelect
               aria-label="Действие аудита"
               value={action}
               onChange={(e) => setAction(e.target.value)}
@@ -231,66 +240,37 @@ export function DiagnosticsPanel({
                   {label}
                 </option>
               ))}
-            </select>
+            </NativeSelect>
           </label>
-          <button type="submit" className="secondary">
+          <Button type="submit" variant="outline">
             Применить фильтры
-          </button>
+          </Button>
         </form>
       )}
       <div className="diagnostic-state" aria-live="polite">
         {clientError && <p>{clientError}</p>}
         {error ? (
           <p className="error" role="alert">
-            Не удалось обновить журнал: {error}. Показанные записи могут быть
-            устаревшими.
+            {error}. Показанные записи могут быть устаревшими.
           </p>
         ) : (
-          <p>
-            {loading
-              ? "Обновляем журнал…"
-              : `Получено: ${receivedAt || "ожидаем данные"}`}
-          </p>
+          <span>
+            {loading ? "Обновляем…" : `Обновлено ${receivedAt || "—"}`}
+          </span>
         )}
-        {ingestion && (
-          <p
-            className={
-              ingestion.stale || !ingestion.source_available ? "denied" : ""
-            }
-          >
-            {ingestion.stale ? "Сбор событий устарел. " : ""}
-            {!ingestion.source_available
-              ? "Файл журнала пока недоступен. "
-              : ""}
-            {ingestion.backlog ? "Дочитываем накопленные запросы. " : ""}
-            Последнее чтение:{" "}
-            {ingestion.observed_at
-              ? date(ingestion.observed_at)
-              : "ещё не выполнялось"}
-            .
-          </p>
+        {ingestion?.stale && (
+          <span className="denied">Сбор событий отстаёт</span>
         )}
-        {data?.gap && (
-          <p className="denied">
-            В истории есть пропуски или более ранние записи удалены по сроку
-            хранения.
-            {ingestion && ingestion.dropped_records > 0
-              ? ` Пропущено некорректных записей: ${ingestion.dropped_records}.`
-              : ""}
-          </p>
+        {ingestion && !ingestion.source_available && (
+          <span className="denied">Источник журнала недоступен</span>
         )}
+        {ingestion?.backlog && <span>Читаем накопленные запросы</span>}
+        {data?.gap && <span className="denied">В истории есть пропуски</span>}
       </div>
-      {kind === "events" && (
-        <p className="diagnostic-note">
-          Имя клиента сопоставлено по IP при сборе. Это не доказательство
-          исторического правила ACL. Завершённые CONNECT появляются после
-          закрытия туннеля.
-        </p>
-      )}
       <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
+        <Table>
+          <TableHeader>
+            <TableRow>
               {(kind === "events"
                 ? [
                     "Время",
@@ -302,25 +282,27 @@ export function DiagnosticsPanel({
                   ]
                 : ["Время", "Участник", "Действие", "Объект"]
               ).map((t) => (
-                <th key={t}>{t}</th>
+                <TableHead key={t}>{t}</TableHead>
               ))}
-            </tr>
-          </thead>
-          <tbody>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
             {data?.items.map((item) =>
               kind === "events"
                 ? (() => {
                     const e = item as Event;
                     return (
-                      <tr key={e.id}>
-                        <td>{date(e.timestamp)}</td>
-                        <td>
+                      <TableRow key={e.id}>
+                        <TableCell>{date(e.timestamp)}</TableCell>
+                        <TableCell>
                           {e.client_name && <strong>{e.client_name}</strong>}
                           <div className="mono">{e.source_ip}</div>
-                        </td>
-                        <td className="mono destination">{e.destination}</td>
-                        <td>{e.method}</td>
-                        <td
+                        </TableCell>
+                        <TableCell className="mono destination">
+                          {e.destination}
+                        </TableCell>
+                        <TableCell>{e.method}</TableCell>
+                        <TableCell
                           className={
                             e.proxy_result.includes("DENIED") ||
                             (e.proxy_http_status || 0) >= 400
@@ -329,33 +311,30 @@ export function DiagnosticsPanel({
                           }
                         >
                           {e.proxy_result}
-                        </td>
-                        <td>
+                        </TableCell>
+                        <TableCell>
                           {e.duration_ms ?? "—"} ms / {e.bytes_observed ?? "—"}{" "}
                           B
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })()
                 : (() => {
                     const a = item as Audit;
                     return (
-                      <tr key={a.id}>
-                        <td>{date(a.timestamp)}</td>
-                        <td>{a.actor || "Не указан"}</td>
-                        <td>
-                          {actions[a.action] || a.action}
-                          <div className="mono">{a.action}</div>
-                        </td>
-                        <td className="mono destination">
+                      <TableRow key={a.id}>
+                        <TableCell>{date(a.timestamp)}</TableCell>
+                        <TableCell>{a.actor || "Не указан"}</TableCell>
+                        <TableCell>{actions[a.action] || a.action}</TableCell>
+                        <TableCell className="mono destination">
                           {a.entity_id || "—"}
-                        </td>
-                      </tr>
+                        </TableCell>
+                      </TableRow>
                     );
                   })(),
             )}
-          </tbody>
-        </table>
+          </TableBody>
+        </Table>
       </div>
       {!loading && data && data.items.length === 0 && (
         <p className="empty">
@@ -364,14 +343,29 @@ export function DiagnosticsPanel({
             : "Действий по этим фильтрам пока нет."}
         </p>
       )}
+      <details className="diagnostic-help">
+        <summary>О журнале</summary>
+        <p>
+          {kind === "events"
+            ? "Хранится до 50 000 запросов за 7 дней после сбора. Имя клиента сопоставлено при сборе; точное историческое правило неизвестно. CONNECT появляется после закрытия туннеля."
+            : "Хранится до 5 000 действий за 90 дней. Принятие действия не означает успешное применение; результат смотрите в истории ревизий."}
+        </p>
+        {ingestion && (
+          <p>
+            Последнее чтение:{" "}
+            {ingestion.observed_at
+              ? date(ingestion.observed_at)
+              : "ещё не выполнялось"}
+            . Пропущено некорректных строк: {ingestion.dropped_records}.
+          </p>
+        )}
+      </details>
       <div className="diagnostic-pagination">
         <span>
-          {cursor
-            ? "Просмотр истории; автоматическое обновление приостановлено."
-            : "Последние записи обновляются каждые 10 секунд."}
+          {cursor ? "Просмотр истории" : "Обновление каждые 10 секунд"}
         </span>
-        <button
-          className="secondary"
+        <Button
+          variant="outline"
           disabled={loading || !data?.next_cursor}
           onClick={() => {
             if (data?.next_cursor) {
@@ -381,7 +375,7 @@ export function DiagnosticsPanel({
           }}
         >
           Раньше
-        </button>
+        </Button>
       </div>
     </section>
   );

@@ -18,6 +18,7 @@
 | [0009](0009-single-process-concurrency.md) | Single-process concurrency: mutex + SetMaxOpenConns(1) + Flock | Accepted |
 | [0010](0010-session-and-recovery-safety.md) | Stateless anonymous CSRF, atomic migrations и verified recovery | Accepted |
 | [0011](0011-durable-diagnostics.md) | История запросов, checkpoint и аудит с retention/cursor | Accepted |
+| [0012](0012-local-users-and-proxy-passwords.md) | Admin/viewer, отдельные proxy accounts и управляемый auth helper | Accepted |
 
 Новая запись использует [шаблон](../templates/adr.md). Accepted запись не переписывают
 так, будто прежнего решения не было: при замене создаётся новая и Superseded ссылка.

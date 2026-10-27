@@ -117,7 +117,7 @@ func (s *Store) UserCount(tx *sql.Tx) (int, error) {
 
 // InsertUser adds one user row within tx. Used by Bootstrap.
 func (s *Store) InsertUser(tx *sql.Tx, username, hash string) error {
-	_, e := tx.Exec("INSERT INTO users VALUES(?,?)", username, hash)
+	_, e := tx.Exec("INSERT INTO users(username,password_hash) VALUES(?,?)", username, hash)
 	return e
 }
 

@@ -34,6 +34,9 @@ func (s *Server) CollectEvents() error {
 		id, name := "", ""
 		matches := 0
 		for _, client := range manifest.Snapshot.Clients {
+			if client.ProxyUsername != "" && (items[i].ProxyUsername == nil || *items[i].ProxyUsername != client.ProxyUsername) {
+				continue
+			}
 			matched := false
 			for _, raw := range client.Networks {
 				network, e := netip.ParsePrefix(raw)

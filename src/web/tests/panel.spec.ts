@@ -1,5 +1,6 @@
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
+import { randomBytes } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { startFixture } from "./runtime-fixture";
@@ -12,6 +13,25 @@ let page: Page;
 // their own failures instead of being skipped on the first error.
 const errors: string[] = [];
 
+async function navigate(target: Page, name: string) {
+  const button = target
+    .getByRole("navigation", { name: "Разделы панели" })
+    .getByRole("button", { name, exact: true });
+  if (!(await button.isVisible()))
+    await target
+      .getByRole("button", { name: "Открыть или скрыть меню" })
+      .click();
+  await button.click();
+}
+async function signOut(target: Page) {
+  const button = target.getByRole("button", { name: "Выйти", exact: true });
+  if (!(await button.isVisible()))
+    await target
+      .getByRole("button", { name: "Открыть или скрыть меню" })
+      .click();
+  await button.click();
+}
+
 test.beforeAll(async ({ browser }) => {
   fixture = await startFixture();
   page = await browser.newPage();
@@ -23,9 +43,7 @@ test.beforeAll(async ({ browser }) => {
   await page.getByLabel("Имя пользователя").fill(fixture.username);
   await page.getByLabel("Пароль", { exact: true }).fill(fixture.password);
   await page.getByRole("button", { name: "Войти в панель" }).click();
-  await expect(
-    page.getByRole("heading", { name: "Прокси под контролем" }),
-  ).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Обзор" })).toBeVisible();
 });
 
 test.afterAll(async () => {
@@ -63,8 +81,8 @@ test.describe.serial("panel e2e flow", () => {
   });
 
   test("settings: change, apply, then rollback to previous revision", async () => {
-    await page.getByRole("button", { name: "Обзор", exact: true }).click();
-    await page.getByRole("button", { name: "Настройки", exact: true }).click();
+    await navigate(page, "Обзор");
+    await navigate(page, "Настройки");
     await page.getByRole("tab", { name: "DNS и таймауты" }).click();
     await page.getByLabel("Подключение к серверу, секунды").fill("45");
     await page
@@ -99,7 +117,7 @@ test.describe.serial("panel e2e flow", () => {
   });
 
   test("expert mode apply, responsive screenshots, logout", async () => {
-    await page.getByRole("button", { name: "Настройки", exact: true }).click();
+    await navigate(page, "Настройки");
     await page.getByRole("tab", { name: "Экспертный режим" }).click();
     await page
       .getByLabel("Режим конфигурации", { exact: true })
@@ -123,7 +141,7 @@ test.describe.serial("panel e2e flow", () => {
     await expect(
       page.locator(".operation").getByText("Применено", { exact: true }),
     ).toBeVisible();
-    await page.getByRole("button", { name: "Обзор", exact: true }).click();
+    await navigate(page, "Обзор");
     await page.setViewportSize({ width: 1440, height: 1050 });
     // Use os.tmpdir() so screenshots land in the OS-approved temporary
     // directory (e.g. /var/folders/.../T on macOS) instead of hardcoding /tmp
@@ -133,9 +151,7 @@ test.describe.serial("panel e2e flow", () => {
     mkdirSync(dir, { recursive: true });
     await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
-    await expect(
-      page.getByRole("heading", { name: "Прокси под контролем" }),
-    ).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Обзор" })).toBeVisible();
     expect(
       await page.evaluate(
         () => document.documentElement.scrollWidth <= window.innerWidth,
@@ -143,7 +159,7 @@ test.describe.serial("panel e2e flow", () => {
     ).toBeTruthy();
     await page.screenshot({ path: join(dir, "mobile.png"), fullPage: true });
     expect(errors).toEqual([]);
-    await page.getByRole("button", { name: "Выйти", exact: true }).click();
+    await signOut(page);
     await expect(
       page.getByRole("button", { name: "Войти в панель" }),
     ).toBeVisible();
@@ -156,7 +172,7 @@ test("expired GET and mutation sessions can log in again without reload", async 
     await page.getByLabel("Пароль", { exact: true }).fill(fixture.password);
     await page.getByRole("button", { name: "Войти в панель" }).click();
     await expect(
-      page.getByRole("button", { name: "Выйти", exact: true }),
+      page.getByRole("heading", { name: "Обзор", exact: true }),
     ).toBeVisible();
   }
   await signIn();
@@ -165,7 +181,7 @@ test("expired GET and mutation sessions can log in again without reload", async 
     page.getByRole("button", { name: "Войти в панель" }),
   ).toBeVisible({ timeout: 15000 });
   await signIn();
-  await page.getByRole("button", { name: "Настройки", exact: true }).click();
+  await navigate(page, "Настройки");
   await page.getByRole("tab", { name: "DNS и таймауты" }).click();
   await page.getByLabel("Подключение к серверу, секунды").fill("46");
   await page.context().clearCookies();
@@ -219,7 +235,7 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
       return (await r.json()).items.length;
     })
     .toBe(30);
-  await page.getByRole("button", { name: "События", exact: true }).click();
+  await navigate(page, "События");
   const panel = page.getByRole("region", { name: "История запросов" });
   await expect(
     panel.getByRole("cell", { name: "diag-59.test", exact: true }),
@@ -270,7 +286,7 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
     panel.getByRole("cell", { name: "diag-58.test", exact: true }),
   ).toBeVisible();
   await page.unroute(/\/api\/v1\/events\?/);
-  await page.getByRole("button", { name: "Аудит", exact: true }).click();
+  await navigate(page, "Аудит");
   const audit = page.getByRole("region", { name: "Журнал аудита" });
   await page.getByLabel("Участник аудита").fill(fixture.username);
   await page.getByLabel("Действие аудита").selectOption("create_revision");
@@ -278,7 +294,7 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
   await expect(
     audit
       .getByRole("cell", {
-        name: "Создание ревизии create_revision",
+        name: "Создание ревизии",
         exact: true,
       })
       .first(),
@@ -323,5 +339,102 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
       () => document.documentElement.scrollWidth <= window.innerWidth,
     ),
   ).toBeTruthy();
+  expect(errors).toEqual([]);
+});
+
+test("accounts: create viewer, enforce read-only access, revoke on block", async ({
+  browser,
+}) => {
+  const viewerPassword = randomBytes(24).toString("base64url");
+  await navigate(page, "Пользователи");
+  const users = page.getByRole("region", { name: "Пользователи панели" });
+  await users.getByRole("button", { name: "Добавить пользователя" }).click();
+  await page.getByLabel("Логин учётной записи").fill("review-viewer");
+  await page.getByLabel("Пароль учётной записи").fill(viewerPassword);
+  await expect(
+    page.getByLabel("Роль пользователя").locator("option"),
+  ).toHaveCount(2);
+  await page.getByLabel("Роль пользователя").selectOption("viewer");
+  await users.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(
+    users.getByRole("cell", { name: "review-viewer", exact: true }),
+  ).toBeVisible();
+
+  const viewer = await browser.newPage();
+  await viewer.goto(fixture.origin);
+  await viewer.getByLabel("Имя пользователя").fill("review-viewer");
+  await viewer.getByLabel("Пароль", { exact: true }).fill(viewerPassword);
+  await viewer.getByRole("button", { name: "Войти в панель" }).click();
+  await expect(
+    viewer.getByRole("heading", { name: "Обзор", exact: true }),
+  ).toBeVisible();
+  for (const name of [
+    "Клиенты",
+    "Настройки",
+    "Изменения",
+    "Пользователи",
+    "Логины прокси",
+  ])
+    await expect(
+      viewer.getByRole("navigation").getByRole("button", { name, exact: true }),
+    ).toHaveCount(0);
+  await navigate(viewer, "События");
+  await expect(
+    viewer.getByRole("region", { name: "История запросов" }),
+  ).toBeVisible();
+  await navigate(viewer, "Аудит");
+  await expect(
+    viewer.getByRole("region", { name: "Журнал аудита" }),
+  ).toBeVisible();
+  for (const path of [
+    "/configuration/draft",
+    "/users",
+    "/proxy-accounts",
+    "/revisions",
+  ])
+    expect(
+      (await viewer.request.get(fixture.origin + "/api/v1" + path)).status(),
+    ).toBe(403);
+  const row = users.getByRole("row").filter({
+    has: page.getByRole("cell", { name: "review-viewer", exact: true }),
+  });
+  await row.getByRole("button", { name: "Заблокировать", exact: true }).click();
+  await expect(
+    row.getByRole("cell", { name: "Заблокирован", exact: true }),
+  ).toBeVisible();
+  expect(
+    (await viewer.request.get(fixture.origin + "/api/v1/status")).status(),
+  ).toBe(401);
+  await viewer.close();
+  const screenshots =
+    process.env.SC_SCREENSHOT_DIR || join(tmpdir(), "squid-control-ui");
+  await page.setViewportSize({ width: 1440, height: 1050 });
+  await page.screenshot({
+    path: join(screenshots, "users-desktop.png"),
+    fullPage: true,
+  });
+  await navigate(page, "Логины прокси");
+  const proxy = page.getByRole("region", { name: "Логины прокси" });
+  await proxy
+    .getByRole("button", { name: "Добавить логин", exact: true })
+    .click();
+  await page.getByLabel("Логин учётной записи").fill("review-proxy");
+  await page
+    .getByLabel("Пароль учётной записи")
+    .fill(randomBytes(24).toString("base64url"));
+  await proxy.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await expect(
+    proxy.getByRole("cell", { name: "review-proxy", exact: true }),
+  ).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= window.innerWidth,
+    ),
+  ).toBeTruthy();
+  await page.screenshot({
+    path: join(screenshots, "accounts-mobile.png"),
+    fullPage: true,
+  });
   expect(errors).toEqual([]);
 });

@@ -182,20 +182,26 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/session", s.sessionGet)
 	mux.HandleFunc("POST /api/v1/session", s.login)
 	mux.HandleFunc("DELETE /api/v1/session", s.authenticated(s.logout))
-	mux.HandleFunc("GET /api/v1/status", s.authenticated(s.status))
-	mux.HandleFunc("GET /api/v1/revisions", s.authenticated(s.listRevisions))
-	mux.HandleFunc("GET /api/v1/configuration/expert-template", s.authenticated(s.expertTemplate))
-	mux.HandleFunc("GET /api/v1/configuration/draft", s.authenticated(s.getDraft))
-	mux.HandleFunc("PUT /api/v1/configuration/draft", s.authenticated(s.updateDraft))
-	mux.HandleFunc("POST /api/v1/revisions", s.authenticated(s.createRevision))
-	mux.HandleFunc("GET /api/v1/revisions/{id}", s.authenticated(s.getRevision))
-	mux.HandleFunc("GET /api/v1/revisions/{id}/preview", s.authenticated(s.preview))
-	mux.HandleFunc("POST /api/v1/operations", s.authenticated(s.createOperation))
-	mux.HandleFunc("GET /api/v1/operations/{id}", s.authenticated(s.getOperation))
-	mux.HandleFunc("GET /api/v1/events", s.authenticated(s.events))
-	mux.HandleFunc("GET /api/v1/events/clients", s.authenticated(s.eventClients))
-	mux.HandleFunc("GET /api/v1/audit", s.authenticated(s.auditEvents))
-	mux.HandleFunc("GET /api/v1/certificates", s.authenticated(s.certificates))
+	mux.HandleFunc("GET /api/v1/status", s.authorized("read", s.status))
+	mux.HandleFunc("GET /api/v1/revisions", s.authorized("configure", s.listRevisions))
+	mux.HandleFunc("GET /api/v1/configuration/expert-template", s.authorized("configure", s.expertTemplate))
+	mux.HandleFunc("GET /api/v1/configuration/draft", s.authorized("configure", s.getDraft))
+	mux.HandleFunc("PUT /api/v1/configuration/draft", s.authorized("configure", s.updateDraft))
+	mux.HandleFunc("POST /api/v1/revisions", s.authorized("configure", s.createRevision))
+	mux.HandleFunc("GET /api/v1/revisions/{id}", s.authorized("configure", s.getRevision))
+	mux.HandleFunc("GET /api/v1/revisions/{id}/preview", s.authorized("configure", s.preview))
+	mux.HandleFunc("POST /api/v1/operations", s.authorized("configure", s.createOperation))
+	mux.HandleFunc("GET /api/v1/operations/{id}", s.authorized("configure", s.getOperation))
+	mux.HandleFunc("GET /api/v1/events", s.authorized("read", s.events))
+	mux.HandleFunc("GET /api/v1/events/clients", s.authorized("read", s.eventClients))
+	mux.HandleFunc("GET /api/v1/audit", s.authorized("audit", s.auditEvents))
+	mux.HandleFunc("GET /api/v1/users", s.authorized("users", s.listUsers))
+	mux.HandleFunc("POST /api/v1/users", s.authorized("users", s.createUser))
+	mux.HandleFunc("PATCH /api/v1/users/{username}", s.authorized("users", s.updateUser))
+	mux.HandleFunc("GET /api/v1/proxy-accounts", s.authorized("configure", s.listProxyAccounts))
+	mux.HandleFunc("POST /api/v1/proxy-accounts", s.authorized("proxy_accounts", s.createProxyAccount))
+	mux.HandleFunc("PATCH /api/v1/proxy-accounts/{username}", s.authorized("proxy_accounts", s.updateProxyAccount))
+	mux.HandleFunc("GET /api/v1/certificates", s.authorized("read", s.certificates))
 	// No /api/ catch-all: a method-agnostic prefix pattern absorbs wrong-method
 	// requests and would surface them as 404 instead of the 405 Go 1.22 ServeMux
 	// returns when a path matches a registered pattern with a different method.
@@ -398,6 +404,10 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	}
 	if input.Action != "validate" && input.Action != "apply" && input.Action != "rollback" {
 		fail(w, 400, "invalid_action", "Неизвестное действие")
+		return
+	}
+	if input.Action != "validate" && !hasPermission(v, "apply") {
+		fail(w, 403, "forbidden", "Недостаточно прав")
 		return
 	}
 	b, _ := json.Marshal(input)

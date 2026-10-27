@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"squid-control.local/squid/internal/httpapi"
+	"squid-control.local/squid/internal/proxyauth"
 	local "squid-control.local/squid/internal/runtime"
 	"squid-control.local/squid/internal/store"
 	"squid-control.local/squid/web"
@@ -37,7 +38,9 @@ func env(key, def string) string {
 	return def
 }
 func manager() *local.Manager {
-	return local.New(env("SC_RUNTIME_STATE_DIR", "/data/runtime"), env("SC_SQUID_BINARY", "/usr/sbin/squid"), env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"), baseImage)
+	m := local.New(env("SC_RUNTIME_STATE_DIR", "/data/runtime"), env("SC_SQUID_BINARY", "/usr/sbin/squid"), env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"), baseImage)
+	m.Options.AuthDatabase = env("SC_DATABASE_PATH", "/data/app/control.sqlite3")
+	return m
 }
 func main() {
 	if e := run(); e != nil {
@@ -47,12 +50,23 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: squid-control serve|bootstrap|password-reset|dev-cert|squid-start|check")
+		return errors.New("usage: squid-control serve|bootstrap|password-reset|dev-cert|squid-start|check|proxy-auth")
 	}
 	cmd := os.Args[1]
 	m := manager()
 	ctx := context.Background()
 	switch cmd {
+	case "proxy-auth":
+		f := flag.NewFlagSet(cmd, flag.ContinueOnError)
+		stateOnly := f.Bool("state", false, "check authenticated verifier generation")
+		database := f.String("database", env("SC_DATABASE_PATH", "/data/app/control.sqlite3"), "installed credential database")
+		if e := f.Parse(os.Args[2:]); e != nil {
+			return e
+		}
+		if *stateOnly {
+			return proxyauth.RunState(*database, os.Stdin, os.Stdout)
+		}
+		return proxyauth.Run(*database, os.Stdin, os.Stdout)
 	case "squid-start":
 		for i := 0; i < 50; i++ {
 			e := m.Recover(ctx, true)

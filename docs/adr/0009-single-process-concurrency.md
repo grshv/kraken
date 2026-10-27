@@ -63,3 +63,10 @@ _fronting_ единственной панелью, а не дублирован
 [Пересмотренный roadmap](../plans/roadmap.md) не включает HA. Внешний reverse
 proxy сам по себе не устраняет отказ единственной панели/Squid/узла и не является
 решением HA. Если такая потребность появится, потребуется отдельное решение.
+
+## Управляемые auth helpers
+
+После [ADR 0012](0012-local-users-and-proxy-passwords.md) Squid может запускать
+read-only proxy-auth/--state подрежимы того же executable. Единственный процесс
+serve остаётся владельцем web mutations и runtime worker; helper не выполняет
+migrations, не пишет draft/journal и не требует распределённых mutex.

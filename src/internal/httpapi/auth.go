@@ -5,11 +5,8 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"database/sql"
-	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"fmt"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -17,58 +14,15 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/argon2"
+	"squid-control.local/squid/internal/credentials"
 	"squid-control.local/squid/internal/store"
 )
 
 func tokenHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
 
 // PasswordHash persists only a salted one-way Argon2id PHC verifier.
-func PasswordHash(password string) (string, error) {
-	if len(password) < 12 || len(password) > 1024 {
-		return "", errors.New("password must be 12–1024 bytes")
-	}
-	salt := make([]byte, 16)
-	if _, e := rand.Read(salt); e != nil {
-		return "", e
-	}
-	key := argon2.IDKey([]byte(password), salt, 2, 19*1024, 1, 32)
-	return "$argon2id$v=19$m=19456,t=2,p=1$" + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key), nil
-}
-func passwordMatches(encoded, password string) bool {
-	if len(password) > 1024 {
-		return false
-	}
-	var saltText, keyText string
-	var memory uint32 = 19456
-	var iterations uint32 = 2
-	var parallel uint8 = 1
-	parts := strings.Split(encoded, "$")
-	if len(parts) == 3 && parts[0] == "argon2id" {
-		saltText, keyText = parts[1], parts[2]
-	} else {
-		if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != "v=19" {
-			return false
-		}
-		var trailing string
-		if n, e := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d%s", &memory, &iterations, &parallel, &trailing); n != 3 || e != io.EOF {
-			return false
-		}
-		if memory < 8192 || memory > 38912 || iterations < 1 || iterations > 4 || parallel < 1 || parallel > 2 {
-			return false
-		}
-		saltText, keyText = parts[4], parts[5]
-	}
-	salt, e := base64.RawStdEncoding.DecodeString(saltText)
-	if e != nil || len(salt) != 16 {
-		return false
-	}
-	key, e := base64.RawStdEncoding.DecodeString(keyText)
-	if e != nil || len(key) != 32 {
-		return false
-	}
-	return subtle.ConstantTimeCompare(key, argon2.IDKey([]byte(password), salt, iterations, memory, parallel, 32)) == 1
-}
+func PasswordHash(password string) (string, error)  { return credentials.Hash(password) }
+func passwordMatches(encoded, password string) bool { return credentials.Matches(encoded, password) }
 
 // ResetPassword changes the verifier and revokes every session atomically.
 // It never creates an unknown user and never persists the supplied plaintext.
@@ -131,8 +85,8 @@ func Bootstrap(s *store.Store, username, password string) error {
 }
 
 type session struct {
-	User, CSRF, Hash string
-	Expires          int64
+	User, CSRF, Hash, Role string
+	Expires                int64
 }
 
 func (s *Server) readSession(r *http.Request) (session, error) {
@@ -162,6 +116,16 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 	if e != nil {
 		return v, e
 	}
+	if v.User != "" {
+		account, e := s.Store.User(tx, v.User)
+		if e != nil {
+			return v, e
+		}
+		if !account.Enabled {
+			return v, errors.New("user disabled")
+		}
+		v.Role = account.Role
+	}
 	if now >= v.Expires || now-last > 1800 {
 		return v, errors.New("session expired")
 	}
@@ -188,6 +152,14 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 		if len(credentials) != 2 {
 			return v, errors.New("missing credential guard")
 		}
+		account, e := s.Store.User(tx, user)
+		if e != nil {
+			return v, e
+		}
+		if !account.Enabled {
+			return v, errCredentialsChanged
+		}
+		v.Role = account.Role
 		currentHash, e := s.Store.UserPasswordHash(tx, user)
 		if e != nil {
 			return v, e
@@ -245,7 +217,12 @@ func (s *Server) sessionView(w http.ResponseWriter, v session) {
 		username = v.User
 		expires = time.Unix(v.Expires, 0).UTC().Format(time.RFC3339)
 	}
-	respond(w, 200, map[string]any{"authenticated": v.User != "", "username": username, "csrf_token": v.CSRF, "expires_at": expires})
+	respond(w, 200, map[string]any{"authenticated": v.User != "", "username": username, "csrf_token": v.CSRF, "expires_at": expires, "role": func() any {
+		if v.Role == "" {
+			return nil
+		}
+		return v.Role
+	}(), "permissions": permissions(v.Role)})
 }
 func (s *Server) sessionGet(w http.ResponseWriter, r *http.Request) {
 	v, e := s.readSession(r)
@@ -354,7 +331,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	v, e = s.newSession(w, input.Username, encoded, v.Hash)
 	if errors.Is(e, errCredentialsChanged) {
-		fail(w, 401, "invalid_credentials", "Пароль изменён. Войдите заново")
+		fail(w, 401, "invalid_credentials", "Учётные данные изменились. Войдите заново")
 		return
 	}
 	if e != nil {

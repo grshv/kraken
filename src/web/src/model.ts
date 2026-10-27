@@ -1,3 +1,12 @@
+export type PanelRole = "admin" | "viewer";
+export type ApiRequest = <T>(
+  path: string,
+  method?: string,
+  data?: unknown,
+  key?: string,
+  signal?: AbortSignal,
+) => Promise<T>;
+
 export type Destination = { domain: string; include_subdomains: boolean };
 export type Client = {
   kind?: "host" | "network" | "group";
@@ -7,6 +16,7 @@ export type Client = {
   source_networks: string[];
   enabled: boolean;
   policy_id: string;
+  proxy_username?: string;
 };
 export type Policy = {
   id: string;
@@ -33,6 +43,8 @@ export type Snapshot = {
 export type Draft = { version: number; snapshot: Snapshot; updated_at: string };
 export type Session = {
   authenticated: boolean;
+  role: PanelRole | null;
+  permissions: string[];
   username: string | null;
   csrf_token: string;
   // OpenAPI sends RFC3339 for authenticated sessions and null for anonymous.
@@ -85,6 +97,7 @@ export type Event = {
   timestamp: string;
   client_id: string | null;
   client_name: string | null;
+  proxy_username?: string | null;
   client_match_basis: string;
   source_ip: string;
   destination: string;
