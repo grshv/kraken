@@ -15,57 +15,31 @@ import type {
   RevisionSummary,
 } from "./model";
 import { SettingsPanel } from "./SettingsPanel";
+
+// Labels cover every status value the server or a historical revision summary
+// could surface. OpenAPI declares more stages than are emitted today; if the
+// server ever adds one without a label here, Pill falls back to the raw token
+// and a test should catch it. "draft" is the COALESCE default listRevisions
+// uses for revisions that have no operation yet.
 const labels: Record<string, string> = {
   up: "Работает",
   down: "Недоступен",
   unknown: "Нет данных",
   degraded: "Нужна проверка",
   pending: "Принято",
+  accepted: "Принято",
+  staged: "Подготовлено",
+  draft: "Черновик",
   validating: "Проверка",
   validated: "Проверено",
+  promoting: "Применение",
   reloading: "Применение",
+  verifying: "Проверка применения",
   succeeded: "Применено",
   rejected: "Отклонено",
+  rolling_back: "Откат",
   rolled_back: "Восстановлена предыдущая версия",
 };
-let csrf = "";
-async function api<T>(
-  path: string,
-  method = "GET",
-  data?: unknown,
-  key?: string,
-): Promise<T> {
-  const headers: Record<string, string> = {};
-  if (method !== "GET") {
-    headers["Content-Type"] = "application/json";
-    headers["X-CSRF-Token"] = csrf;
-  }
-  if (key) headers["Idempotency-Key"] = key;
-  const r = await fetch(`/api/v1${path}`, {
-    method,
-    headers,
-    body: data === undefined ? undefined : JSON.stringify(data),
-  });
-  if (r.status === 204) return undefined as T;
-  // Treat invalid/expired sessions explicitly: a 401 from an authenticated
-  // call clears the cached CSRF token and bubbles a typed error so the caller
-  // can return the user to the login screen instead of looping on retries.
-  if (r.status === 401 && method !== "GET" && path !== "/session") {
-    csrf = "";
-    throw new SessionExpired();
-  }
-  // Reverse-proxies, TLS MITM pages and TCP resets return non-JSON bodies;
-  // parsing them as JSON throws a misleading SyntaxError that hides the real
-  // status. Inspect content-type first.
-  const ct = r.headers.get("content-type") || "";
-  if (!ct.toLowerCase().startsWith("application/json")) {
-    if (!r.ok) throw new Error(`Сервер недоступен (${r.status})`);
-    throw new Error(`Неожиданный ответ сервера (${r.status})`);
-  }
-  const result = await r.json();
-  if (!r.ok) throw new Error(result.message || `Ошибка ${r.status}`);
-  return result;
-}
 
 class SessionExpired extends Error {
   constructor() {
@@ -73,6 +47,7 @@ class SessionExpired extends Error {
     this.name = "SessionExpired";
   }
 }
+
 function Pill({ value }: { value: string }) {
   return (
     <span
@@ -83,7 +58,14 @@ function Pill({ value }: { value: string }) {
     </span>
   );
 }
+
 function App() {
+  // csrf lives as component state now instead of a module-level mutable let.
+  // The previous `let csrf = ""` worked for a single-root SPA but leaked
+  // across re-renders of a multi-tab fixture and made session rotation during
+  // tests invisible to React. setCsrf on login/logout/session refresh drives
+  // every re-render through the same path used to read the value into api().
+  const [csrf, setCsrf] = useState("");
   const [session, setSession] = useState<Session | null>(null),
     [fatal, setFatal] = useState(""),
     [error, setError] = useState(""),
@@ -102,11 +84,57 @@ function App() {
   const [editing, setEditing] = useState<string | null>(null),
     [showForm, setShowForm] = useState(false);
   const [name, setName] = useState(""),
+    [description, setDescription] = useState(""),
     [networks, setNetworks] = useState(""),
     [mode, setMode] = useState<"all_web" | "allowlist">("allowlist"),
     [domains, setDomains] = useState(""),
     [transport, setTransport] = useState("http");
   const modalRef = useRef<HTMLElement | null>(null);
+  // api reads csrf/index from this closure, so every re-render produces a new
+  // function bound to the current token. Benefits: 401 clearing naturally
+  // rerenders consumers (no hidden state); tests that re-render App with a
+  // different csrf see the new value immediately.
+  async function api<T>(
+    path: string,
+    method = "GET",
+    data?: unknown,
+    key?: string,
+    signal?: AbortSignal,
+  ): Promise<T> {
+    const headers: Record<string, string> = {};
+    if (method !== "GET") {
+      headers["Content-Type"] = "application/json";
+      headers["X-CSRF-Token"] = csrf;
+    }
+    if (key) headers["Idempotency-Key"] = key;
+    const r = await fetch(`/api/v1${path}`, {
+      method,
+      headers,
+      body: data === undefined ? undefined : JSON.stringify(data),
+      signal,
+    });
+    if (r.status === 204) return undefined as T;
+    // Treat invalid/expired sessions explicitly: a 401 from an authenticated
+    // call clears the cached CSRF token and bubbles a typed error so the caller
+    // can return the user to the login screen instead of looping on retries.
+    if (r.status === 401 && method !== "GET" && path !== "/session") {
+      setCsrf("");
+      throw new SessionExpired();
+    }
+    // Reverse-proxies, TLS MITM pages and TCP resets return non-JSON bodies;
+    // parsing them as JSON throws a misleading SyntaxError that hides the real
+    // status. Inspect content-type first. Also avoids surfacing the raw fetch
+    // AbortError when a poll is cancelled mid-flight (signal.aborted).
+    if (signal?.aborted) throw new DOMException("Aborted", "AbortError");
+    const ct = r.headers.get("content-type") || "";
+    if (!ct.toLowerCase().startsWith("application/json")) {
+      if (!r.ok) throw new Error(`Сервер недоступен (${r.status})`);
+      throw new Error(`Неожиданный ответ сервера (${r.status})`);
+    }
+    const result = await r.json();
+    if (!r.ok) throw new Error(result.message || `Ошибка ${r.status}`);
+    return result;
+  }
   // Escape closes the client modal unless a save is in flight. Focus is trapped
   // to the dialog while it is open: Tab cycles among focusable children instead
   // of leaking back to the underlying table which becomes inert under the
@@ -162,7 +190,7 @@ function App() {
   useEffect(() => {
     api<Session>("/session")
       .then((s) => {
-        csrf = s.csrf_token;
+        setCsrf(s.csrf_token);
         setSession(s);
         if (s.authenticated) load().catch((e) => setError(e.message));
       })
@@ -170,9 +198,22 @@ function App() {
   }, []);
   useEffect(() => {
     if (!session?.authenticated) return;
+    // AbortController lets the cleanup function cancel in-flight fetches when
+    // the tab switches or the session expires mid-poll. The previous code
+    // relied on an `active` flag to guard setState, but the underlying fetch
+    // still ran to completion and could surface as a late 401/timeout after
+    // unmount. Sharing one controller between /events and /status polls keeps
+    // cancellation logically atomic across both endpoints.
+    const controller = new AbortController();
     let active = true;
     const refresh = () =>
-      api<{ items: Event[] }>(`/events?failures_only=${failOnly}`)
+      api<{ items: Event[] }>(
+        `/events?failures_only=${failOnly}`,
+        "GET",
+        undefined,
+        undefined,
+        controller.signal,
+      )
         .then((r) => {
           if (active) setEvents(r.items);
         })
@@ -181,49 +222,70 @@ function App() {
           if (e instanceof SessionExpired) {
             // Session expired mid-page: return the user to login instead of
             // cascading 401s across subsequent polling calls.
-            setSession({ authenticated: false, username: null, csrf_token: "" });
+            setSession({ authenticated: false, username: null, csrf_token: "", expires_at: null });
             setError(e.message);
-          } else {
+          } else if (!(e instanceof DOMException && e.name === "AbortError")) {
             setError(e.message);
           }
         });
     refresh();
     const timer = setInterval(() => {
       refresh();
-      api<Status>("/status")
+      api<Status>("/status", "GET", undefined, undefined, controller.signal)
         .then((s) => {
           if (active) setStatus(s);
         })
         .catch((e) => {
           if (active && e instanceof SessionExpired) {
-            setSession({ authenticated: false, username: null, csrf_token: "" });
+            setSession({ authenticated: false, username: null, csrf_token: "", expires_at: null });
             setError(e.message);
           }
         });
     }, 10000);
     return () => {
       active = false;
+      controller.abort();
       clearInterval(timer);
     };
   }, [session?.authenticated, failOnly]);
-  async function work(fn: () => Promise<void>) {
+  async function work(fn: (signal?: AbortSignal) => Promise<void>) {
     setBusy(true);
     setError("");
+    // Each work() invocation gets its own controller. Skills like submitClient
+    // or run() pass the signal into their fetches so aborting this controller
+    // — explicit (component unmount via the useEffect below) or implicit
+    // (work finishes and the controller is GC'd) — cancels in-flight polls
+    // instead of leaving fetches to settle against an unmounted component.
+    const controller = new AbortController();
+    workAbortRef.current = controller;
     try {
-      await fn();
+      await fn(controller.signal);
     } catch (e) {
       if (e instanceof SessionExpired) {
         // Drop the panel state back to the login view; preserve any uncommitted
         // draft snapshot in localStorage-free memory by leaving `draft` in place.
         setError(e.message);
-        setSession({ authenticated: false, username: null, csrf_token: "" });
+        setSession({ authenticated: false, username: null, csrf_token: "", expires_at: null });
+      } else if (e instanceof DOMException && e.name === "AbortError") {
+        // Abort from unmount or a new work() call: don't surface as an error,
+        // just stop the in-flight sequence.
       } else {
         setError((e as Error).message);
       }
     } finally {
+      if (workAbortRef.current === controller) {
+        workAbortRef.current = null;
+      }
       setBusy(false);
     }
   }
+  const workAbortRef = useRef<AbortController | null>(null);
+  // On unmount, abort any in-flight work fetches. Lets a user navigate away
+  // mid-poll without leaving orphan requests that surface as setState warnings
+  // against an unmounted component.
+  useEffect(() => {
+    return () => workAbortRef.current?.abort();
+  }, []);
   async function login(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
     const form = new FormData(e.currentTarget);
@@ -232,7 +294,7 @@ function App() {
         username: form.get("username"),
         password: form.get("password"),
       });
-      csrf = s.csrf_token;
+      setCsrf(s.csrf_token);
       setSession(s);
       await load();
     });
@@ -241,7 +303,7 @@ function App() {
     await work(async () => {
       await api("/session", "DELETE");
       const s = await api<Session>("/session");
-      csrf = s.csrf_token;
+      setCsrf(s.csrf_token);
       setSession(s);
       setDraft(null);
       setPreview(null);
@@ -270,6 +332,7 @@ function App() {
     setEditing(c?.id || null);
     setKind(c?.kind || (c && c.source_networks.length > 1 ? "group" : "host"));
     setName(c?.name || "");
+    setDescription(c?.description || "");
     setNetworks(c?.source_networks.join("\n") || "");
     setMode(p?.mode || "allowlist");
     setDomains(
@@ -324,6 +387,7 @@ function App() {
         id,
         kind,
         name: name.trim(),
+        description: description.trim() || undefined,
         source_networks: networks
           .split(/[\n,]/)
           .map((s) => s.trim())
@@ -353,7 +417,7 @@ function App() {
   }
   async function run(action: "validate" | "apply" | "rollback") {
     if (!preview) return;
-    await work(async () => {
+    await work(async (signal) => {
       const input = {
         action,
         revision_id: preview.revision_id,
@@ -365,20 +429,21 @@ function App() {
         "POST",
         input,
         crypto.randomUUID(),
+        signal,
       );
       setOperation(op);
       // The server worker keeps an Apply operation alive for up to 90 s, plus up
       // to 45 s of rollback (see manager.go: rollbackCtx budget). Polling for
       // only 50 s would hang the UI in "Применение/Проверка" if reconfigure is
       // slow or the rollback engages. Continue until a terminal status is seen
-      // (or the request errors out), with periodic backoff.
+      // (or the request errors out / is aborted by unmount), with periodic backoff.
       for (
         let i = 0;
         i < 360 && ["pending", "validating", "reloading"].includes(op.status);
         i++
       ) {
         await new Promise((r) => setTimeout(r, 500));
-        op = await api<Operation>(`/operations/${op.id}`);
+        op = await api<Operation>(`/operations/${op.id}`, "GET", undefined, undefined, signal);
         setOperation(op);
         if (
           i === 200 &&
@@ -389,7 +454,7 @@ function App() {
           );
         }
       }
-      setHistory((await api<{ items: RevisionSummary[] }>("/revisions")).items);
+      setHistory((await api<{ items: RevisionSummary[] }>("/revisions", "GET", undefined, undefined, signal)).items);
       if (op.status === "validated") setValidated(op.id);
       if (op.status === "succeeded") {
         await load();
@@ -651,9 +716,14 @@ function App() {
                           (p) => p.id === c.policy_id,
                         );
                         return (
-                          <tr key={c.id}>
+                        <tr key={c.id}>
                             <td>
                               <strong>{c.name}</strong>
+                              {c.description && (
+                                <small className="row-description">
+                                  {c.description}
+                                </small>
+                              )}
                             </td>
                             <td className="mono">
                               {c.source_networks.join(", ")}
@@ -824,13 +894,21 @@ function App() {
                     <div className="actions">
                       <button
                         className="secondary"
-                        disabled={busy || rollbackTarget}
+                        disabled={
+                          busy ||
+                          rollbackTarget ||
+                          status?.runtime.state === "degraded"
+                        }
                         onClick={() => run("validate")}
                       >
                         Проверить
                       </button>
                       <button
-                        disabled={busy || (!rollbackTarget && !validated)}
+                        disabled={
+                          busy ||
+                          (!rollbackTarget && !validated) ||
+                          status?.runtime.state === "degraded"
+                        }
                         onClick={() =>
                           run(rollbackTarget ? "rollback" : "apply")
                         }
@@ -1045,6 +1123,18 @@ function App() {
                   autoFocus
                   placeholder="Например, build-server"
                 />
+              </label>
+              <label>
+                Описание
+                <input
+                  value={description}
+                  onChange={(e) => setDescription(e.target.value)}
+                  maxLength={1024}
+                  placeholder="Необязательное пояснение для оператора"
+                />
+                <small>
+                  Видно только в этой панели. Backend хранит до 1024 символов.
+                </small>
               </label>
               <label>
                 Тип клиента

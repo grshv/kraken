@@ -39,12 +39,24 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
     setError("");
   }, [snapshot]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  // Split update into typed paths so number inputs do not need `as never` to
+  // bypass the Settings[K] union. Anything else (boolean arrays, string
+  // arrays) continues through the generic update.
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings({ ...settings, [key]: value });
     setDirty(true);
   }
+  // NumberKeys extracts only the numeric keys so the input handler does not
+  // need a cast. `keyof Settings` alone would widen value to the full union.
+  type NumberKeys = {
+    [K in keyof Settings]: Settings[K] extends number ? K : never;
+  }[keyof Settings];
+  function updateNumber(key: NumberKeys, value: number) {
+    setSettings({ ...settings, [key]: value });
+    setDirty(true);
+  }
   function number(
-    key: keyof Settings,
+    key: NumberKeys,
     label: string,
     min: number,
     max: number,
@@ -59,7 +71,7 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
           min={min}
           max={max}
           required
-          onChange={(e) => update(key, Number(e.target.value) as never)}
+          onChange={(e) => updateNumber(key, Number(e.target.value))}
         />
         {hint && <small>{hint}</small>}
       </label>
@@ -177,7 +189,7 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
                     .filter(Boolean)
                     .map((v) => Number(v))
                     .filter((n) => Number.isFinite(n));
-                  update("safe_ports", next as never);
+                  update("safe_ports", next);
                 }}
               />
               <small>
@@ -196,7 +208,7 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
                     .filter(Boolean)
                     .map((v) => Number(v))
                     .filter((n) => Number.isFinite(n));
-                  update("connect_ports", next as never);
+                  update("connect_ports", next);
                 }}
               />
               <small>

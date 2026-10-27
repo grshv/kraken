@@ -3,6 +3,7 @@ export type Client = {
   kind?: "host" | "network" | "group";
   id: string;
   name: string;
+  description?: string;
   source_networks: string[];
   enabled: boolean;
   policy_id: string;
@@ -34,11 +35,15 @@ export type Session = {
   authenticated: boolean;
   username: string | null;
   csrf_token: string;
+  // OpenAPI sends RFC3339 for authenticated sessions and null for anonymous.
+  // Type drift here previously meant callers that decoded it as if always
+  // present silently dropped the value.
+  expires_at: string | null;
 };
 export type Component = {
-  state: string;
+  state: "up" | "down" | "unknown" | "degraded";
   detail: string;
-  observed_at: string;
+  observed_at: string | null;
   stale: boolean;
 };
 export type Status = {
@@ -47,6 +52,10 @@ export type Status = {
   runtime: Component;
   squid: Component;
   applied_revision: string | null;
+  // observed_config_hash was missing from the previous model; the UI does not
+  // display it but including it keeps the type aligned with OpenAPI so future
+  // fields land at compile time rather than runtime.
+  observed_config_hash: string | null;
   capabilities: string[];
 };
 export type Preview = {
@@ -64,13 +73,26 @@ export type Operation = {
   revision_id: string;
   status: string;
   findings: string[];
+  created_at: string;
+  updated_at: string;
 };
 export type Event = {
+  // Fields beyond what the UI currently renders are typed but not used; this
+  // closes a type-drift gap where the runtime returned id/client_id/tls_mode
+  // etc. but the model declared only title/source/destination, so any future
+  // column would have surfaced as a runtime error instead of compile-time.
+  id: string;
   timestamp: string;
+  client_id: string | null;
   source_ip: string;
-  proxy_result: string;
-  method: string;
   destination: string;
+  method: string;
+  proxy_result: string;
+  proxy_http_status: number | null;
+  duration_ms: number | null;
+  bytes_observed: number | null;
+  tls_mode: "unknown" | "tunnel";
+  revision_id: string | null;
 };
 
 export type Settings = {
