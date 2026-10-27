@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"regexp"
@@ -212,6 +213,14 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 	// the authenticated ceiling so an unauthenticated attacker cannot exhaust the
 	// shared pool and lock the administrator out of login.
 	if count >= 256 || (user == "" && anonCount >= 32) {
+		// Record the capacity event; actor is the (potentially empty) username
+		// being authenticated, or "" for the anonymous path. The audit row
+		// lets monitoring distinguish "session pool exhausted by anon flood"
+		// from "authenticated user denied because pool is full".
+		action := "session_capacity_reached"
+		if e := s.Store.Audit(user, action, ""); e != nil {
+			slog.Warn("audit write failed", "action", action, "actor", user, "error", e)
+		}
 		return v, errors.New("session capacity reached")
 	}
 	if _, e = tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", v.Hash, user, v.CSRF, v.Expires, time.Now().Unix()); e != nil {
@@ -249,6 +258,9 @@ func (s *Server) sessionGet(w http.ResponseWriter, r *http.Request) {
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	v, e := s.readSession(r)
 	if e != nil || !s.csrf(r, v) {
+		// CSRF failure on the login form usually means a stale tab; record it so
+		// security monitoring can correlate a CSRF spray across accounts.
+		s.auditAudit(remoteHost(r.RemoteAddr), "csrf_failed", "")
 		fail(w, 403, "csrf_failed", "Обновите страницу входа")
 		return
 	}
@@ -263,48 +275,56 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid_input", "Некорректные данные входа")
 		return
 	}
-	host, _, splitErr := net.SplitHostPort(r.RemoteAddr)
-	if splitErr != nil {
-		host = r.RemoteAddr
-	}
+	host := remoteHost(r.RemoteAddr)
 	// Two independent throttle counters share the same backing map but use
 	// distinct key prefixes, so a distributed password-guessing attack that
 	// rotates source IPs cannot bypass the per-account ceiling, and a single
 	// host attacking multiple accounts cannot bypass the per-(host,account) one.
 	hostKey := "host:" + host + ":" + input.Username
 	acctKey := "acct:" + input.Username
-	s.throttleMu.Lock()
 	now := time.Now()
-	hostEntry := s.attempts[hostKey]
-	if now.Sub(hostEntry.Start) > time.Minute {
-		hostEntry = attempt{Start: now}
-	}
-	hostEntry.Count++
-	acctEntry := s.attempts[acctKey]
-	if now.Sub(acctEntry.Start) > time.Minute {
-		acctEntry = attempt{Start: now}
-	}
-	acctEntry.Count++
+	cutoff := now.Add(-time.Minute)
+	s.throttleMu.Lock()
+	// Drop attempts outside the sliding window and compact the map opportunistically.
 	if len(s.attempts) > 512 {
 		for k, a := range s.attempts {
-			if now.Sub(a.Start) > time.Minute {
+			j := 0
+			for _, t := range a.Times {
+				if t.After(cutoff) {
+					a.Times[j] = t
+					j++
+				}
+			}
+			if j == 0 {
 				delete(s.attempts, k)
+			} else {
+				a.Times = a.Times[:j]
+				s.attempts[k] = a
 			}
 		}
 	}
-	if len(s.attempts) >= 512 && hostEntry.Count == 1 {
+	hostEntry := s.attempts[hostKey]
+	hostEntry.Times = appendFresh(hostEntry.Times, cutoff, now)
+	acctEntry := s.attempts[acctKey]
+	acctEntry.Times = appendFresh(acctEntry.Times, cutoff, now)
+	if len(s.attempts) >= 512 && len(hostEntry.Times) == 1 {
+		// Map is at capacity. Reject this new fingerprint rather than evicting
+		// an entry that might belong to a legitimate user under attack.
 		s.throttleMu.Unlock()
+		s.auditAudit(host, "rate_limited", input.Username)
 		fail(w, 429, "rate_limited", "Повторите вход позже")
 		return
 	}
 	s.attempts[hostKey] = hostEntry
 	s.attempts[acctKey] = acctEntry
 	s.throttleMu.Unlock()
-	if hostEntry.Count > 5 {
+	if len(hostEntry.Times) > 5 {
+		s.auditAudit(host, "rate_limited", input.Username)
 		fail(w, 429, "rate_limited", "Слишком много попыток. Повторите через минуту")
 		return
 	}
-	if acctEntry.Count > 20 {
+	if len(acctEntry.Times) > 20 {
+		s.auditAudit(input.Username, "rate_limited", "")
 		fail(w, 429, "rate_limited", "Слишком много попыток для этого имени. Повторите через минуту")
 		return
 	}
@@ -312,6 +332,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	case s.loginSlots <- struct{}{}:
 		defer func() { <-s.loginSlots }()
 	default:
+		s.auditAudit(host, "rate_limited", input.Username)
 		fail(w, 429, "rate_limited", "Повторите вход позже")
 		return
 	}
@@ -324,7 +345,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !passwordMatches(encoded, input.Password) || encoded == s.dummyHash {
-		s.Store.Audit(input.Username, "login_failed", "")
+		s.auditAudit(input.Username, "login_failed", "")
 		fail(w, 401, "invalid_credentials", "Неверное имя или пароль")
 		return
 	}
@@ -339,6 +360,40 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	s.sessionView(w, v)
 }
+
+// remoteHost extracts the client IP from RemoteAddr, falling back to the raw
+// value if SplitHostPort fails (e.g. unix socket, missing port).
+func remoteHost(addr string) string {
+	host, _, splitErr := net.SplitHostPort(addr)
+	if splitErr != nil {
+		return addr
+	}
+	return host
+}
+
+// appendFresh returns the slice with t appended after dropping timestamps older
+// than cutoff. Used by the throttle sliding window without reallocating when the
+// slice head already expired.
+func appendFresh(times []time.Time, cutoff, t time.Time) []time.Time {
+	j := 0
+	for _, x := range times {
+		if x.After(cutoff) {
+			times[j] = x
+			j++
+		}
+	}
+	times = append(times[:j], t)
+	return times
+}
+
+// auditAudit records an event and logs (but does not propagate) persistence
+// errors so a flaky SQLite write never masks a security control.
+func (s *Server) auditAudit(actor, action, entity string) {
+	if e := s.Store.Audit(actor, action, entity); e != nil {
+		slog.Warn("audit write failed", "action", action, "actor", actor, "error", e)
+	}
+}
+
 func (s *Server) csrf(r *http.Request, v session) bool {
 	return r.Header.Get("Origin") == s.Origin && v.CSRF != "" && subtle.ConstantTimeCompare([]byte(r.Header.Get("X-CSRF-Token")), []byte(v.CSRF)) == 1
 }
@@ -350,6 +405,7 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, ses
 			return
 		}
 		if r.Method != "GET" && !s.csrf(r, v) {
+			s.auditAudit(v.User, "csrf_failed", r.URL.Path)
 			fail(w, 403, "csrf_failed", "Запрос не прошёл проверку безопасности")
 			return
 		}
@@ -361,6 +417,7 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
+	s.auditAudit(v.User, "logout", "")
 	http.SetCookie(w, &http.Cookie{Name: "__Host-session", Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	w.WriteHeader(204)
 }

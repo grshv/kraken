@@ -98,6 +98,84 @@ func (s *Store) Audit(actor, action, entity string) error {
 	return e
 }
 
+// Operation CRUD: httpapi used to issue these INSERTs/UPDATEs/SELECTs inline,
+// which leaked the operations/audit_events schema into the HTTP layer and made
+// schema changes require touching every handler. The methods below are the
+// stable surface; bodies are opaque JSON strings so the Operation struct can
+// stay private to httpapi.
+
+// InsertOperation writes the operation row plus its audit event in one tx so a
+// crash between INSERTs cannot leave an audit_events row without its operation
+// (or vice versa). The id is passed explicitly because callers already have it
+// from ID(); deriving it from opBody JSON would be needlessly fragile.
+func (s *Store) InsertOperation(id, opBody, idempotencyKey, requestHash, actor, action string) error {
+	tx, e := s.DB.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if _, e = tx.Exec("INSERT INTO operations VALUES(?,?,?,?)", id, idempotencyKey, requestHash, opBody); e != nil {
+		return e
+	}
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, time.Now().UTC().Format(time.RFC3339)); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+
+// UpdateOperation overwrites the body for an existing operation id.
+func (s *Store) UpdateOperation(id, opBody string) error {
+	_, e := s.DB.Exec("UPDATE operations SET body=? WHERE id=?", opBody, id)
+	return e
+}
+
+// LoadOperation returns the raw JSON body of one operation, or sql.ErrNoRows.
+func (s *Store) LoadOperation(id string) (string, error) {
+	var raw string
+	e := s.DB.QueryRow("SELECT body FROM operations WHERE id=?", id).Scan(&raw)
+	return raw, e
+}
+
+// FindOperationByIdempotencyKey returns (id, request_hash, true) when key
+// exists; (false) when not found; or an error for storage failures.
+func (s *Store) FindOperationByIdempotencyKey(key string) (id, requestHash string, found bool, err error) {
+	e := s.DB.QueryRow("SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&id, &requestHash)
+	if errors.Is(e, sql.ErrNoRows) {
+		return "", "", false, nil
+	}
+	if e != nil {
+		return "", "", false, e
+	}
+	return id, requestHash, true, nil
+}
+
+// CountSucceededByRevision reports how many operations reference the revision
+// with status='succeeded'. Used to gate rollback to a previously-applied rev.
+func (s *Store) CountSucceededByRevision(revID string) (int, error) {
+	var n int
+	e := s.DB.QueryRow("SELECT COUNT(*) FROM operations WHERE json_extract(body,'$.revision_id')=? AND json_extract(body,'$.status')='succeeded'", revID).Scan(&n)
+	return n, e
+}
+
+// ListOperationBodies returns the (id, body) of every operation row, in any
+// order. Used by httpapi's New() reconciliation pass to recover abandoned ops.
+func (s *Store) ListOperationBodies() ([]struct{ ID, Body string }, error) {
+	rows, e := s.DB.Query("SELECT id,body FROM operations")
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []struct{ ID, Body string }{}
+	for rows.Next() {
+		var id, raw string
+		if e = rows.Scan(&id, &raw); e != nil {
+			return nil, e
+		}
+		out = append(out, struct{ ID, Body string }{id, raw})
+	}
+	return out, rows.Err()
+}
+
 // Prune applies the retention policy documented in docs/architecture/data-model.md:
 // audit events older than the cutoff are deleted, and revision blobs that are
 // neither the current LKG nor among the most recent N are dropped. Callers run
@@ -125,6 +203,61 @@ AND key NOT IN (SELECT key FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DE
 		}
 	}
 	return tx.Commit()
+}
+
+// InsertRevision stores the revision JSON under kv key "revision:<id>" and
+// writes the corresponding audit_event in one transaction. Used by
+// httpapi.createRevision so schema details stay inside store.
+func (s *Store) InsertRevision(revID, revBody, actor, action string) error {
+	tx, e := s.DB.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	if _, e = tx.Exec("INSERT INTO kv VALUES(?,?)", "revision:"+revID, revBody); e != nil {
+		return e
+	}
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, revID, time.Now().UTC().Format(time.RFC3339)); e != nil {
+		return e
+	}
+	return tx.Commit()
+}
+
+// ListRevisions returns the most recent 100 revision bodies with their
+// applied/latest_status summary. The query that lives here is the doctrinal
+// source of "revision is applied iff at least one succeeded operation references
+// it" and "latest_status is the most recent operation status for that revision,
+// defaulting to 'draft'" — both mirrors of the httpapi contract.
+func (s *Store) ListRevisions() ([]struct {
+	Body          string
+	Applied       bool
+	LatestStatus  string
+}, error) {
+	rows, e := s.DB.Query(`SELECT value,
+ EXISTS(SELECT 1 FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') AND json_extract(body,'$.status')='succeeded'),
+ COALESCE((SELECT json_extract(body,'$.status') FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') ORDER BY rowid DESC LIMIT 1),'draft')
+ FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DESC LIMIT 100`)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []struct {
+		Body          string
+		Applied       bool
+		LatestStatus  string
+	}{}
+	for rows.Next() {
+		var item struct {
+			Body          string
+			Applied       bool
+			LatestStatus  string
+		}
+		if e = rows.Scan(&item.Body, &item.Applied, &item.LatestStatus); e != nil {
+			return nil, e
+		}
+		out = append(out, item)
+	}
+	return out, rows.Err()
 }
 
 // Change writes desired state and its audit event in one durable transaction.

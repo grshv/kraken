@@ -34,35 +34,21 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 	respond(w, 200, result)
 }
 func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session) {
-	rows, e := s.Store.DB.Query(`SELECT value,
- EXISTS(SELECT 1 FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') AND json_extract(body,'$.status')='succeeded'),
- COALESCE((SELECT json_extract(body,'$.status') FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') ORDER BY rowid DESC LIMIT 1),'draft')
- FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DESC LIMIT 100`)
+	rows, e := s.Store.ListRevisions()
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "История недоступна")
 		return
 	}
-	defer rows.Close()
 	current, me := s.Runtime.ReadManifest()
 	items := []RevisionSummary{}
-	for rows.Next() {
-		var raw, status string
-		var applied bool
-		if e = rows.Scan(&raw, &applied, &status); e != nil {
-			fail(w, 503, "storage_unavailable", "История недоступна")
-			return
-		}
+	for _, row := range rows {
 		var rev Revision
-		if e = json.Unmarshal([]byte(raw), &rev); e != nil {
+		if e = json.Unmarshal([]byte(row.Body), &rev); e != nil {
 			fail(w, 503, "storage_unavailable", "Повреждённая запись ревизии")
 			return
 		}
 		isCurrent := me == nil && current.Revision == rev.ID
-		items = append(items, RevisionSummary{ID: rev.ID, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: applied, Current: isCurrent, CanRollback: applied && !isCurrent, Status: status})
-	}
-	if e = rows.Err(); e != nil {
-		fail(w, 503, "storage_unavailable", "История недоступна")
-		return
+		items = append(items, RevisionSummary{ID: rev.ID, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: row.Applied, Current: isCurrent, CanRollback: row.Applied && !isCurrent, Status: row.LatestStatus})
 	}
 	respond(w, 200, map[string]any{"items": items})
 }

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"crypto/sha256"
+	"crypto/subtle"
 	"crypto/x509"
 	"database/sql"
 	"encoding/hex"
@@ -56,8 +57,11 @@ type operationInput struct {
 	Validation string  `json:"validation_operation_id,omitempty"`
 }
 type attempt struct {
-	Start time.Time
-	Count int
+	// Sliding window of attempt timestamps within the last minute. A fixed
+	// window with entry.Start would let an attacker fire 5 attempts at 0:59 and
+	// 5 more at 1:01 = 10 inside 2 seconds — sliding window closes that by
+	// expiring each attempt individually.
+	Times []time.Time
 }
 type Server struct {
 	persistenceFailed atomic.Bool
@@ -74,6 +78,21 @@ type Server struct {
 	loginSlots        chan struct{}
 	dummyHash         string
 	workers           sync.WaitGroup
+	// certCache avoids re-parsing the same PEM file on every polling tick of
+	// /api/v1/certificates. Entries are keyed by absolute path; the cached
+	// payload is invalidated when mtime changes. The panel polls certificates
+	// roughly every 10 s, and parsing a 1 MiB PEM chain each time is wasteful
+	// when the underlying file has not changed since install.
+	certCache   map[string]certCacheEntry
+	certCacheMu sync.Mutex
+}
+
+// certCacheEntry holds the parsed result of one PEM file plus the mtime/size
+// observed when it was produced. A mismatch on stat invalidates the entry.
+type certCacheEntry struct {
+	mtime time.Time
+	size  int64
+	item  map[string]any
 }
 
 func stamp() string { return time.Now().UTC().Format(time.RFC3339) }
@@ -86,7 +105,7 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 	if e != nil {
 		return nil, e
 	}
-	s := &Server{Store: st, Runtime: rt, Origin: origin, Static: static, Image: image, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h}
+	s := &Server{Store: st, Runtime: rt, Origin: origin, Static: static, Image: image, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, certCache: map[string]certCacheEntry{}}
 	var d Draft
 	e = st.Get("draft", &d)
 	if errors.Is(e, sql.ErrNoRows) {
@@ -96,30 +115,19 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 		return nil, e
 	}
 	// Reconcile abandoned operations after the runtime has recovered its filesystem state.
-	rows, e := st.DB.Query("SELECT id,body FROM operations")
+	allOps, e := st.ListOperationBodies()
 	if e != nil {
 		return nil, e
 	}
 	var abandoned []Operation
-	for rows.Next() {
-		var id, raw string
-		if e = rows.Scan(&id, &raw); e != nil {
-			rows.Close()
-			return nil, e
-		}
+	for _, row := range allOps {
 		var op Operation
-		if e = json.Unmarshal([]byte(raw), &op); e != nil {
-			rows.Close()
+		if e = json.Unmarshal([]byte(row.Body), &op); e != nil {
 			return nil, e
 		}
 		if op.Status == "pending" || op.Status == "validating" || op.Status == "reloading" {
 			abandoned = append(abandoned, op)
 		}
-	}
-	e = rows.Err()
-	rows.Close()
-	if e != nil {
-		return nil, e
 	}
 	j, je := rt.Journal()
 	for _, op := range abandoned {
@@ -185,21 +193,34 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.authenticated(s.getOperation))
 	mux.HandleFunc("GET /api/v1/events", s.authenticated(s.events))
 	mux.HandleFunc("GET /api/v1/certificates", s.authenticated(s.certificates))
-	mux.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) {
-		// Go 1.22 ServeMux would otherwise 405 a registered path with the wrong
-		// method; the generic catch-all here returns a clearer 404 to legacy
-		// clients, while MethodNotAllowed from registered patterns still surfaces.
-		fail(w, 404, "not_found", "Неизвестный endpoint")
-	})
-	mux.Handle("/", s.Static)
+	// No /api/ catch-all: a method-agnostic prefix pattern absorbs wrong-method
+	// requests and would surface them as 404 instead of the 405 Go 1.22 ServeMux
+	// returns when a path matches a registered pattern with a different method.
+	// Unknown /api/ paths fall through to the "/" handler below, which produces
+	// the same JSON 404 envelope legacy clients expect.
+	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") {
+			fail(w, 404, "not_found", "Неизвестный endpoint")
+			return
+		}
+		s.Static.ServeHTTP(w, r)
+	}))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		rid := store.ID()
+		// Default policy: no-store for HTML, JSON and error bodies. Hashed
+		// assets under /assets/ override this to immutable in web/embed.go once
+		// the file is confirmed to exist (so a missing asset does not become a
+		// perpetually cached 404).
 		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
+		// includeSubDomains; preload: management panel is hosted on a dedicated
+		// origin without other HTTP subdomains. preload listing is opt-in and
+		// only effective once the operator submits the host to the HSTS preload
+		// list; the directive itself is harmless for closed single-host deploys.
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
 		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
 		rw := &statusRecorder{ResponseWriter: w, status: 200}
 		defer func() {
@@ -284,17 +305,8 @@ func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v sessio
 		return
 	}
 	rev := Revision{ID: store.ID(), DraftVersion: d.Version, Hash: policy.Hash(d.Snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: d.Snapshot}
-	tx, e := s.Store.DB.Begin()
-	if e != nil {
-		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-		return
-	}
-	defer tx.Rollback()
 	b, _ := json.Marshal(rev)
-	if _, e = tx.Exec("INSERT INTO kv VALUES(?,?)", "revision:"+rev.ID, string(b)); e == nil {
-		_, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", v.User, "create_revision", rev.ID, stamp())
-	}
-	if e != nil || tx.Commit() != nil {
+	if e := s.Store.InsertRevision(rev.ID, string(b), v.User, "create_revision"); e != nil {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -344,13 +356,11 @@ func (s *Server) saveOperation(op Operation) error {
 	if e != nil {
 		return e
 	}
-	_, e = s.Store.DB.Exec("UPDATE operations SET body=? WHERE id=?", string(b), op.ID)
-	return e
+	return s.Store.UpdateOperation(op.ID, string(b))
 }
 func (s *Server) loadOperation(id string) (Operation, error) {
 	var op Operation
-	var raw string
-	e := s.Store.DB.QueryRow("SELECT body FROM operations WHERE id=?", id).Scan(&raw)
+	raw, e := s.Store.LoadOperation(id)
 	if e != nil {
 		return op, e
 	}
@@ -390,9 +400,19 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	b, _ := json.Marshal(input)
 	hash := sha256.Sum256(b)
 	requestHash := hex.EncodeToString(hash[:])
-	var oldID, oldHash string
-	if queryErr := s.Store.DB.QueryRow("SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&oldID, &oldHash); queryErr == nil {
-		if oldHash != requestHash {
+	oldID, oldHash, found, queryErr := s.Store.FindOperationByIdempotencyKey(key)
+	if queryErr != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	if found {
+		// SHA256 hex output is fixed-length (64 bytes), so ConstantTimeCompare is
+		// safe here. The hash itself is not secret, but keeping the compare path
+		// uniform with csrf/password verifiers avoids a timing oracle that would
+		// distinguish "key exists with mismatched hash" from "key absent" — both
+		// surface to the client as 409, but the side channel would let an
+		// attacker learn whether a victim's idempotency key is in use.
+		if subtle.ConstantTimeCompare([]byte(oldHash), []byte(requestHash)) != 1 {
 			fail(w, 409, "idempotency_conflict", "Ключ уже использован другим запросом")
 			return
 		}
@@ -403,9 +423,6 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		}
 		respond(w, 202, op)
 		return
-	} else if !errors.Is(queryErr, sql.ErrNoRows) {
-		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-		return
 	}
 	if s.persistenceFailed.Load() {
 		fail(w, 503, "recovery_required", "Не удалось сохранить исход предыдущей операции; требуется восстановление")
@@ -415,9 +432,13 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		// A previous request may have inserted the operation between our SELECT and
 		// this lock; re-check idempotency so a legitimate replay of the same key
 		// returns the in-progress operation instead of a busy 409.
-		var retryID, retryHash string
-		if retryErr := s.Store.DB.QueryRow("SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&retryID, &retryHash); retryErr == nil {
-			if retryHash != requestHash {
+		retryID, retryHash, retryFound, retryErr := s.Store.FindOperationByIdempotencyKey(key)
+		if retryErr != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		if retryFound {
+			if subtle.ConstantTimeCompare([]byte(retryHash), []byte(requestHash)) != 1 {
 				fail(w, 409, "idempotency_conflict", "Ключ уже использован другим запросом")
 				return
 			}
@@ -467,8 +488,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		}
 	}
 	if input.Action == "rollback" {
-		var n int
-		e = s.Store.DB.QueryRow("SELECT COUNT(*) FROM operations WHERE json_extract(body,'$.revision_id')=? AND json_extract(body,'$.status')='succeeded'", rev.ID).Scan(&n)
+		n, e := s.Store.CountSucceededByRevision(rev.ID)
 		if e != nil || n == 0 {
 			fail(w, 422, "not_applied_revision", "Для отката нужна ранее успешно применённая ревизия")
 			return
@@ -476,16 +496,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	}
 	op := Operation{ID: store.ID(), Action: input.Action, Revision: rev.ID, Status: "pending", Findings: []string{}, Created: stamp(), Updated: stamp()}
 	raw, _ := json.Marshal(op)
-	tx, e := s.Store.DB.Begin()
-	if e != nil {
-		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-		return
-	}
-	defer tx.Rollback()
-	if _, e = tx.Exec("INSERT INTO operations VALUES(?,?,?,?)", op.ID, key, requestHash, string(raw)); e == nil {
-		_, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", v.User, input.Action, op.ID, stamp())
-	}
-	if e != nil || tx.Commit() != nil {
+	if e := s.Store.InsertOperation(op.ID, string(raw), key, requestHash, v.User, input.Action); e != nil {
 		fail(w, 409, "operation_conflict", "Не удалось принять операцию")
 		return
 	}
@@ -570,46 +581,76 @@ func (s *Server) certificates(w http.ResponseWriter, r *http.Request, v session)
 		if item.Path == "" {
 			continue
 		}
-		// Stat before ReadFile so an accidentally over-sized PEM cannot spike memory.
-		// 1 MiB is also the bound enforced for embedded bodies elsewhere in this handler.
-		st, e := os.Stat(item.Path)
-		if e != nil || st.Size() > 1024*1024 {
+		entry, ok := s.loadCachedCertificate(item)
+		if !ok {
 			fail(w, 503, "certificate_unavailable", "Метаданные сертификата недоступны")
 			return
 		}
-		b, e := os.ReadFile(item.Path)
-		if e != nil || len(b) > 1024*1024 {
-			fail(w, 503, "certificate_unavailable", "Метаданные сертификата недоступны")
-			return
+		// Seal the response with the human-readable ref/purpose; the cache value
+		// only carries parsed cert fields so the same cache entry can be reused
+		// even if the caller relabels the ref/purpose in a future schema.
+		out := map[string]any{}
+		for k, val := range entry {
+			out[k] = val
 		}
-		rest := b
-		public := []byte{}
-		var leaf *x509.Certificate
-		for len(rest) > 0 {
-			block, tail := pem.Decode(rest)
-			if block == nil {
-				break
-			}
-			rest = tail
-			if block.Type != "CERTIFICATE" {
-				continue
-			}
-			cert, e := x509.ParseCertificate(block.Bytes)
-			if e != nil {
-				fail(w, 503, "certificate_unavailable", "Некорректный сертификат")
-				return
-			}
-			if leaf == nil {
-				leaf = cert
-			}
-			public = append(public, pem.EncodeToMemory(block)...)
-		}
-		if leaf == nil {
-			fail(w, 503, "certificate_unavailable", "Сертификат не найден")
-			return
-		}
-		fp := sha256.Sum256(leaf.Raw)
-		items = append(items, map[string]any{"ref": item.Ref, "purpose": item.Purpose, "subject": leaf.Subject.String(), "issuer": leaf.Issuer.String(), "sans": leaf.DNSNames, "fingerprint_sha256": hex.EncodeToString(fp[:]), "not_after": leaf.NotAfter.UTC().Format(time.RFC3339), "public_chain_pem": string(public)})
+		out["ref"] = item.Ref
+		out["purpose"] = item.Purpose
+		items = append(items, out)
 	}
 	respond(w, 200, items)
+}
+
+// loadCachedCertificate returns the parsed metadata for one PEM file, using a
+// per-path cache invalidated by mtime/size. A cache miss parses the file from
+// disk; a stale mtime evicts and re-parses. The stat-before-read sequence is
+// preserved so an accidentally oversized PEM cannot spike memory.
+func (s *Server) loadCachedCertificate(item struct{ Ref, Purpose, Path string }) (map[string]any, bool) {
+	st, e := os.Stat(item.Path)
+	if e != nil || st.Size() > 1024*1024 {
+		return nil, false
+	}
+	s.certCacheMu.Lock()
+	defer s.certCacheMu.Unlock()
+	if cached, hit := s.certCache[item.Path]; hit && cached.mtime.Equal(st.ModTime()) && cached.size == st.Size() {
+		return cached.item, true
+	}
+	b, e := os.ReadFile(item.Path)
+	if e != nil || len(b) > 1024*1024 {
+		return nil, false
+	}
+	rest := b
+	public := []byte{}
+	var leaf *x509.Certificate
+	for len(rest) > 0 {
+		block, tail := pem.Decode(rest)
+		if block == nil {
+			break
+		}
+		rest = tail
+		if block.Type != "CERTIFICATE" {
+			continue
+		}
+		cert, e := x509.ParseCertificate(block.Bytes)
+		if e != nil {
+			return nil, false
+		}
+		if leaf == nil {
+			leaf = cert
+		}
+		public = append(public, pem.EncodeToMemory(block)...)
+	}
+	if leaf == nil {
+		return nil, false
+	}
+	fp := sha256.Sum256(leaf.Raw)
+	entry := map[string]any{
+		"subject":            leaf.Subject.String(),
+		"issuer":             leaf.Issuer.String(),
+		"sans":               leaf.DNSNames,
+		"fingerprint_sha256": hex.EncodeToString(fp[:]),
+		"not_after":          leaf.NotAfter.UTC().Format(time.RFC3339),
+		"public_chain_pem":   string(public),
+	}
+	s.certCache[item.Path] = certCacheEntry{mtime: st.ModTime(), size: st.Size(), item: entry}
+	return entry, true
 }
