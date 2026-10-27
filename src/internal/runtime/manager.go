@@ -53,10 +53,45 @@ type Manager struct {
 	mu      sync.Mutex
 	Persist func(string, []byte) error
 	Probe   func(context.Context, string) error
+	// ParseTimeout bounds `squid -k parse` calls. ReloadTimeout bounds
+	// `squid -k reconfigure` acknowledgement (not full reload, which Squid
+	// performs asynchronously). VerifyBudget is the worst-case time the verify
+	// loop waits for Squid to serve a freshly reconfigured fingerprint after
+	// reconfigure returned. All three are overrideable via SC_PARSE_TIMEOUT /
+	// SC_RELOAD_TIMEOUT / SC_VERIFY_BUDGET so an operator on slow hardware or
+	// under load can widen them without recompiling — see docs/architecture/
+	// configuration-lifecycle.md. Upper bound of 5 minutes keeps a misconfigured
+	// value from stalling the panel indefinitely.
+	ParseTimeout  time.Duration
+	ReloadTimeout time.Duration
+	VerifyBudget  time.Duration
 }
 
 func New(dir, binary, logPath, cert, key string) *Manager {
-	m := &Manager{Dir: dir, Binary: binary, Options: policy.Options{StateDir: dir, LogPath: logPath, ProxyCert: cert, ProxyKey: key}}
+	m := &Manager{
+		Dir:           dir,
+		Binary:        binary,
+		Options:       policy.Options{StateDir: dir, LogPath: logPath, ProxyCert: cert, ProxyKey: key},
+		ParseTimeout:  parseTimeoutDefault,
+		ReloadTimeout: reloadTimeoutDefault,
+		VerifyBudget:  verifyBudgetDefault,
+	}
+	// Env override: durations like "30s", "2m". Reject >5m so a typo cannot
+	// stall Apply indefinitely; reject <=0 so the verify loop does not busy-spin.
+	for _, ov := range []struct {
+		env string
+		dst *time.Duration
+	}{
+		{"SC_PARSE_TIMEOUT", &m.ParseTimeout},
+		{"SC_RELOAD_TIMEOUT", &m.ReloadTimeout},
+		{"SC_VERIFY_BUDGET", &m.VerifyBudget},
+	} {
+		if v := os.Getenv(ov.env); v != "" {
+			if d, e := time.ParseDuration(v); e == nil && d > 0 && d <= 5*time.Minute {
+				*ov.dst = d
+			}
+		}
+	}
 	m.Persist = Atomic
 	m.Command = m.command
 	m.Probe = m.verify
@@ -190,7 +225,7 @@ func (m *Manager) parse(ctx context.Context, config string) error {
 		return e
 	}
 	defer os.Remove(p)
-	c, cancel := context.WithTimeout(ctx, 15*time.Second)
+	c, cancel := context.WithTimeout(ctx, m.ParseTimeout)
 	defer cancel()
 	return m.Command(c, "-f", p, "-k", "parse")
 }
@@ -392,7 +427,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	return "rolled_back", original
 }
 func (m *Manager) reloadVerify(ctx context.Context, hash string) error {
-	c, cancel := context.WithTimeout(ctx, 10*time.Second)
+	c, cancel := context.WithTimeout(ctx, m.ReloadTimeout)
 	defer cancel()
 	if e := m.Command(c, "-f", m.ActivePath(), "-k", "reconfigure"); e != nil {
 		return e
@@ -400,10 +435,15 @@ func (m *Manager) reloadVerify(ctx context.Context, hash string) error {
 	return m.Verify(ctx, hash)
 }
 
-// verifyBudget matches the value promised by docs/architecture/configuration-lifecycle.md
-// ("verify 30 s"). It is the worst-case time the loop below waits for Squid to start
-// serving a freshly reconfigured fingerprint after `squid -k reconfigure` returned.
-const verifyBudget = 30 * time.Second
+// Timeouts default to the values promised by docs/architecture/
+// configuration-lifecycle.md (parse 15 s, reload acknowledgement 10 s, verify
+// 30 s) and can be widened via SC_PARSE_TIMEOUT / SC_RELOAD_TIMEOUT /
+// SC_VERIFY_BUDGET env vars. They are budgets, not SLAs.
+const (
+	parseTimeoutDefault  = 15 * time.Second
+	reloadTimeoutDefault = 10 * time.Second
+	verifyBudgetDefault  = 30 * time.Second
+)
 
 // Verify reads a header on a mandatory-denied loopback destination. It never fetches a user URL.
 func (m *Manager) Verify(ctx context.Context, hash string) error { return m.Probe(ctx, hash) }
@@ -426,7 +466,7 @@ func probeTargetFor(config string) (string, bool) {
 }
 
 func (m *Manager) verify(ctx context.Context, hash string) error {
-	deadline := time.Now().Add(verifyBudget)
+	deadline := time.Now().Add(m.VerifyBudget)
 	var last error
 	for {
 		d := net.Dialer{Timeout: time.Second}
@@ -633,8 +673,27 @@ func (m *Manager) Events() ([]map[string]any, error) {
 		if parts[5] == "CONNECT" {
 			mode = "tunnel"
 		}
-		lineHash := sha256.Sum256(scanner.Bytes())
-		items = append(items, map[string]any{"id": hex.EncodeToString(lineHash[:8]), "timestamp": timestamp, "client_id": nil, "source_ip": sourceAddr.String(), "proxy_result": parts[3], "method": parts[5], "destination": dest, "proxy_http_status": code, "duration_ms": duration, "bytes_observed": count, "tls_mode": mode, "revision_id": nil})
+		// Logs are untrusted data per AGENTS.md. Source IP is already validated
+		// via netip.ParseAddr; ts/duration/count are parsed numerically with
+		// clamping. The remaining free-form tokens (proxy_result, method) are
+		// sanitized to a tight ASCII subset so a malformed log cannot inject
+		// control characters or HTML into the API response. JSON encoding
+		// already escapes them, but defense in depth is cheaper than relying on
+		// the encoder.
+		proxyResult := sanitizeLogToken(parts[3], 64)
+		method := sanitizeLogToken(parts[5], 16)
+		// Dedup ID binds to timestamp+line content so two identical log lines
+		// emitted at different times do not collide. Previously sha256(line)
+		// alone caused identical log entries (e.g. repeated DENIED for the
+		// same destination) to share an ID and deduplicate on the client when
+		// they are distinct events in the timeline.
+		h := sha256.New()
+		h.Write([]byte(parts[0]))
+		h.Write([]byte{':'})
+		h.Write(scanner.Bytes())
+		var sum [8]byte
+		copy(sum[:], h.Sum(nil))
+		items = append(items, map[string]any{"id": hex.EncodeToString(sum[:]), "timestamp": timestamp, "client_id": nil, "source_ip": sourceAddr.String(), "proxy_result": proxyResult, "method": method, "destination": dest, "proxy_http_status": code, "duration_ms": duration, "bytes_observed": count, "tls_mode": mode, "revision_id": nil})
 	}
 	if len(items) > 100 {
 		items = items[len(items)-100:]
@@ -643,6 +702,24 @@ func (m *Manager) Events() ([]map[string]any, error) {
 		items[i], items[j] = items[j], items[i]
 	}
 	return items, scanner.Err()
+}
+
+// sanitizeLogToken strips everything outside a tight ASCII token set (alnum,
+// _ - /) and clamps length. Used on the free-form proxy_result/method fields
+// from access logs — which are untrusted input per AGENTS.md — so a malformed
+// log line cannot inject control characters or HTML into the API response
+// even if the JSON encoder were ever bypassed.
+func sanitizeLogToken(s string, max int) string {
+	if len(s) > max {
+		s = s[:max]
+	}
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-', r == '/':
+			return r
+		}
+		return -1
+	}, s)
 }
 
 // Maintain rotates only fixed known logs and prunes historical state. It never
