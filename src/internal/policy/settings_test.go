@@ -42,6 +42,82 @@ func TestExpertProtectedRuntimeAndExecution(t *testing.T) {
 		}
 	}
 }
+
+// TestExpertValidateRenderEquivalence guards against divergence between the
+// form validateExpert analyzes (comments stripped + line-continuations merged)
+// and the form Render writes verbatim into active.conf. A directive that
+// validateExpert accepts but Squid would see as forbidden (or vice versa) is
+// the failure mode this test catches. Cases cover: comment hiding a forbidden
+// directive, line continuation across comment+directive, trailing backslash,
+// and quote/whitespace variants that all tokenize identically after Squid's
+// own normalization.
+func TestExpertValidateRenderEquivalence(t *testing.T) {
+	cases := []struct {
+		name   string
+		expert string
+		// accept indicates whether validateExpert should accept this expert
+		// block. Render is then invoked and the produced config must contain
+		// the same forbidden/allowed directive tokens validateExpert saw.
+		accept bool
+	}{
+		{
+			name:   "continuation merges directive across lines",
+			expert: "acl office src 192.0.2.0/24 \\\nhttp_access allow office",
+			accept: true,
+		},
+		{
+			name:   "comment with hash inside continuation is still a comment",
+			expert: "# http_port 9000\nacl office src 192.0.2.0/24\nhttp_access allow office",
+			accept: true,
+		},
+		{
+			name:   "forbidden directive split across continuation still rejected",
+			expert: "http_\\\nport 9000",
+			accept: false,
+		},
+		{
+			name:   "forbidden directive inside comment accepted (comment is dropped before tokenizing)",
+			expert: "# http_port 9000\nacl ok src 127.0.0.1\nhttp_access allow ok",
+			accept: true,
+		},
+		{
+			name:   "trailing backslash alone is an unfinished continuation",
+			expert: "acl ok src 127.0.0.1\\",
+			accept: false,
+		},
+		{
+			name:   "quoted directive with hash inside is parsed literally by Squid stripped by guard",
+			expert: "acl tag dstdomain \"foo#bar\"\nhttp_access allow tag",
+			accept: true,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fixture()
+			s.Mode = "expert"
+			s.Expert = tc.expert
+			err := Validate(s, Options{StateDir: "/data", LogPath: "/data/log"})
+			if tc.accept && err != nil {
+				t.Fatalf("validateExpert rejected acceptable input: %v", err)
+			}
+			if !tc.accept && err == nil {
+				t.Fatalf("validateExpert accepted forbidden input: %q", tc.expert)
+			}
+			if !tc.accept {
+				return
+			}
+			// Verify the rendered config preserves the expert body verbatim so
+			// Squid parses the same string the guard analyzed.
+			c, e := Render(s, Options{StateDir: "/data", LogPath: "/data/log"})
+			if e != nil {
+				t.Fatalf("Render rejected what validateExpert accepted: %v", e)
+			}
+			if !strings.Contains(c, tc.expert) && !strings.Contains(c, strings.ReplaceAll(tc.expert, "\\\n", "")) {
+				t.Fatalf("rendered config does not contain the expert body.\nexpert: %q\nconfig: %q", tc.expert, c)
+			}
+		})
+	}
+}
 func TestSettingsValidationAndRendering(t *testing.T) {
 	s := fixture()
 	v := DefaultSettings()

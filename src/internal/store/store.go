@@ -67,9 +67,32 @@ func Open(path string) (*Store, error) {
 	db.SetMaxOpenConns(1)
 	fail := func(e error) (*Store, error) { db.Close(); return nil, e }
 	// PRAGMA synchronous is not a URL parameter in modernc; run it explicitly.
-	for _, q := range []string{"PRAGMA synchronous=FULL", migrations.Initial} {
-		if _, e = db.Exec(q); e != nil {
+	if _, e = db.Exec("PRAGMA synchronous=FULL"); e != nil {
+		return fail(e)
+	}
+	// 001.sql is bootstrap: every statement uses CREATE TABLE IF NOT EXISTS or
+	// INSERT OR IGNORE, so re-running it on an already-migrated DB is a no-op.
+	// It also creates the schema_migrations table itself, so the conditional
+	// apply loop below can rely on it. Subsequent migrations (version >= 2) are
+	// applied only when their version is absent from schema_migrations. A
+	// migration that fails leaves the DB partially-migrated and store.Open
+	// refuses to start; recovery is restore-from-backup, not silent retry.
+	if _, e := db.Exec(migrations.Initial); e != nil {
+		return fail(fmt.Errorf("migration 1: %w", e))
+	}
+	for _, m := range migrations.Ordered {
+		if m.Version <= 1 {
+			continue
+		}
+		var applied int
+		if e := db.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", m.Version).Scan(&applied); e != nil {
 			return fail(e)
+		}
+		if applied > 0 {
+			continue
+		}
+		if _, e := db.Exec(m.SQL); e != nil {
+			return fail(fmt.Errorf("migration %d: %w", m.Version, e))
 		}
 	}
 	if e = os.Chmod(path, 0600); e != nil {
@@ -93,8 +116,13 @@ func (s *Store) Put(key string, v any) error {
 	_, e = s.DB.Exec("INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, string(b))
 	return e
 }
+// Audit stamps are stored as INTEGER unix seconds since migration 002; TEXT
+// RFC3339 was used in 001.sql but mixed-type comparisons (audit_events TEXT vs
+// sessions INTEGER) blocked range queries. inbound callers should pass a
+// pre-computed int64 instead of formatting a string.
+
 func (s *Store) Audit(actor, action, entity string) error {
-	_, e := s.DB.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().UTC().Format(time.RFC3339))
+	_, e := s.DB.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
 	return e
 }
 
@@ -117,7 +145,7 @@ func (s *Store) InsertOperation(id, opBody, idempotencyKey, requestHash, actor, 
 	if _, e = tx.Exec("INSERT INTO operations VALUES(?,?,?,?)", id, idempotencyKey, requestHash, opBody); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, time.Now().UTC().Format(time.RFC3339)); e != nil {
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, time.Now().Unix()); e != nil {
 		return e
 	}
 	return tx.Commit()
@@ -187,7 +215,10 @@ func (s *Store) Prune(auditCutoff time.Time, revisionRetention int) error {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec("DELETE FROM audit_events WHERE created_at < ?", auditCutoff.UTC().Format(time.RFC3339)); e != nil {
+	// created_at is INTEGER unix seconds since migration 002; comparing against
+	// the same unit keeps range deletes O(log n) on the index instead of falling
+	// back to a full scan with TEXT comparison.
+	if _, e = tx.Exec("DELETE FROM audit_events WHERE created_at < ?", auditCutoff.Unix()); e != nil {
 		return e
 	}
 	if _, e = tx.Exec("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT 5000)"); e != nil {
@@ -217,7 +248,7 @@ func (s *Store) InsertRevision(revID, revBody, actor, action string) error {
 	if _, e = tx.Exec("INSERT INTO kv VALUES(?,?)", "revision:"+revID, revBody); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, revID, time.Now().UTC().Format(time.RFC3339)); e != nil {
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, revID, time.Now().Unix()); e != nil {
 		return e
 	}
 	return tx.Commit()
@@ -288,7 +319,7 @@ func (s *Store) Change(key string, v any, actor, action string, expected int) er
 	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key=?", string(b), key); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, key, time.Now().UTC().Format(time.RFC3339)); e != nil {
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, key, time.Now().Unix()); e != nil {
 		return e
 	}
 	return tx.Commit()

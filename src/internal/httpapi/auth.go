@@ -96,7 +96,7 @@ func ResetPassword(s *store.Store, username, password string) error {
 	if _, e = tx.Exec("DELETE FROM sessions WHERE username=?", username); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", "local-cli", "password_reset", username, time.Now().UTC().Format(time.RFC3339)); e != nil {
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", "local-cli", "password_reset", username, time.Now().Unix()); e != nil {
 		return e
 	}
 	return tx.Commit()
@@ -195,7 +195,7 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 		if _, e = tx.Exec("DELETE FROM sessions WHERE token_hash=?", credentials[1]); e != nil {
 			return v, e
 		}
-		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", user, "login", "", time.Now().UTC().Format(time.RFC3339)); e != nil {
+		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", user, "login", "", time.Now().Unix()); e != nil {
 			return v, e
 		}
 	}

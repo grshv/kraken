@@ -470,13 +470,17 @@ func (m *Manager) verify(ctx context.Context, hash string) error {
 	var last error
 	for {
 		d := net.Dialer{Timeout: time.Second}
-		// The probe target is the diagnostic 3130 listener when active.conf
-		// enables the canary listener. We resolve it structurally by reading
-		// lkg.json's Config (which is rewritten atomically on every Apply)
-		// rather than by grepping the file body — a comment line such as
-		// "# http_port 127.0.0.1:3130" would otherwise match the substring
-		// sniff and route probes to the wrong port.
-		target := "127.0.0.1:3128"
+		// Default probe target is the canonical 3130 listener emitted by
+		// policy.Render (`http_port 127.0.0.1:3130`). probeTargetFor matches
+		// that literal structurally — a `# http_port 127.0.0.1:3130` comment
+		// cannot shadow it. The fallback only matters during bootstrap when
+		// active.conf has been written but lkg.json hasn't, or after a corrupt
+		// active.conf. Always probing 3130 means a misconfigured active.conf
+		// without the probe listener fails fast (no listener) instead of
+		// accidentally hitting the user's http_port (e.g. 3128) which would
+		// return a misleading 403 with the canary header but without the
+		// probe-only localport ACL.
+		target := "127.0.0.1:3130"
 		if manifest, e := m.ReadManifest(); e == nil {
 			if probe, ok := probeTargetFor(manifest.Config); ok {
 				target = probe
