@@ -1,0 +1,22 @@
+summary: Squid Control appliance
+services:
+  squid:
+    override: replace
+    summary: Local Squid behind recovery gate
+    command: /usr/local/bin/squid-control squid-start
+    startup: enabled
+    user: proxy
+    group: proxy
+    on-success: restart
+    on-failure: restart
+    kill-delay: 10s
+  control:
+    override: replace
+    summary: HTTPS panel with embedded UI
+    command: /usr/local/bin/squid-control serve
+    startup: enabled
+    user: proxy
+    group: proxy
+    on-success: restart
+    on-failure: restart
+    kill-delay: 100s

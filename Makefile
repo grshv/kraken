@@ -1,11 +1,45 @@
-.PHONY: docs-check check help
+.PHONY: help docs-check web-build build test check image integration dev-cert bootstrap up down
 
 help:
-	@echo "docs-check  Check local documentation and JSON contracts"
-	@echo "check       Run documentation checks and git diff --check"
+	@echo "build        Build frontend and Go binary in bin/"
+	@echo "check        Docs, frontend type/build, Go race tests, vet and patch checks"
+	@echo "image        Build single-container development image"
+	@echo "integration  Run isolated real-Squid smoke tests (requires image)"
+	@echo "dev-cert     Create localhost development certificate in Compose volume"
+	@echo "bootstrap    Interactively create initial administrator"
+	@echo "up / down    Start/stop local Compose deployment"
 
 docs-check:
 	python3 scripts/check_docs.py
 
-check: docs-check
+web-build:
+	npm --prefix src/web ci --no-audit --no-fund
+	npm --prefix src/web run build
+
+build: web-build
+	cd src && go build -trimpath -o ../bin/squid-control ./cmd/control
+
+test: web-build
+	cd src && go test -race ./...
+
+check: docs-check web-build test
+	cd src && go vet ./...
 	git diff --check
+
+image:
+	docker build -f deploy/Dockerfile -t squid-control:dev .
+
+integration:
+	python3 src/tests/integration/smoke.py
+
+dev-cert:
+	docker compose -f deploy/compose.yaml run --rm --no-deps --user 13:13 --entrypoint /usr/local/bin/squid-control squid-control dev-cert
+
+bootstrap:
+	python3 src/tools/bootstrap.py
+
+up:
+	docker compose -f deploy/compose.yaml up -d
+
+down:
+	docker compose -f deploy/compose.yaml down

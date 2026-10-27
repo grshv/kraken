@@ -14,4 +14,6 @@ jobs:
         with:
           persist-credentials: false
       - name: Check documentation and contracts
-        run: make check
+        run: |
+          make docs-check
+          git diff --check

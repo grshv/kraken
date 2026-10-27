@@ -32,6 +32,9 @@
 Шаблоны: [задача](templates/task.md), [план исполнения](templates/execution-plan.md),
 [ADR](templates/adr.md), [передача контекста](templates/handoff.md).
 
+Реализованный запуск: [local development](operations/local-development.md).
+Измеренные возможности/ограничения: [image report](research/image-compatibility.md).
+
 ## Правила достоверности
 
 Документы требований являются спецификацией будущего поведения. Runbooks и

@@ -1,61 +1,71 @@
 # Squid Control
 
-Проект web-панели для управления контейнерным `ubuntu/squid` на отдельной VM.
-Клиентские VM получают индивидуальные политики исходящего HTTP/HTTPS-доступа:
-весь web или только разрешённые ресурсы. Основной акцент — доступ и диагностика.
+Web-панель для управления исходящим доступом VM через Squid: весь HTTP/HTTPS
+либо только разрешённые домены. Один собственный контейнер на базе `ubuntu/squid`,
+Pebble и отдельные процессы Squid и Go. React/TypeScript UI встроен в Go-бинарник.
+Node и Go toolchain нужны только при сборке. Docker socket приложению не выдаётся.
 
-**Состояние на 27 октября 2026:** архитектурный проект и рабочие проверки документации.
-Приложение, контейнерная сборка и установка пока не реализованы.
-Детали стека и эксплуатации требуют проверки в техническом прототипе.
-`git init` выполнен, основная ветка — `main`.
+**Состояние на 27.10.2026: первый рабочий срез, для локальной проверки.**
+Реализованы HTTPS-панель, bootstrap admin, Argon2id, серверные сессии/CSRF,
+SQLite-черновик, индивидуальные политики, preview/validate/apply, API rollback,
+журнал применения/LKG, recovery gate и ограниченный просмотр Squid access log.
+Базовый образ проверен на Linux/arm64: Squid 6.13/GnuTLS, TLS proxy и CONNECT.
+SSL Bump в этой сборке отсутствует и отклоняется сервером.
 
-## Начать здесь
+Результаты и ограничения: [capability report](docs/research/image-compatibility.md).
+Полноценный backup/restore, роли, инспекция TLS, полная история событий и production
+hardening ещё не завершены. Это не объявление готового production-релиза.
 
-1. [Требования и границы](docs/product/requirements.md).
-2. [Предложенная архитектура](docs/architecture/overview.md).
-3. [Политики VM и поведение HTTPS](docs/architecture/policies-and-tls.md).
-4. [Интерфейс](docs/product/interface.md).
-5. [Вопросы и принятые вводные](docs/product/decisions-and-questions.md).
-6. [Полная карта документации](docs/README.md).
-7. [План реализации](docs/plans/roadmap.md).
+## Локальный запуск
 
-Агент начинает с [AGENTS.md](AGENTS.md), человек — с этого README.
-Исследование и первичные источники: [срез на 27.10.2026](docs/research/2026-10-27.md).
-
-## Предложение в одном абзаце
-
-Один собственный image на базе pinned `ubuntu/squid`, один контейнер.
-Pebble управляет двумя процессами: Squid и Go-приложением `squid-control`.
-В Go-бинарник встроен React/TypeScript UI; тот же процесс обслуживает HTTPS/API,
-SQLite и внутренний модуль управления конфигурацией. Node нужен только для сборки.
-Применение проверяется локальным Squid из этого же image, с journal/LKG и откатом.
-Отдельного host runner, systemd unit приложения, edge container и Docker socket нет.
-
-Упаковка согласована владельцем: [ADR 0006](docs/adr/0006-single-container.md).
-Перезапуск панели не должен останавливать Squid. Обновление общего image может
-прервать оба процесса и клиентские соединения.
-
-В архитектуре предусмотрены HTTPS-подключение клиента к прокси и опциональный
-SSL Bump для выбранных VM. Их включение зависит от проверки сборки образа,
-клиентской совместимости и сценариев доверия сертификатам.
-
-## Что доступно сейчас
+Нужны Docker Engine/Compose, Python 3.10+ для безопасного ввода пароля; свободные
+localhost:8443 и localhost:3128. Из корня:
 
 ```sh
-make docs-check
-make check
+make image
+make dev-cert
+make bootstrap
+make up
 ```
 
-Требуются Python 3.10+ и Git. Команды проверяют локальные ссылки, JSON-контракты и
-патч. Команд запуска приложения пока нет; не подставляйте примеры в production.
+Панель: [https://localhost:8443](https://localhost:8443).
+`dev-cert` создаёт самоподписанный localhost-сертификат на 30 дней только для
+разработки. Браузеру нужно доверие к этому сертификату; для реальной установки
+подключите свой сертификат. Пароль bootstrap вводится без echo и передаётся по stdin,
+без argv/env; default password нет. Повторный bootstrap отклоняется.
 
-## Репозиторий
+```sh
+docker compose -f deploy/compose.yaml logs -f
+make down
+```
 
-- `docs/` — требования, архитектура, ADR, безопасность, эксплуатация, планы.
-- `api/` — начальный контракт OpenAPI и внутренний контракт runtime module.
-- `examples/` — иллюстративные политики и клиентские настройки.
-- `scripts/` — работающие проверки документации.
-- `.github/` — шаблоны задач, PR и CI документации.
+`down` сохраняет named volume. Адреса публикуются только на loopback; для VM
+выберите interfaces/firewall осознанно. [Установка и TLS](docs/operations/local-development.md).
+Неизвестные источники запрещены; сохранение черновика само по себе не меняет Squid.
 
-Будущая структура исходников описана в архитектуре; пустые сервисы и фиктивные
-Dockerfile не создаются. Внешний remote, публикация и релиз не настроены.
+## Разработка и проверки
+
+Исходники целиком в `src/`: Go-модуль, `cmd/`, `internal/`, `migrations/`, `web/`,
+`tests/`, `tools/`. Go 1.27.3 зафиксирован go.mod; npm dependencies — lockfile.
+Для локальной сборки нужен совместимый Node (в Docker используется pinned Node 24).
+
+```sh
+make check         # docs, web typecheck/build, Go race tests, vet, whitespace
+make build         # bin/squid-control со встроенным frontend
+make image         # pinned multi-stage build
+make integration   # реальный Squid, отдельные временные Docker resources
+```
+
+Первый frontend build требует `npm ci` (Makefile выполняет его автоматически).
+Integration использует локальные fake HTTP/HTTPS origins, проверяет доверие TLS,
+all_web/allowlist, защитные запреты, apply/idempotency, restart и rollback.
+Go unit tests дополнительно проверяют faults и crash recovery.
+
+## Документация
+
+- [Архитектура](docs/architecture/overview.md) и [Accepted ADR 0006](docs/adr/0006-single-container.md).
+- [Требования](docs/product/requirements.md), [политики/TLS](docs/architecture/policies-and-tls.md), [интерфейс](docs/product/interface.md).
+- [Все документы](docs/README.md), [план](docs/plans/roadmap.md), [исходное исследование](docs/research/2026-10-27.md).
+- [API](api/openapi.json) и [внутренний runtime contract](api/runtime-contract.md).
+
+Агент начинает с [AGENTS.md](AGENTS.md). Remote и публикация не настроены.

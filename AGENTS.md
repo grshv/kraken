@@ -2,7 +2,9 @@
 
 ## Сначала
 
-Репозиторий сейчас содержит проектирование, не готовое приложение.
+Реализуется первый рабочий срез: Go/React/Squid в одном контейнере.
+Весь код приложения, миграции и тесты держать в `src/`; deploy и docs отдельно.
+Точный реализованный статус и ограничения находятся в README и capability report.
 Прочитай `README.md`, `docs/product/requirements.md`,
 `docs/product/decisions-and-questions.md`, затем нужную спецификацию из `docs/README.md`.
 Не утверждай, что предложенный компонент уже работает.
@@ -11,7 +13,10 @@
 ## Команды, существующие сейчас
 
 - `make docs-check` — локальные ссылки Markdown и JSON-контракты.
-- `make check` — то же и `git diff --check`.
+- `make check` — docs, frontend type/build, Go race tests, vet и patch check.
+- `make image` — сборка единого контейнера; `make integration` — реальный Squid.
+- `make build` — embedded Go binary; `make dev-cert/bootstrap/up` — локальный запуск.
+- Go module в `src/`, npm project в `src/web/`. Подробности в Makefile.
 
 Команды Go/Node/Docker добавляй вместе с их реализацией и lock-файлами;
 не описывай несуществующие проверки как выполненные.

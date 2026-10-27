@@ -4,11 +4,15 @@
 
 `make docs-check`: существование локальных Markdown links, синтаксис JSON,
 внутренние `$ref`, базовая структура API, policy example и текстовый whitespace.
-`make check`: те же проверки и `git diff --check`.
+`make check`: docs, npm typecheck/build, Go race tests, vet и `git diff --check`.
+`make integration`: real-image smoke из src/tests/integration/.
 Это не полноценная валидация OpenAPI, не runtime-тест Squid и не security audit.
 CI документации запускает тот же target, без деплоя и секретов.
 
-## Будущая пирамида
+Unit/HTTP/runtime fault tests и сетевой smoke реализованы. Остальные пункты
+ниже — целевая матрица; её наличие не означает выполнения каждого сценария.
+
+## Целевая пирамида
 
 | Уровень | Что проверять | Среда |
 | --- | --- | --- |

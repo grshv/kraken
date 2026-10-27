@@ -3,13 +3,14 @@
 Статус: упаковка в один контейнер согласована владельцем 27.10.2026;
 детали реализации и совместимость образа ещё проверяются.
 Решение: [ADR 0006](../adr/0006-single-container.md).
+Первый срез реализован; измерения: [capability report](../research/image-compatibility.md).
 
 ## Контекст и процессы
 
 Один собственный OCI image строится на pinned `ubuntu/squid`.
 Фронт собирается в статические файлы и встраивается в один Go-бинарник
 `squid-control`. Бинарник обслуживает HTTPS-панель, API, SQLite и управление Squid.
-Squid остаётся отдельным процессом. Pebble — PID 1 и supervisor обоих сервисов.
+Squid остаётся отдельным процессом. Pebble добавляется нашим Dockerfile, является PID 1 и supervisor обоих сервисов.
 Node нужен только на стадии сборки; отдельного frontend server в runtime нет.
 
 ```mermaid
@@ -111,26 +112,26 @@ path Pebble. Он и фоновый worker используют один filesys
 совместно протестированный image и требует окна возможного прерывания трафика.
 Disk cache на старте можно оставить выключенным.
 
-## Будущая структура кода
+## Структура кода в src/
 
 ```text
-cmd/control/                 один Go executable: serve, bootstrap, recovery gate
-internal/domain/             Client, Policy, Revision, Operation
-internal/policy/             чистый compiler и validators
-internal/app/                use cases и управление операциями
-internal/httpapi/            handlers, auth, CSRF, errors
-internal/store/              SQLite repositories и migrations
-internal/runtime/            worker, journal, locks, recovery
-internal/runtime/squid/      локальные process/control adapters, capabilities
-internal/observability/      bounded logs и агрегаты
-web/                        React TS, assets и package lock
-migrations/                 нумерованные SQL migrations
-deploy/                     multi-stage Dockerfile, single-service Compose
-deploy/pebble/              supervision, startup gate и health checks
-tests/integration/          один image + fake origins/DNS/PKI
-tests/e2e/                  браузер и отдельные client identities
+src/
+  cmd/control/              executable: serve, bootstrap, dev-cert, squid-start, check
+  internal/policy/          typed model, validators и compiler
+  internal/httpapi/         HTTPS handlers, sessions/CSRF и операции
+  internal/store/           SQLite
+  internal/runtime/         local Squid adapter, journal, locks и recovery
+  migrations/               embedded initial SQL
+  web/                      React/TS, static build, browser tests
+  tests/integration/        реальные сетевые fixtures
+  tools/                    безопасный host helper bootstrap
+deploy/                     Dockerfile, Compose и Pebble plan
+scripts/                    проверка документации
 ```
 
-Каталоги появляются с рабочим кодом. Контракт внутреннего модуля:
+Все application directories схемы находятся под `src/`; `deploy/` остаётся в корне.
+`src/internal/runtime` сейчас содержит локальный adapter и manager без подпакетов.
+Go и Squid в первом срезе используют общий UID 13; это разрешает reload,
+но не изолирует config/secret permissions между процессами. Контракт внутреннего модуля:
 [runtime contract](../../api/runtime-contract.md). `internal/policy` не импортирует
 HTTP, SQLite или runtime/process APIs.

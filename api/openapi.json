@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.1.0-design",
-    "description": "Proposed critical-path contract. No server implemented. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF."
+    "version": "0.1.0",
+    "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF."
   },
   "servers": [
     {
@@ -525,7 +525,7 @@
             }
           }
         ],
-        "description": "No arbitrary path or shell filter. Tunnel events do not reveal origin URL path or status. Unknown historical revision stays null."
+        "description": "No arbitrary path or shell filter. Tunnel events do not reveal origin URL path or status. Unknown historical revision stays null. First slice returns a bounded tail with gap=true and no cursor; cursor/client_id filters return 422. Unknown historical client/revision remains null."
       }
     },
     "/certificates": {

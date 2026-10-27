@@ -1,0 +1,20 @@
+name: Runtime
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  image-and-smoke:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - name: Test Go and embedded UI in pinned builder
+        run: docker build --target verify -f deploy/Dockerfile -t squid-control:verify .
+      - name: Build appliance
+        run: docker build -f deploy/Dockerfile -t squid-control:dev .
+      - name: Exercise real Squid
+        run: python3 src/tests/integration/smoke.py

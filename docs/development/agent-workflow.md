@@ -41,8 +41,9 @@ check и интеграционный тест на pinned image. Миграци
 - Для apply/TLS выполнены негативные проверки и затронутые failure paths.
 - В отчёте чётко разделены implemented, verified, proposed и remaining.
 
-Текущая реальная команда — `make check`. Остальные команды появятся в том же
-изменении, что и соответствующая подсистема; пустой target «tests passed» недопустим.
+Команды — README/Makefile: `make check`, `make image`, `make integration`.
+Go module и frontend лежат в src/. Новые проверки добавлять с исполняемым кодом;
+пустой target «tests passed» недопустим.
 
 ## Контекст при передаче задачи
 

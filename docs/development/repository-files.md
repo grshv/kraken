@@ -23,7 +23,14 @@
 | .github/ | PR/issue templates, docs CI без деплоя |
 | examples/ | Только синтетические политики и клиентские примеры |
 
-## Создать вместе с кодом
+## Уже добавлено первым срезом
+
+`src/go.mod`, `src/go.sum`, `src/internal/`, `src/cmd/`, `src/migrations/`,
+`src/web/` с npm lock, `src/tests/integration/`, `src/tools/`, multi-stage
+`deploy/Dockerfile`, single-service Compose и `deploy/pebble/`.
+Весь исходный код приложения и тестов находится под src/.
+
+## Развивать вместе с кодом
 
 - `go.mod`, `go.sum`: после выбора module path/toolchain/dependencies.
 - `web/package.json`, один package-manager lock, TS/Vite config: в UI срезе.

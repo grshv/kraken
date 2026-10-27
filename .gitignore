@@ -23,7 +23,7 @@ data/
 
 # Build and dependencies
 node_modules/
-web/dist/
+/src/web/dist/
 /bin/
 /dist/
 coverage/
@@ -37,3 +37,7 @@ __pycache__/
 .DS_Store
 .idea/
 .vscode/
+
+# Browser verification outputs
+/src/web/test-results/
+/src/web/playwright-report/
