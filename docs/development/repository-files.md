@@ -37,12 +37,14 @@
 - `migrations/*.sql`: при storage реализации, с checksums и upgrade tests.
 - `deploy/compose.yaml`, multi-stage Dockerfile и `deploy/pebble/`:
   после image spike, с реальными командами, правами и boot-recovery проверкой.
-- Capability/release manifest: точные digest, architectures, TLS compile flags,
-  process paths, helper paths и подтверждённые операции.
+- Capability report и короткие release notes: фактический image/architecture,
+  schema compatibility и подтверждённые операции. Отдельный release manifest
+  service/формат не нужен для локальной установки.
 - Versioned fixtures и tests: рядом с инвариантом, который они проверяют.
 - Scoped `AGENTS.md` в `web/`, `internal/runtime/`, `deploy/`, если правила реально
   отличаются. Не создавать пустую папку только ради ещё одной инструкции.
-- Runtime CI: build/lint/unit/integration/e2e/scan по мере появления команд.
+- Runtime CI уже добавлен: verify build и real-image smoke. Browser/scans jobs
+  добавляются при организации распространяемого релиза, не как отдельная платформа.
 - Release notes и changelog: при первом пользовательском релизе.
 
 ## Только если есть потребность

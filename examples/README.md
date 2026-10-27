@@ -7,7 +7,10 @@
 
 ## APT через обычный HTTP proxy с HTTPS origin
 
-Будущий UI выдаёт содержимое файла `/etc/apt/apt.conf.d/90-squid-control`:
+Ниже ручной пример содержимого `/etc/apt/apt.conf.d/90-squid-control`.
+Выдача/установка настроек из UI не реализована и не требуется для первой инструкции;
+реальная совместимость APT ещё должна быть проверена:
+
 
 ```text
 Acquire::http::Proxy "http://proxy.example.test:3128/";

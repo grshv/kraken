@@ -73,11 +73,22 @@ Primary integration suite использует локальные origin HTTP/HT
 Отдельный необязательный smoke подтверждает реальный внешний ресурс и
 подписывается как network-dependent. Нельзя подменить deterministic suite им.
 
-## Release gate
+## Проверки по объёму поставки
 
-Pinned toolchains/lockfiles/images; build, lint/typecheck, unit/contract/integration,
-критические e2e и recovery; secret scan, dependency/container scan;
-SBOM и provenance согласно выбранному CI; backup/restore drill и release notes.
+Матрица выше — перечень рисков, не бесконечная задача проверить все сочетания.
+Для текущего среза сохраняются make check, real-image и критические browser/recovery
+сценарии. IPv6/mapped, DNS rebinding и private destination tests обязательны перед
+соответствующим обещанием защиты; непроверенное не объявляется Supported.
+Проверка APT требует самого APT, а не успешного Python HTTP запроса.
+
+Перед распространяемым релизом: выбранная целевая архитектура, pinned image,
+короткие release notes, dependency/container/secret scans с разбором результатов,
+одно изолированное восстановление остановленной копии состояния. Для локальной
+установки отдельная платформа SBOM/signing/provenance не требуется; такие артефакты
+добавляются под требования распространения/CI. Полноценный schema validator можно
+подключить готовым инструментом при необходимости, без генерации всей платформы.
+Существующий runtime workflow уже строит verify/image и запускает smoke; его
+наличие не означает подтверждённый успешный CI run. Browser/scans jobs в нём пока нет.
 GitHub Actions pin по полному commit SHA, минимальные permissions; не выполнять
 недоверенный PR-код в workflow с secrets или `pull_request_target` mutation.
 

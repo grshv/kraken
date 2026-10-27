@@ -22,8 +22,8 @@ Go builder **1.27.3-bookworm**, Node builder **24-alpine** закреплены 
 
 Squid и squid-control запускаются от `proxy:13:13`, без root web и Docker socket.
 Общий UID позволяет локальный parse/reconfigure и чтение persistent LKG/config.
-Он не защищает конфиг/ключи от скомпрометированного Go-процесса; изоляция CA от
-web внутри одного UID не заявляется.
+Он не защищает конфиг и server TLS keys от скомпрометированного Go-процесса;
+изоляция секретов внутри общего UID не заявляется.
 Pebble PID 1 управляет сервисами отдельно; `run --hold` не запускает сервисы,
 поэтому production command нашего image — `run --verbose`.
 
@@ -71,18 +71,24 @@ Docker. Для сохранённых конфигураций прежнего 
   Только браузерный fixture принимает свой self-signed сертификат без проверки
   доверия; trust/chain проверяется отдельным сетевым smoke.
 
-## Открытые работы
+## Текущий остаток
 
-Полная TLS/client matrix, DNS rebinding и IPv6 network suite, rotation/truncation
-logs, полная disk-full/process-kill/reboot fault matrix, backup/restore и migrations,
-исторические события с cursor/retention, UI certificates, security scan
-и релизный manifest. Один контейнер — единая точка обновления/отказа.
-Статус Supported относится к измеренной функции, не к общей production readiness.
+[Roadmap](../plans/roadmap.md) задаёт объём: реальный APT, выбранная целевая
+архитектура/сеть, адресные IPv6/rebinding/private deny tests, один реальный
+storage failure и простые процедуры эксплуатации. Остановленная копия volume,
+внешних TLS mounts и параметров с одним restore exercise достаточна; backup
+подсистема не требуется. Перед распространяемым релизом — scans и короткие notes.
+
+Rotation/truncation, migrations, история/cursor/retention уже реализованы и
+проверены в срезах ниже. Certificate UI, агрегаты/расширенный поиск, helpers,
+SSO/roles/HA не входят в обязательный остаток. Отсутствие проверки не превращается
+в Supported: конкретные гарантии доступа по-прежнему требуют своих tests.
+Один контейнер — единая точка обновления/отказа, это известное ограничение.
 
 ENOSPC здесь инъецируется в слой атомарной записи, а SIGKILL выполняется над
 отдельным тестовым процессом. Это не испытание переполненного реального диска,
 отключения питания или reboot всей VM. Expert guard не является полным sandbox
-Squid; helper/storage provisioning остаётся отдельной работой. HTTPS сайтов сквозной.
+Squid; helper/storage provisioning добавляется только по отдельной потребности. HTTPS сайтов сквозной.
 
 Финальная проверка расширения: `make check`, `make image`, Docker build target
 `verify` (Go race/vet на Linux/arm64), real-image smoke и Playwright пройдены.

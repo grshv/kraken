@@ -1,6 +1,9 @@
 # Целевое развёртывание
 
-**План, не готовая инструкция запуска.** Один собственный image на базе
+Практические команды запуска — в [local development](local-development.md).
+Здесь требования к установке на выбранном узле, не отдельный deployment product.
+Минимальный остаток и необязательные функции — в [roadmap](../plans/roadmap.md).
+Один собственный image на базе
 `ubuntu/squid`; один Compose service. Внутри Pebble запускает Squid и Go-приложение
 со встроенным UI. Host runner и отдельный reverse proxy не устанавливаются.
 
@@ -27,7 +30,7 @@
 5. При первом запуске recovery gate создаёт deny-all/LKG, затем Pebble запускает
    Squid. Gate обязателен и при последующих автоматических restart Squid.
 6. Создать администратора локальным подрежимом Go-бинарника внутри контейнера,
-   через stdin/TTY без пароля в argv. Точная команда появится с кодом.
+   через stdin/TTY без пароля в argv: реализованная команда `make bootstrap`.
 7. Проверить HTTPS/login, deny-all, source IP, первую политику и реальный запрос VM.
 8. Только затем выдать клиентские настройки и включить нужные сетевые запреты.
 
@@ -66,8 +69,10 @@ Health показывает состояния раздельно. Watchdog не
 при испорченном journal — обязательные тесты spike.
 
 Обновление приложения или Squid меняет общий image и может разорвать CONNECT:
-нужно окно. Manifest содержит source commit, base/final digest, architecture,
-compiler/schema versions, toolchains, checksums, SBOM и capability evidence.
+нужно окно. Для первой установки достаточно записать source commit, image ID/digest,
+architecture, schema compatibility и известные ограничения в коротких release notes.
+Отдельный manifest service, SBOM/provenance platform не требуются; артефакты SBOM
+и подписи добавляются под требования распространения, не выдаются за уже созданные.
 Откат image согласуется со схемой DB и secret refs. HA не предусмотрено.
 
 ## Привязка панели в контейнере

@@ -24,7 +24,7 @@
 | [agent-workflow](development/agent-workflow.md) | Как агент получает задачу и передаёт результат | Меняются команды и процесс |
 | [testing](development/testing.md) | Проверки, фикстуры, CI, критерии релиза | Меняются риски и тестовые средства |
 | [repository-files](development/repository-files.md) | Что необходимо сейчас и позже, без лишних файлов | Появляются инструменты |
-| [roadmap](plans/roadmap.md) | Этапы и границы работ | Завершается этап |
+| [roadmap](plans/roadmap.md) | Текущий объём: необходимые проверки, простые процедуры и функции по потребности | Меняются приоритеты |
 | [diagnostics-history](plans/active/diagnostics-history.md) | История событий, фильтры, курсоры, retention и аудит | Меняется диагностика |
 | [review-reliability](plans/active/review-reliability.md) | Повторное ревью: sessions, миграции, recovery и повторный вход | Меняются проверки надёжности |
 | [review-followup](plans/active/review-followup.md) | Незакрытые Level-Low находки кодового ревью | Закрывается очередной задачей |

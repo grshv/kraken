@@ -25,8 +25,10 @@ SQLite и journal обслуживает один Go executable, но транз
 | traffic_buckets | time_bucket, client_id, counters, format_version | Ограниченная cardinality, нет full URL в ключах |
 | schema_migrations | version, checksum, applied_at | Применённая миграция не редактируется |
 
-Это логическая схема, не готовые SQL migrations. SQL constraints, индексы и
-retention jobs реализуются первым вертикальным срезом.
+Это первоначальная логическая схема, не список требуемых SQL tables. Фактические
+kv/users/sessions/operations/audit/proxy_events и checkpoint описаны ниже.
+Переделка в полный набор реляционных таблиц не запланирована: данные расширяются
+адресно под реализуемую функцию. Сущности вроде traffic_buckets не обязательны.
 
 ## Версии и consistency
 
@@ -52,7 +54,8 @@ pool, короткие write transactions, контролируемый checkpoi
 параметр не зависел от формы пула соединений. Connection pool `SetMaxOpenConns(1)`
 сериализует writers (см. ADR 0009).
 
-Backup через SQLite backup API или остановленный согласованный snapshot;
+Для текущей поставки достаточно остановленной согласованной копии /data и
+внешних TLS mounts. Горячий SQLite backup API не требуется;
 копирование только main DB при активном WAL недопустимо как общая стратегия.
 [SQLite WAL](https://www.sqlite.org/wal.html),
 [Backup API](https://www.sqlite.org/backup.html).
