@@ -9,12 +9,12 @@ Node и Go toolchain нужны только при сборке. Docker socket 
 Реализованы HTTPS-панель, bootstrap admin, Argon2id, серверные сессии/CSRF,
 SQLite-черновик, индивидуальные политики, настройки Squid и expert-конфиг,
 preview/diff/validate/apply, история и rollback из панели/API,
-журнал применения/LKG, recovery gate и ограниченный просмотр Squid access log.
+журнал применения/LKG, recovery gate, история запросов с фильтрами/cursor и аудит.
 Базовый образ проверен на Linux/arm64: Squid 6.13/GnuTLS, TLS proxy и CONNECT.
 HTTPS сайтов передаётся сквозным CONNECT с исходными сертификатами сайтов.
 
 Результаты и ограничения: [capability report](docs/research/image-compatibility.md).
-Полноценный backup/restore, роли, полная история событий и production
+Полноценный backup/restore, роли, расширенный поиск событий и production
 hardening ещё не завершены. Это не объявление готового production-релиза.
 
 ## Локальный запуск

@@ -86,3 +86,14 @@ container panel bind. [Проверки](active/review-reliability.md) заве�
 Следующий срез D4: история событий с курсорами и retention, фильтр по клиенту,
 аудит в панели и явные stale/unavailable состояния. Затем D6 backup/restore drill
 и release gates; эти этапы исправлением регрессий не считаются завершёнными.
+
+## История и аудит 27.10.2026
+
+D4 расширен сохранённой историей запросов, client/failure filters, cursor,
+bounded retention, stale/unavailable/gap состояниями и audit API/UI.
+[Результаты проверок](active/diagnostics-history.md) подтверждены unit/race,
+real-image и browser suite. D4 остаётся частичным: time/destination search,
+агрегаты и расширенные client instructions развиваются отдельно.
+Следующий срез D6: согласованный backup/restore DB, runtime LKG/journal и
+серверных сертификатов; восстановление в чистом fixture с реальным proxy request.
+Затем сертификатная ротация, оставшаяся fault matrix и release/security gates.

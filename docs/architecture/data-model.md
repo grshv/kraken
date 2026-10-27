@@ -86,7 +86,7 @@ secret references и terminal outcome. Он связывается с запис
   добавлен для совместимости с прежними anonymous rows (`username=''`), которые
   истекают и удаляются обычной очисткой; целостность проверяет приложение.
 
-Переход к полной реляционной схеме требует миграции 003+ и пересмотра
+Переход к полной реляционной схеме требует миграции 004+ и пересмотра
 `draftMu`/`opsMu` (см. ADR 0009).
 
 ## Миграции и архивирование
@@ -120,3 +120,19 @@ Client.kind: host/network/group, несколько source networks. settings и
 users.password_hash хранит PHC или совместимый legacy verifier. CLI reset меняет
 его вместе с удалением sessions/audit в одной транзакции. Логическая схема выше
 не объявляет будущие tables/migration retention полностью реализованными.
+
+## Диагностическая история (migration 003)
+
+proxy_events: seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id UNIQUE, client_id,
+client_name, failed, ingested_at, body (нормализованный JSON). Индексы client/seq,
+failed/seq и ingested_at. kv.event_checkpoint хранит offsets/anchors/generations,
+last successful read и известные gap/dropped/backlog/source flags. Вставка событий
+и checkpoint — одна транзакция. Сырой текст и URL path/query/userinfo не хранятся.
+
+Retention events: 7 дней по ingested_at, максимум 50 000 строк, применяется при
+успешном сборе и периодическом Prune, даже если источник затем недоступен.
+Audit использует прежние 90 дней/5000 строк. Cursor — bounded base64 JSON с before
+и hash вида журнала/фильтров; это позиция, не credential. Все выборки авторизованы,
+SQL параметры связаны; произвольный cursor не расширяет доступ. Новые строки
+не сдвигают старые страницы, retention может сократить доступную историю.
+Client labels фиксируются при сборе; revision_id null. См. [ADR 0011](../adr/0011-durable-diagnostics.md).

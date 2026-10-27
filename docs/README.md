@@ -25,6 +25,7 @@
 | [testing](development/testing.md) | Проверки, фикстуры, CI, критерии релиза | Меняются риски и тестовые средства |
 | [repository-files](development/repository-files.md) | Что необходимо сейчас и позже, без лишних файлов | Появляются инструменты |
 | [roadmap](plans/roadmap.md) | Этапы и границы работ | Завершается этап |
+| [diagnostics-history](plans/active/diagnostics-history.md) | История событий, фильтры, курсоры, retention и аудит | Меняется диагностика |
 | [review-reliability](plans/active/review-reliability.md) | Повторное ревью: sessions, миграции, recovery и повторный вход | Меняются проверки надёжности |
 | [review-followup](plans/active/review-followup.md) | Незакрытые Level-Low находки кодового ревью | Закрывается очередной задачей |
 | [image-compatibility](plans/image-compatibility.md) | Обязательное исследование образа | Проверен digest |

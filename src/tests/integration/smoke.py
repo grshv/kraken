@@ -252,6 +252,30 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         assert fetch(source)==200 and fetch(client)==200
         assert fetch(client,'http://denied.test/')==403
         print('PASS: unfinished promotion recovers previous policy through Squid/control startup and verified rollback')
+        # Ingestion runs without an open browser; labels and pagination survive
+        # rotation and a control-process restart with the same stored checkpoint.
+        def collected():
+            page=api('/events?client_id='+snap['clients'][1]['id']+'&limit=2')
+            assert len(page['items'])==2 and page['next_cursor'],page
+            assert all(v['client_id']==snap['clients'][1]['id'] for v in page['items'])
+            assert all(v['client_match_basis']=='policy_at_ingest' and v['revision_id'] is None for v in page['items'])
+            return page
+        page=wait_for(collected)
+        older=api('/events?client_id='+snap['clients'][1]['id']+'&limit=2&cursor='+page['next_cursor'])
+        assert not ({v['id'] for v in page['items']} & {v['id'] for v in older['items']})
+        saved_id=page['items'][0]['id']
+        labels=api('/events/clients')['items'];assert any(v['id']==snap['clients'][1]['id'] for v in labels)
+        before_rotate={v['id'] for v in api('/events?limit=200')['items']}
+        docker('exec','--user','13:13',proxy,'/usr/sbin/squid','-f','/data/runtime/active.conf','-k','rotate')
+        docker('exec',proxy,'pebble','restart','control')
+        wait_for(lambda:api('/status'))
+        persisted=api('/events?limit=200')['items']
+        assert saved_id in {v['id'] for v in persisted}
+        assert len(persisted)==len({v['id'] for v in persisted})
+        assert before_rotate <= {v['id'] for v in persisted}
+        audit=api('/audit?actor=local-cli&action=password_reset')['items']
+        assert len(audit)==1 and audit[0]['entity_id']=='admin'
+        print('PASS: durable event history, client filters/cursors, real rotation, control restart and administrative audit')
         print('ALL REAL-IMAGE SMOKE CHECKS PASSED')
     except Exception:
         if name+'-proxy' in containers:

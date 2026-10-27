@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.3.0",
+    "version": "0.4.0",
     "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint."
   },
   "servers": [
@@ -495,7 +495,7 @@
     "/events": {
       "get": {
         "operationId": "listEvents",
-        "summary": "Read bounded, sanitized proxy events",
+        "summary": "Read persisted sanitized proxy events",
         "responses": {
           "200": {
             "description": "Success",
@@ -523,7 +523,8 @@
             "name": "cursor",
             "in": "query",
             "schema": {
-              "type": "string"
+              "type": "string",
+              "maxLength": 512
             }
           },
           {
@@ -542,7 +543,8 @@
             "schema": {
               "type": "string",
               "format": "uuid"
-            }
+            },
+            "description": "Exact stored client ID, including deleted clients."
           },
           {
             "name": "failures_only",
@@ -553,7 +555,7 @@
             }
           }
         ],
-        "description": "No arbitrary path or shell filter. Tunnel events do not reveal origin URL path or status. Unknown historical revision stays null. First slice returns a bounded tail with gap=true and no cursor; cursor/client_id filters return 422. Unknown historical client/revision remains null."
+        "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Seven days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic."
       }
     },
     "/certificates": {
@@ -609,6 +611,123 @@
                   "required": [
                     "expert_config"
                   ]
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit": {
+      "get": {
+        "operationId": "listAuditEvents",
+        "summary": "Read administrative audit history",
+        "description": "Admin-only. Exact actor/action filters, stable earlier-page cursor. Retention 90 days and 5000 rows. Audit records accepted administrative actions; operation outcome is read from its operation object. No raw configuration, password, token or key bodies.",
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 512
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 200,
+              "default": 50
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "action",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 128
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/clients": {
+      "get": {
+        "operationId": "listEventClients",
+        "summary": "List up to 200 most recently observed client labels",
+        "description": "One latest label per stored client ID; names are source labels, not historical ACL matches.",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "items"
+                  ],
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "required": [
+                          "id",
+                          "name"
+                        ],
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "name": {
+                            "type": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -1307,7 +1426,9 @@
           "destination",
           "method",
           "proxy_result",
-          "tls_mode"
+          "tls_mode",
+          "client_name",
+          "client_match_basis"
         ],
         "properties": {
           "id": {
@@ -1369,6 +1490,21 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Source label stored at ingestion; later edits do not rewrite it."
+          },
+          "client_match_basis": {
+            "type": "string",
+            "enum": [
+              "unknown",
+              "policy_at_ingest"
+            ],
+            "description": "Unique source IP/CIDR match at ingestion, not historical ACL proof."
           }
         }
       },
@@ -1379,7 +1515,10 @@
           "items",
           "next_cursor",
           "gap",
-          "observed_at"
+          "observed_at",
+          "ingestion",
+          "retention_days",
+          "record_limit"
         ],
         "properties": {
           "items": {
@@ -1395,11 +1534,23 @@
             ]
           },
           "gap": {
-            "type": "boolean"
+            "type": "boolean",
+            "description": "Known reader loss/malformed records, or older history removed by retention. More pages are indicated by next_cursor separately."
           },
           "observed_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "ingestion": {
+            "$ref": "#/components/schemas/Ingestion"
+          },
+          "retention_days": {
+            "type": "integer",
+            "const": 7
+          },
+          "record_limit": {
+            "type": "integer",
+            "const": 50000
           }
         }
       },
@@ -1626,6 +1777,96 @@
           "can_rollback",
           "latest_status"
         ]
+      },
+      "Ingestion": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "observed_at",
+          "stale",
+          "source_available",
+          "backlog",
+          "dropped_records"
+        ],
+        "properties": {
+          "observed_at": {
+            "type": "string",
+            "description": "Last successful source read; empty before first collection."
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "source_available": {
+            "type": "boolean"
+          },
+          "backlog": {
+            "type": "boolean"
+          },
+          "dropped_records": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "AuditEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "actor",
+          "action",
+          "entity_id",
+          "timestamp"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "actor": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string"
+          },
+          "entity_id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "AuditPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "next_cursor",
+          "gap",
+          "observed_at"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEvent"
+            }
+          },
+          "next_cursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
       }
     }
   }

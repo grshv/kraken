@@ -116,3 +116,18 @@ Migration suite инъецирует ошибку перед version insert по
 Real-image suite восстанавливает previous ACL из pending journal после restart
 контейнера и проверяет фактические запросы. Browser suite проверяет GET/mutation
 expiry, обновление CSRF holder и вход после неверного пароля без reload страницы.
+
+## История диагностики
+
+[Критерии](../plans/active/diagnostics-history.md). Reader tests проверяют bounded
+batch/record, частичные строки, oversized/malformed/invalid UTF-8, rename rotation,
+truncation/anchor rewrite и возвращение временно исчезнувшего файла без replay.
+Store tests проверяют общую транзакцию событий/checkpoint с injected failure,
+reopen, дедупликацию, cursor при новых строках, client/failure/audit filters,
+некорректные/cross-filter cursors и retention по TTL/количеству.
+HTTP tests подтверждают auth, privacy, неподменяемые старые client labels,
+неизвестную историческую revision и stale/unavailable при отказе источника.
+Real-image suite проверяет ingestion настоящих Squid logs, cursor/client filter,
+rotation, отдельный restart control и сохранённый audit reset. Browser suite
+добавляет клиентский фильтр, более ранние записи, audit, безопасный текст вместо
+HTML и сохранение строк с предупреждением при API 503, desktop/mobile screenshots.

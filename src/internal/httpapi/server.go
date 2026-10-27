@@ -17,7 +17,6 @@ import (
 	"net/netip"
 	"net/url"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -194,6 +193,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/operations", s.authenticated(s.createOperation))
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.authenticated(s.getOperation))
 	mux.HandleFunc("GET /api/v1/events", s.authenticated(s.events))
+	mux.HandleFunc("GET /api/v1/events/clients", s.authenticated(s.eventClients))
+	mux.HandleFunc("GET /api/v1/audit", s.authenticated(s.auditEvents))
 	mux.HandleFunc("GET /api/v1/certificates", s.authenticated(s.certificates))
 	// No /api/ catch-all: a method-agnostic prefix pattern absorbs wrong-method
 	// requests and would surface them as 404 instead of the 405 Go 1.22 ServeMux
@@ -541,54 +542,6 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	respond(w, 202, op)
 }
 func (s *Server) Wait() { s.workers.Wait() }
-func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
-	if r.URL.Query().Get("cursor") != "" || r.URL.Query().Get("client_id") != "" {
-		fail(w, 422, "filter_not_implemented", "В первом срезе доступны только ограниченный хвост и фильтр отказов")
-		return
-	}
-	limit := 50
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, e := strconv.Atoi(raw)
-		if e != nil || n < 1 || n > 200 {
-			fail(w, 400, "invalid_limit", "limit должен быть от 1 до 200")
-			return
-		}
-		limit = n
-	}
-	items, e := s.Runtime.Events()
-	if e != nil {
-		if !errors.Is(e, os.ErrNotExist) {
-			fail(w, 503, "logs_unavailable", "Журнал недоступен")
-			return
-		}
-	}
-	if r.URL.Query().Get("failures_only") == "true" {
-		filtered := []map[string]any{}
-		for _, item := range items {
-			pr, _ := item["proxy_result"].(string)
-			if strings.Contains(pr, "DENIED") || strings.Contains(pr, "FAIL") {
-				filtered = append(filtered, item)
-			}
-		}
-		items = filtered
-	}
-	if len(items) > limit {
-		items = items[:limit]
-	}
-	// gap indicates "more history exists beyond the slice returned". Two
-	// conditions set it: (1) we hit the requested limit, which means more
-	// events of the same tail would have been returned with a larger limit;
-	// (2) the source access log is larger than the 128 KiB tail the parser
-	// reads, so even with few returned items the older entries exist on disk.
-	// Previously this was hard-coded to true, which was technically contract-
-	// conformant (cursor pagination is not implemented) but lied to the UI
-	// about the existence of older events when the log was empty or small.
-	gap := len(items) >= limit
-	if st, e := os.Stat(s.Runtime.Options.LogPath); e == nil && st.Size() > 128*1024 && len(items) > 0 {
-		gap = true
-	}
-	respond(w, 200, map[string]any{"items": items, "next_cursor": nil, "gap": gap, "observed_at": stamp()})
-}
 func (s *Server) certificates(w http.ResponseWriter, r *http.Request, v session) {
 	items := []map[string]any{}
 	for _, item := range []struct{ Ref, Purpose, Path string }{{"panel-server", "panel", s.PanelCert}, {"proxy-server", "proxy_server", s.Runtime.Options.ProxyCert}} {

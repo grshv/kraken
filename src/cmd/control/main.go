@@ -169,6 +169,23 @@ func run() error {
 				}
 			}
 		}()
+		collectorDone := make(chan struct{})
+		defer func() { stopMaintenance(); <-collectorDone }()
+		go func() {
+			defer close(collectorDone)
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			for {
+				if e := s.CollectEvents(); e != nil {
+					slog.Warn("event collection failed", "error", e)
+				}
+				select {
+				case <-maintenanceCtx.Done():
+					return
+				case <-ticker.C:
+				}
+			}
+		}()
 		stop := make(chan os.Signal, 1)
 		signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 		defer signal.Stop(stop)

@@ -108,3 +108,14 @@ Squid; helper/storage provisioning остаётся отдельной рабо�
 Playwright — 4 сценария, включая повторную авторизацию после GET/mutation expiry.
 [Полные критерии, результаты и ограничения](../plans/active/review-reliability.md).
 Тестовые контейнеры/volumes отдельные; существующая установка не обновлялась.
+
+## История и аудит, 27.10.2026
+
+API 0.4.0, migration 003: фоновый bounded reader, нормализованная SQLite-история,
+checkpoint, client/failure filters и cursor; отдельный audit API/UI. Retention
+событий 7 дней по сбору/50 000 строк, audit 90 дней/5000 строк. Проверены atomic
+retry, source stale/unavailable, rotation/truncation, реальные Squid запросы,
+отдельный restart control с сохранением истории, audit CLI reset и 5 browser
+сценариев. make check и image build прошли; screenshots desktop/mobile проверены.
+Compiler v4 и правила трафика не изменены; существующая установка не обновлялась.
+[Критерии и оставшиеся ограничения](../plans/active/diagnostics-history.md).

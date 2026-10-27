@@ -84,6 +84,8 @@ export type Event = {
   id: string;
   timestamp: string;
   client_id: string | null;
+  client_name: string | null;
+  client_match_basis: string;
   source_ip: string;
   destination: string;
   method: string;

@@ -5,8 +5,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,12 +12,9 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/netip"
-	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -618,132 +613,6 @@ func (m *Manager) statusLocked() map[string]any {
 		caps = append(caps, "tls_proxy_configured")
 	}
 	return map[string]any{"web": component("up", ""), "runtime": component(managementState, managementDetail), "squid": component(state, detail), "applied_revision": revision, "observed_config_hash": v.Hash, "capabilities": caps}
-}
-func (m *Manager) Events() ([]map[string]any, error) {
-	f, e := os.Open(m.Options.LogPath)
-	if errors.Is(e, os.ErrNotExist) {
-		return []map[string]any{}, nil
-	}
-	if e != nil {
-		return nil, e
-	}
-	defer f.Close()
-	st, e := f.Stat()
-	if e != nil {
-		return nil, e
-	}
-	offset := st.Size() - 128*1024
-	if offset < 0 {
-		offset = 0
-	}
-	if _, e = f.Seek(offset, 0); e != nil {
-		return nil, e
-	}
-	scanner := bufio.NewScanner(io.LimitReader(f, 128*1024))
-	scanner.Buffer(make([]byte, 4096), 16384)
-	if offset > 0 {
-		scanner.Scan()
-	}
-	items := []map[string]any{}
-	for scanner.Scan() {
-		parts := strings.Fields(scanner.Text())
-		if len(parts) < 7 {
-			continue
-		}
-		// Logs are untrusted data per AGENTS.md. Validate source_ip at parse time
-		// so a malformed log cannot inject arbitrary text into the API response.
-		sourceAddr, addrErr := netip.ParseAddr(parts[2])
-		if addrErr != nil {
-			continue
-		}
-		dest := parts[6]
-		if strings.Contains(dest, "://") {
-			u, e := url.Parse(dest)
-			if e != nil || u.Hostname() == "" {
-				dest = "<invalid>"
-			} else {
-				// Keep only the host:port; URL path/query/userinfo is never surfaced.
-				dest = u.Host
-			}
-		} else {
-			if i := strings.LastIndex(dest, "@"); i >= 0 {
-				dest = dest[i+1:]
-			}
-			if i := strings.IndexAny(dest, "/?#"); i >= 0 {
-				dest = dest[:i]
-			}
-		}
-		seconds, e := strconv.ParseFloat(parts[0], 64)
-		if e != nil {
-			continue
-		}
-		timestamp := time.UnixMilli(int64(seconds * 1000)).UTC().Format(time.RFC3339Nano)
-		duration, _ := strconv.ParseInt(parts[1], 10, 64)
-		count, _ := strconv.ParseInt(parts[4], 10, 64)
-		if duration < 0 {
-			duration = 0
-		}
-		if count < 0 {
-			count = 0
-		}
-		codeParts := strings.Split(parts[3], "/")
-		var code any
-		if len(codeParts) == 2 {
-			if n, e := strconv.Atoi(codeParts[1]); e == nil {
-				code = n
-			}
-		}
-		mode := "unknown"
-		if parts[5] == "CONNECT" {
-			mode = "tunnel"
-		}
-		// Logs are untrusted data per AGENTS.md. Source IP is already validated
-		// via netip.ParseAddr; ts/duration/count are parsed numerically with
-		// clamping. The remaining free-form tokens (proxy_result, method) are
-		// sanitized to a tight ASCII subset so a malformed log cannot inject
-		// control characters or HTML into the API response. JSON encoding
-		// already escapes them, but defense in depth is cheaper than relying on
-		// the encoder.
-		proxyResult := sanitizeLogToken(parts[3], 64)
-		method := sanitizeLogToken(parts[5], 16)
-		// Dedup ID binds to timestamp+line content so two identical log lines
-		// emitted at different times do not collide. Previously sha256(line)
-		// alone caused identical log entries (e.g. repeated DENIED for the
-		// same destination) to share an ID and deduplicate on the client when
-		// they are distinct events in the timeline.
-		h := sha256.New()
-		h.Write([]byte(parts[0]))
-		h.Write([]byte{':'})
-		h.Write(scanner.Bytes())
-		var sum [8]byte
-		copy(sum[:], h.Sum(nil))
-		items = append(items, map[string]any{"id": hex.EncodeToString(sum[:]), "timestamp": timestamp, "client_id": nil, "source_ip": sourceAddr.String(), "proxy_result": proxyResult, "method": method, "destination": dest, "proxy_http_status": code, "duration_ms": duration, "bytes_observed": count, "tls_mode": mode, "revision_id": nil})
-	}
-	if len(items) > 100 {
-		items = items[len(items)-100:]
-	}
-	for i, j := 0, len(items)-1; i < j; i, j = i+1, j-1 {
-		items[i], items[j] = items[j], items[i]
-	}
-	return items, scanner.Err()
-}
-
-// sanitizeLogToken strips everything outside a tight ASCII token set (alnum,
-// _ - /) and clamps length. Used on the free-form proxy_result/method fields
-// from access logs — which are untrusted input per AGENTS.md — so a malformed
-// log line cannot inject control characters or HTML into the API response
-// even if the JSON encoder were ever bypassed.
-func sanitizeLogToken(s string, max int) string {
-	if len(s) > max {
-		s = s[:max]
-	}
-	return strings.Map(func(r rune) rune {
-		switch {
-		case r >= 'A' && r <= 'Z', r >= 'a' && r <= 'z', r >= '0' && r <= '9', r == '_', r == '-', r == '/':
-			return r
-		}
-		return -1
-	}, s)
 }
 
 // Maintain rotates only fixed known logs and prunes historical state. It never

@@ -15,6 +15,7 @@ import type {
   RevisionSummary,
 } from "./model";
 import { SettingsPanel } from "./SettingsPanel";
+import { DiagnosticsPanel } from "./DiagnosticsPanel";
 
 // Labels cover every status value the server or a historical revision summary
 // could surface. OpenAPI declares more stages than are emitted today; if the
@@ -94,8 +95,13 @@ function App() {
   function refreshSession(): Promise<void> {
     if (!sessionRefreshRef.current) {
       sessionRefreshRef.current = api<Session>("/session")
-        .then((s) => { setCsrf(s.csrf_token); setSession(s); })
-        .finally(() => { sessionRefreshRef.current = null; });
+        .then((s) => {
+          setCsrf(s.csrf_token);
+          setSession(s);
+        })
+        .finally(() => {
+          sessionRefreshRef.current = null;
+        });
     }
     return sessionRefreshRef.current;
   }
@@ -176,7 +182,9 @@ function App() {
     // name field already exists but is unreliable across browsers when the
     // modal is rendered into an existing tree.
     const t = window.setTimeout(() => {
-      const first = modalRef.current?.querySelector<HTMLInputElement>("input,textarea,select");
+      const first = modalRef.current?.querySelector<HTMLInputElement>(
+        "input,textarea,select",
+      );
       first?.focus();
     }, 0);
     return () => {
@@ -448,18 +456,31 @@ function App() {
         i++
       ) {
         await new Promise((r) => setTimeout(r, 500));
-        op = await api<Operation>(`/operations/${op.id}`, "GET", undefined, undefined, signal);
+        op = await api<Operation>(
+          `/operations/${op.id}`,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        );
         setOperation(op);
-        if (
-          i === 200 &&
-          ["validating", "reloading"].includes(op.status)
-        ) {
+        if (i === 200 && ["validating", "reloading"].includes(op.status)) {
           setError(
             "Операция выполняется дольше обычного. Панель продолжает опрос статуса.",
           );
         }
       }
-      setHistory((await api<{ items: RevisionSummary[] }>("/revisions", "GET", undefined, undefined, signal)).items);
+      setHistory(
+        (
+          await api<{ items: RevisionSummary[] }>(
+            "/revisions",
+            "GET",
+            undefined,
+            undefined,
+            signal,
+          )
+        ).items,
+      );
       if (op.status === "validated") setValidated(op.id);
       if (op.status === "succeeded") {
         await load();
@@ -541,18 +562,25 @@ function App() {
         </a>
         <div className="aside-label">Управление доступом</div>
         <nav>
-          {["Обзор", "Клиенты", "Настройки", "Изменения", "События"].map(
-            (p, i) => (
-              <button
-                key={p}
-                className={page === p ? "selected" : ""}
-                onClick={() => setPage(p)}
-              >
-                <span aria-hidden="true">{["◉", "▤", "⚙", "⇄", "≡"][i]}</span>
-                {p}
-              </button>
-            ),
-          )}
+          {[
+            "Обзор",
+            "Клиенты",
+            "Настройки",
+            "Изменения",
+            "События",
+            "Аудит",
+          ].map((p, i) => (
+            <button
+              key={p}
+              className={page === p ? "selected" : ""}
+              onClick={() => setPage(p)}
+            >
+              <span aria-hidden="true">
+                {["◉", "▤", "⚙", "⇄", "≡", "↳"][i]}
+              </span>
+              {p}
+            </button>
+          ))}
         </nav>
         <div className="aside-bottom">
           <span>Локальная инсталляция</span>
@@ -586,7 +614,9 @@ function App() {
                       ? "Параметры Squid и экспертная конфигурация."
                       : page === "Изменения"
                         ? "Проверьте новую конфигурацию перед применением."
-                        : "Наблюдаемые запросы и отказы Squid."}
+                        : page === "Аудит"
+                          ? "Кто изменил конфигурацию и выполнил действие."
+                          : "Наблюдаемые запросы и отказы Squid."}
               </p>
             </div>
             <button
@@ -721,7 +751,7 @@ function App() {
                           (p) => p.id === c.policy_id,
                         );
                         return (
-                        <tr key={c.id}>
+                          <tr key={c.id}>
                             <td>
                               <strong>{c.name}</strong>
                               {c.description && (
@@ -1017,7 +1047,14 @@ function App() {
               </div>
             </section>
           )}
-          {(page === "События" || page === "Обзор") && (
+          {(page === "События" || page === "Аудит") && (
+            <DiagnosticsPanel
+              key={page}
+              kind={page === "Аудит" ? "audit" : "events"}
+              request={api}
+            />
+          )}
+          {page === "Обзор" && (
             <section className="section events">
               <div className="section-head">
                 <div>
@@ -1025,8 +1062,8 @@ function App() {
                     {page === "Обзор" ? "Последние события" : "Журнал запросов"}
                   </h2>
                   <p>
-                    Ограниченный хвост журнала. Возможны пропуски; история не
-                    является полной.
+                    Последние сохранённые запросы. История и фильтры доступны в
+                    разделе «События».
                   </p>
                 </div>
                 <label className="checkbox">
@@ -1051,7 +1088,7 @@ function App() {
                   </thead>
                   <tbody>
                     {events.slice(0, page === "Обзор" ? 6 : 100).map((e, i) => (
-                      <tr key={i}>
+                      <tr key={e.id}>
                         <td>
                           {new Date(e.timestamp).toLocaleTimeString("ru-RU")}
                         </td>
