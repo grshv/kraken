@@ -1,7 +1,7 @@
 # Реестр ADR
 
 [ADR 0006](0006-single-container.md) **Accepted**: владелец подтвердил один
-контейнер и один Go-бинарник управления. ADR 0002 **Superseded**, остальные
+контейнер и один Go-бинарник управления. ADR 0002 **Superseded**, ADR 0007 также Accepted; остальные
 предложения **Proposed** до согласования/проверки. Подтверждённые вводные:
 [product decisions](../product/decisions-and-questions.md).
 
@@ -13,6 +13,7 @@
 | [0004](0004-tls-profiles.md) | Отдельные TLS transport/inspection profiles | Proposed |
 | [0005](0005-agent-documentation.md) | Короткие инструкции, контракты и docs как код | Proposed |
 | [0006](0006-single-container.md) | Один image/контейнер, Go со static UI и Squid под Pebble | Accepted |
+| [0007](0007-general-clients-expert-configuration.md) | Общие клиенты, визуальные настройки и expert squid.conf | Accepted |
 
 Новая запись использует [шаблон](../templates/adr.md). Accepted запись не переписывают
 так, будто прежнего решения не было: при замене создаётся новая и Superseded ссылка.

@@ -1,23 +1,23 @@
-# Политики VM и TLS
+# Политики клиентов и TLS
 
-## Идентичность VM
+## Идентичность клиента
 
 Базовая идентичность — source IP, который **видит Squid**. Запись клиента содержит
 ID, понятное имя, описание, IP/CIDR, enabled и policy. Обычно используется точный
 адрес `/32` или `/128`. Для сетевой группы допустим CIDR, но это уже доверие всем
 адресам группы, что UI должен объяснять.
 
-Пересечения source ranges между включёнными клиентами запрещены: правило одной
-VM не должно случайно расширять доступ другой. Валидатор использует parsed IP
+Пересечения source ranges между включёнными клиентами запрещены: правило одного
+клиента не должно случайно расширять доступ другого. Валидатор использует parsed IP
 networks, а не сравнение строк. `/0` и неопределённые адреса недопустимы.
-NAT, скрывающий все VM за одним IP, делает такие политики неразличимыми.
+NAT, скрывающий всех клиентов за одним IP, делает такие политики неразличимыми.
 Решение — сохранить исходные адреса либо отдельно проектировать proxy auth/mTLS.
-Общий серверный сертификат HTTPS-прокси не идентифицирует VM.
+Общий серверный сертификат HTTPS-прокси не идентифицирует отдельное устройство.
 
 ## Модель политики
 
 ```text
-Client: id, name, source_networks[], enabled, policy_id
+Client: id, name, kind(host|network|group), source_networks[], enabled, policy_id
 Policy: id, name, mode(all_web|allowlist), destinations[], tls_profile_id
 Destination: kind(domain), value, include_subdomains
 TLSProfile: mode(tunnel|inspect), proxy_transport(http|tls), bypass_domains[]
@@ -29,7 +29,7 @@ TLSProfile: mode(tunnel|inspect), proxy_transport(http|tls), bypass_domains[]
 - Первая версия не предлагает `*.example.org` как произвольный glob: UI хранит
   `example.org` и отдельный флаг поддоменов, compiler переводит его в ACL.
 - Запрещены CR/LF, пробелы/директивы, схемы URL, userinfo и произвольные regex.
-  IDN нормализуется единым алгоритмом; исходное имя можно хранить для отображения.
+  В текущем срезе принимаются canonical ASCII domains; IDN normalization ещё не реализован.
 - В allowlist raw IP назначения по умолчанию не разрешается. PTR lookup не должен
   превратить чужой IP в разрешённый домен; точное поведение проверяется fixture.
 - Пустой allowlist означает отсутствие разрешённых ресурсов, а не весь интернет.
@@ -38,7 +38,7 @@ TLSProfile: mode(tunnel|inspect), proxy_transport(http|tls), bypass_domains[]
 
 1. Запретить unsafe ports; CONNECT разрешать только на утверждённые TLS-порты.
    На старте это 443, обычный web — 80/443.
-2. Закрыть cache manager от клиентских VM и публичной сети.
+2. Закрыть cache manager от клиентов прокси и публичной сети.
 3. Запретить loopback, link-local/cloud metadata, private/management destinations,
    IPv6 ULA и соответствующие специальные диапазоны согласно политике сети.
 4. Разрешить узкую локальную diagnostic identity только для фиксированных probes;
@@ -58,8 +58,8 @@ TLSProfile: mode(tunnel|inspect), proxy_transport(http|tls), bypass_domains[]
 | Слой | Что шифруется | Сертификаты и ограничения |
 | --- | --- | --- |
 | HTTPS панели | Браузер → web-панель | Серверный сертификат с SAN панели |
-| HTTPS proxy | VM → Squid | Отдельный серверный сертификат proxy; клиент доверяет issuer |
-| HTTPS origin через CONNECT | VM → внешний сайт внутри туннеля | Обычный сертификат сайта, Squid не читает содержимое |
+| HTTPS proxy | Клиент → Squid | Отдельный серверный сертификат proxy; клиент доверяет issuer |
+| HTTPS origin через CONNECT | Клиент → внешний сайт внутри туннеля | Обычный сертификат сайта, Squid не читает содержимое |
 | SSL Bump | Squid завершает TLS сайта и создаёт новый upstream TLS | Управляемый signing CA на Squid и доверие к CA на выбранных VM |
 
 HTTPS proxy и SSL Bump не заменяют друг друга. Их комбинация требует проверки
@@ -70,7 +70,7 @@ HTTPS proxy и SSL Bump не заменяют друг друга. Их комб
 ## Привязка transport к listener
 
 `proxy_transport` означает требуемый входной transport, а не только подсказку
-клиентской инструкции. Compiler обязан отклонять запрос VM на другом listener,
+клиентской инструкции. Compiler обязан отклонять запрос клиента на другом listener,
 чтобы TLS-профиль нельзя было незаметно обойти через оставленный HTTP-порт.
 Способ определения listener (например localport ACL) проверяется на выбранном image.
 На одном TLS listener используется один согласованный server cert reference;
@@ -132,9 +132,19 @@ web-сервис сам может предоставлять tunneling. Для 
 отдельная модель ресурсов и угроз. Inspection расширяет видимость, но не является
 полноценным DLP или гарантией запрета любого обхода.
 
-## Отключение VM
+## Отключение клиента
 
 Reload меняет правила новых запросов. Открытый CONNECT может продолжить жить.
 В MVP UI предупреждает об этом. Немедленное уничтожение туннелей требует отдельно
-проверенного механизма; restart всего Squid затронет все VM и не подменяет кнопку
+проверенного механизма; restart всего Squid затронет всех клиентов и не подменяет кнопку
 «Отключить доступ» без объяснения последствий.
+
+## Настройки и экспертный режим
+
+Settings управляет listener/safe/CONNECT ports, памятью кеша, DNS/TTL, timeouts,
+body limit и rotation. По умолчанию private destinations запрещены; явное
+allow_private_destinations открывает их для внутренних ресурсов, но не loopback
+или link-local/metadata. Source kind — метаданные, фактическая идентичность IP.
+
+Expert mode заменяет визуальный ACL-блок. Служебные paths, executables и
+защитные sc_ ACL не передаются редактору. Подробнее — ADR 0007.

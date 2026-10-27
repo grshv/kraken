@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "2"
+const CompilerVersion = "3"
 
 type Destination struct {
 	Domain            string `json:"domain"`
@@ -22,6 +22,7 @@ type Client struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
 	Description string   `json:"description,omitempty"`
+	Kind        string   `json:"kind,omitempty"`
 	Networks    []string `json:"source_networks"`
 	Enabled     bool     `json:"enabled"`
 	PolicyID    string   `json:"policy_id"`
@@ -43,6 +44,9 @@ type TLSProfile struct {
 	Bypass    []Destination `json:"bypass_domains"`
 }
 type Snapshot struct {
+	Settings    *Settings    `json:"settings,omitempty"`
+	Mode        string       `json:"configuration_mode,omitempty"`
+	Expert      string       `json:"expert_config,omitempty"`
 	Version     int          `json:"schema_version"`
 	Clients     []Client     `json:"clients"`
 	Policies    []Policy     `json:"policies"`
@@ -56,7 +60,8 @@ type Options struct {
 }
 
 func Empty() Snapshot {
-	return Snapshot{Version: 1, Clients: []Client{}, Policies: []Policy{}, TLSProfiles: []TLSProfile{{ID: "00000000-0000-4000-8000-000000000001", Name: "HTTP proxy / CONNECT", Mode: "tunnel", Transport: "http", Bypass: []Destination{}}}}
+	v := DefaultSettings()
+	return Snapshot{Version: 1, Settings: &v, Mode: "structured", Clients: []Client{}, Policies: []Policy{}, TLSProfiles: []TLSProfile{{ID: "00000000-0000-4000-8000-000000000001", Name: "HTTP proxy / CONNECT", Mode: "tunnel", Transport: "http", Bypass: []Destination{}}}}
 }
 
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9-]{1,64}$`)
@@ -68,6 +73,15 @@ func Validate(s Snapshot, o Options) error {
 	}
 	if s.Version != 1 {
 		return errors.New("unsupported schema_version")
+	}
+	if e := validateSettings(EffectiveSettings(s)); e != nil {
+		return e
+	}
+	if s.Mode != "" && s.Mode != "structured" && s.Mode != "expert" {
+		return errors.New("unknown configuration mode")
+	}
+	if e := validateExpert(s.Expert); e != nil {
+		return e
 	}
 	if len(s.Clients) > 1024 || len(s.Policies) > 1024 || len(s.TLSProfiles) > 16 {
 		return errors.New("configuration limit exceeded")
@@ -132,6 +146,9 @@ func Validate(s Snapshot, o Options) error {
 	}
 	var sources []source
 	for _, c := range s.Clients {
+		if c.Kind != "" && c.Kind != "host" && c.Kind != "network" && c.Kind != "group" {
+			return errors.New("invalid client kind")
+		}
 		if !idPattern.MatchString(c.ID) || clients[c.ID] || strings.TrimSpace(c.Name) == "" || len(c.Name) > 128 || len(c.Description) > 1024 || len(c.Networks) == 0 || len(c.Networks) > 64 {
 			return errors.New("invalid/duplicate client")
 		}
@@ -183,15 +200,30 @@ func Render(s Snapshot, o Options) (string, error) {
 	}
 	h := Fingerprint(s, o)
 	var b strings.Builder
-	fmt.Fprintf(&b, "# squid-control compiler=%s revision=%s\nvisible_hostname squid-control\nhttp_port 3128\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, o.StateDir, o.StateDir)
+	settings := EffectiveSettings(s)
+	fmt.Fprintf(&b, "# squid-control compiler=%s revision=%s\nvisible_hostname squid-control\nhttp_port 127.0.0.1:3130\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.StateDir, o.StateDir)
 	if o.ProxyCert != "" && o.ProxyKey != "" {
-		fmt.Fprintf(&b, "https_port 3129 tls-cert=%s tls-key=%s\n", o.ProxyCert, o.ProxyKey)
+		fmt.Fprintf(&b, "https_port %d tls-cert=%s tls-key=%s\n", settings.TLSPort, o.ProxyCert, o.ProxyKey)
 	}
-	b.WriteString("acl control_probe src 127.0.0.1/32 ::1/128\n")
-	fmt.Fprintf(&b, "access_log stdio:%s squid !control_probe\ncache_store_log none\ncache deny all\npinger_enable off\nshutdown_lifetime 2 seconds\nlogfile_rotate 3\n", o.LogPath)
-	b.WriteString("acl Safe_ports port 80 443\nacl SSL_ports port 443\nacl http_listener localport 3128\nacl tls_listener localport 3129\n")
-	b.WriteString("acl blocked_dst dst 0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4 ::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 2001:db8::/32 fc00::/7 fe80::/10 ff00::/8\n")
-	b.WriteString("http_access deny !Safe_ports\nhttp_access deny CONNECT !SSL_ports\nhttp_access deny manager\nhttp_access deny blocked_dst\n")
+	b.WriteString("acl sc_probe_source src 127.0.0.1/32 ::1/128\nacl sc_probe_listener localport 3130\n")
+	fmt.Fprintf(&b, "access_log stdio:%s squid !sc_probe_source\ncache_store_log none\npinger_enable off\nshutdown_lifetime 2 seconds\n", o.LogPath)
+	renderSettings(&b, settings)
+	fmt.Fprintf(&b, "acl sc_safe_ports port %s\nacl sc_ssl_ports port %s\nacl sc_http_listener localport %d\nacl sc_tls_listener localport %d\n", portList(settings.SafePorts), portList(settings.ConnectPorts), settings.HTTPPort, settings.TLSPort)
+	b.WriteString("acl sc_protected_dst dst 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4 240.0.0.0/4 ::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 fe80::/10 ff00::/8\n")
+	b.WriteString("acl sc_private_dst dst 10.0.0.0/8 100.64.0.0/10 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 2001:db8::/32 fc00::/7\n")
+	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports\nhttp_access deny CONNECT !sc_ssl_ports\nhttp_access deny manager\nhttp_access deny sc_protected_dst\n")
+	if !settings.AllowPrivateDestinations {
+		b.WriteString("http_access deny sc_private_dst\n")
+	}
+	fmt.Fprintf(&b, "reply_header_add X-Squid-Control-Revision %s all\n", h)
+	b.WriteString("# BEGIN user policy\n")
+	if s.Mode == "expert" {
+		b.WriteString(s.Expert)
+		b.WriteString("\n# END user policy\n")
+		renderCacheFallback(&b, settings)
+		b.WriteString("http_access deny all\n")
+		return b.String(), nil
+	}
 	profiles := map[string]TLSProfile{}
 	for _, p := range s.TLSProfiles {
 		profiles[p.ID] = p
@@ -208,9 +240,9 @@ func Render(s Snapshot, o Options) (string, error) {
 		}
 		p := policies[c.PolicyID]
 		tp := profiles[p.TLSProfileID]
-		listener := "http_listener"
+		listener := "sc_http_listener"
 		if tp.Transport == "tls" {
-			listener = "tls_listener"
+			listener = "sc_tls_listener"
 		}
 		fmt.Fprintf(&b, "acl client_%d src %s\n", i, strings.Join(c.Networks, " "))
 		if p.Mode == "all_web" {
@@ -231,7 +263,27 @@ func Render(s Snapshot, o Options) (string, error) {
 		sort.Strings(ds)
 		fmt.Fprintf(&b, "acl destinations_%d dstdomain -n %s\nhttp_access allow client_%d %s destinations_%d\n", i, strings.Join(ds, " "), i, listener, i)
 	}
+	b.WriteString("# END user policy\n")
+	renderCacheFallback(&b, settings)
 	b.WriteString("http_access deny all\n")
-	fmt.Fprintf(&b, "reply_header_add X-Squid-Control-Revision %s all\n", h)
 	return b.String(), nil
+}
+
+func ExpertTemplate(s Snapshot, o Options) (string, error) {
+	s.Mode = "structured"
+	config, e := Render(s, o)
+	if e != nil {
+		return "", e
+	}
+	_, rest, _ := strings.Cut(config, "# BEGIN user policy\n")
+	body, _, _ := strings.Cut(rest, "# END user policy")
+	return body, nil
+}
+
+func renderCacheFallback(b *strings.Builder, settings Settings) {
+	if settings.CacheEnabled {
+		b.WriteString("cache allow all\n")
+	} else {
+		b.WriteString("cache deny all\n")
+	}
 }

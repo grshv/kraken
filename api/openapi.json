@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.1.0",
-    "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF."
+    "version": "0.2.0",
+    "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint."
   },
   "servers": [
     {
@@ -284,6 +284,34 @@
             }
           }
         }
+      },
+      "get": {
+        "operationId": "listRevisions",
+        "summary": "Read latest 100 revision summaries and rollback eligibility",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/RevisionSummary"
+                      }
+                    }
+                  },
+                  "required": [
+                    "items"
+                  ]
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/revisions/{id}": {
@@ -560,6 +588,33 @@
         "parameters": [],
         "description": "Returns installed inventory metadata, never private keys; local provisioning only in first version."
       }
+    },
+    "/configuration/expert-template": {
+      "get": {
+        "operationId": "getExpertTemplate",
+        "summary": "Generate editable user section from saved structured rules without changing mode",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "expert_config": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "expert_config"
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -714,6 +769,15 @@
           "policy_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "host",
+              "network",
+              "group"
+            ],
+            "description": "Client metadata; not tied to virtualization."
           }
         }
       },
@@ -841,6 +905,22 @@
             "items": {
               "$ref": "#/components/schemas/TLSProfile"
             }
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SquidSettings"
+          },
+          "configuration_mode": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "expert"
+            ],
+            "default": "structured"
+          },
+          "expert_config": {
+            "type": "string",
+            "maxLength": 131072,
+            "description": "User squid.conf section. Managed runtime directives, includes and executable helpers prohibited; validate with real Squid before apply."
           }
         }
       },
@@ -944,7 +1024,8 @@
           "summary",
           "generated_config",
           "warnings",
-          "expected_applied_revision"
+          "expected_applied_revision",
+          "config_diff"
         ],
         "properties": {
           "revision_id": {
@@ -975,6 +1056,12 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "config_diff": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffLine"
+            }
           }
         }
       },
@@ -1187,7 +1274,8 @@
           "squid",
           "applied_revision",
           "observed_config_hash",
-          "capabilities"
+          "capabilities",
+          "has_unapplied_changes"
         ],
         "properties": {
           "web": {
@@ -1218,6 +1306,12 @@
           "runtime": {
             "$ref": "#/components/schemas/ComponentStatus",
             "description": "Internal management module health, not a remote runner."
+          },
+          "has_unapplied_changes": {
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         }
       },
@@ -1376,6 +1470,183 @@
             "type": "string"
           }
         }
+      },
+      "SquidSettings": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "http_port": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65535
+          },
+          "tls_port": {
+            "type": "integer",
+            "minimum": 1024,
+            "maximum": 65535
+          },
+          "cache_memory_mb": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1024
+          },
+          "maximum_object_kb": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1048576
+          },
+          "positive_dns_ttl_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 604800
+          },
+          "negative_dns_ttl_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 604799
+          },
+          "connect_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400
+          },
+          "read_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400
+          },
+          "request_timeout_seconds": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 86400
+          },
+          "max_request_body_mb": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10240
+          },
+          "log_rotations": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 30
+          },
+          "safe_ports": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "connect_ports": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535
+            },
+            "minItems": 1,
+            "maxItems": 64,
+            "uniqueItems": true
+          },
+          "dns_nameservers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 8
+          },
+          "cache_enabled": {
+            "type": "boolean"
+          },
+          "allow_private_destinations": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "http_port",
+          "tls_port",
+          "cache_memory_mb",
+          "maximum_object_kb",
+          "positive_dns_ttl_seconds",
+          "negative_dns_ttl_seconds",
+          "connect_timeout_seconds",
+          "read_timeout_seconds",
+          "request_timeout_seconds",
+          "max_request_body_mb",
+          "log_rotations",
+          "safe_ports",
+          "connect_ports",
+          "dns_nameservers",
+          "cache_enabled",
+          "allow_private_destinations"
+        ]
+      },
+      "DiffLine": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "context",
+              "added",
+              "removed"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ]
+      },
+      "RevisionSummary": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "policy_hash": {
+            "type": "string"
+          },
+          "compiler_version": {
+            "type": "string"
+          },
+          "was_applied": {
+            "type": "boolean"
+          },
+          "is_current": {
+            "type": "boolean"
+          },
+          "can_rollback": {
+            "type": "boolean"
+          },
+          "latest_status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "created_at",
+          "policy_hash",
+          "compiler_version",
+          "was_applied",
+          "is_current",
+          "can_rollback",
+          "latest_status"
+        ]
       }
     }
   }

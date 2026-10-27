@@ -12,11 +12,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"squid-control.local/squid/internal/policy"
@@ -58,19 +60,20 @@ type attempt struct {
 	Count int
 }
 type Server struct {
-	PanelCert  string
-	Store      *store.Store
-	Runtime    *local.Manager
-	Origin     string
-	Static     http.Handler
-	Image      string
-	draftMu    sync.Mutex
-	opsMu      sync.Mutex
-	throttleMu sync.Mutex
-	attempts   map[string]attempt
-	loginSlots chan struct{}
-	dummyHash  string
-	workers    sync.WaitGroup
+	persistenceFailed atomic.Bool
+	PanelCert         string
+	Store             *store.Store
+	Runtime           *local.Manager
+	Origin            string
+	Static            http.Handler
+	Image             string
+	draftMu           sync.Mutex
+	opsMu             sync.Mutex
+	throttleMu        sync.Mutex
+	attempts          map[string]attempt
+	loginSlots        chan struct{}
+	dummyHash         string
+	workers           sync.WaitGroup
 }
 
 func stamp() string { return time.Now().UTC().Format(time.RFC3339) }
@@ -165,7 +168,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/session", s.sessionGet)
 	mux.HandleFunc("POST /api/v1/session", s.login)
 	mux.HandleFunc("DELETE /api/v1/session", s.authenticated(s.logout))
-	mux.HandleFunc("GET /api/v1/status", s.authenticated(func(w http.ResponseWriter, r *http.Request, v session) { respond(w, 200, s.Runtime.Status()) }))
+	mux.HandleFunc("GET /api/v1/status", s.authenticated(s.status))
+	mux.HandleFunc("GET /api/v1/revisions", s.authenticated(s.listRevisions))
+	mux.HandleFunc("GET /api/v1/configuration/expert-template", s.authenticated(s.expertTemplate))
 	mux.HandleFunc("GET /api/v1/configuration/draft", s.authenticated(s.getDraft))
 	mux.HandleFunc("PUT /api/v1/configuration/draft", s.authenticated(s.updateDraft))
 	mux.HandleFunc("POST /api/v1/revisions", s.authenticated(s.createRevision))
@@ -204,6 +209,13 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 	}
 	if !decode(w, r, &input) {
 		return
+	}
+	for i, c := range input.Snapshot.Clients {
+		for j, raw := range c.Networks {
+			if address, e := netip.ParseAddr(raw); e == nil {
+				input.Snapshot.Clients[i].Networks[j] = netip.PrefixFrom(address, address.BitLen()).String()
+			}
+		}
 	}
 	if e := policy.Validate(input.Snapshot, s.Runtime.Options); e != nil {
 		fail(w, 422, "invalid_policy", e.Error())
@@ -295,7 +307,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request, v session) {
 	if m.Revision != "" {
 		previous = m.Revision
 	}
-	respond(w, 200, map[string]any{"revision_id": rev.ID, "policy_hash": rev.Hash, "summary": []string{"Полная конфигурация клиентов и политик", "Кеширование и SSL Bump выключены"}, "generated_config": conf, "warnings": []string{"Новые правила не гарантируют закрытие уже открытых CONNECT-туннелей"}, "expected_applied_revision": previous})
+	respond(w, 200, map[string]any{"revision_id": rev.ID, "policy_hash": rev.Hash, "summary": semanticDiff(m.Snapshot, rev.Snapshot), "config_diff": configDiff(m.Config, conf), "generated_config": conf, "warnings": []string{"Новые правила не гарантируют закрытие уже открытых CONNECT-туннелей"}, "expected_applied_revision": previous})
 }
 func (s *Server) saveOperation(op Operation) error {
 	b, e := json.Marshal(op)
@@ -328,6 +340,10 @@ func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, v session)
 	respond(w, 200, op)
 }
 func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v session) {
+	if s.persistenceFailed.Load() {
+		fail(w, 503, "recovery_required", "Не удалось сохранить исход предыдущей операции; требуется восстановление")
+		return
+	}
 	key := r.Header.Get("Idempotency-Key")
 	if len(key) < 16 || len(key) > 128 {
 		fail(w, 400, "invalid_key", "Нужен Idempotency-Key длиной 16–128 символов")
@@ -377,7 +393,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	if !ok {
 		return
 	}
-	if rev.Compiler != policy.CompilerVersion || rev.Image != s.Image {
+	if input.Action != "rollback" && (rev.Compiler != policy.CompilerVersion || rev.Image != s.Image) {
 		fail(w, 422, "version_mismatch", "Ревизия создана другой сборкой. Подготовьте новую")
 		return
 	}
@@ -456,6 +472,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		}
 		op.Updated = stamp()
 		if e := s.saveOperation(op); e != nil {
+			s.persistenceFailed.Store(true)
 			slog.Error("cannot persist operation outcome", "operation_id", op.ID, "error", e)
 		}
 	}(op)

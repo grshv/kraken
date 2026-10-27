@@ -2,75 +2,19 @@ import { useEffect, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./style.css";
 
-type Destination = { domain: string; include_subdomains: boolean };
-type Client = {
-  id: string;
-  name: string;
-  source_networks: string[];
-  enabled: boolean;
-  policy_id: string;
-};
-type Policy = {
-  id: string;
-  name: string;
-  mode: "all_web" | "allowlist";
-  destinations: Destination[];
-  tls_profile_id: string;
-};
-type Snapshot = {
-  schema_version: number;
-  clients: Client[];
-  policies: Policy[];
-  tls_profiles: {
-    id: string;
-    name: string;
-    mode: string;
-    proxy_transport: string;
-    cert_ref: string | null;
-    ca_ref: string | null;
-    bypass_domains: Destination[];
-  }[];
-};
-type Draft = { version: number; snapshot: Snapshot; updated_at: string };
-type Session = {
-  authenticated: boolean;
-  username: string | null;
-  csrf_token: string;
-};
-type Component = {
-  state: string;
-  detail: string;
-  observed_at: string;
-  stale: boolean;
-};
-type Status = {
-  web: Component;
-  runtime: Component;
-  squid: Component;
-  applied_revision: string | null;
-  capabilities: string[];
-};
-type Preview = {
-  revision_id: string;
-  policy_hash: string;
-  generated_config: string;
-  warnings: string[];
-  expected_applied_revision: string | null;
-};
-type Operation = {
-  id: string;
-  action: string;
-  revision_id: string;
-  status: string;
-  findings: string[];
-};
-type Event = {
-  timestamp: string;
-  source_ip: string;
-  proxy_result: string;
-  method: string;
-  destination: string;
-};
+import type {
+  Client,
+  Policy,
+  Snapshot,
+  Draft,
+  Session,
+  Status,
+  Preview,
+  Operation,
+  Event,
+  RevisionSummary,
+} from "./model";
+import { SettingsPanel } from "./SettingsPanel";
 const labels: Record<string, string> = {
   up: "Работает",
   down: "Недоступен",
@@ -130,6 +74,9 @@ function App() {
   const [preview, setPreview] = useState<Preview | null>(null),
     [operation, setOperation] = useState<Operation | null>(null),
     [validated, setValidated] = useState("");
+  const [history, setHistory] = useState<RevisionSummary[]>([]);
+  const [rollbackTarget, setRollbackTarget] = useState(false);
+  const [kind, setKind] = useState<"host" | "network" | "group">("host");
   const [editing, setEditing] = useState<string | null>(null),
     [showForm, setShowForm] = useState(false);
   const [name, setName] = useState(""),
@@ -138,12 +85,14 @@ function App() {
     [domains, setDomains] = useState(""),
     [transport, setTransport] = useState("http");
   async function load() {
-    const [d, s] = await Promise.all([
+    const [d, s, h] = await Promise.all([
       api<Draft>("/configuration/draft"),
       api<Status>("/status"),
+      api<{ items: RevisionSummary[] }>("/revisions"),
     ]);
     setDraft(d);
     setStatus(s);
+    setHistory(h.items);
   }
   useEffect(() => {
     api<Session>("/session")
@@ -225,6 +174,7 @@ function App() {
     setPreview(null);
     setValidated("");
     setOperation(null);
+    setStatus(await api<Status>("/status"));
   }
   function openClient(c?: Client) {
     if (!draft) return;
@@ -233,6 +183,7 @@ function App() {
       (t) => t.id === p?.tls_profile_id,
     );
     setEditing(c?.id || null);
+    setKind(c?.kind || (c && c.source_networks.length > 1 ? "group" : "host"));
     setName(c?.name || "");
     setNetworks(c?.source_networks.join("\n") || "");
     setMode(p?.mode || "allowlist");
@@ -288,6 +239,7 @@ function App() {
       snap.policies = snap.policies.filter((p) => p.id !== policyID).concat(p);
       const c: Client = {
         id,
+        kind,
         name: name.trim(),
         source_networks: networks
           .split(/[\n,]/)
@@ -310,12 +262,13 @@ function App() {
       });
       const p = await api<Preview>(`/revisions/${r.id}/preview`);
       setPreview(p);
+      setRollbackTarget(false);
       setOperation(null);
       setValidated("");
       setPage("Изменения");
     });
   }
-  async function run(action: "validate" | "apply") {
+  async function run(action: "validate" | "apply" | "rollback") {
     if (!preview) return;
     await work(async () => {
       const input = {
@@ -340,6 +293,7 @@ function App() {
         op = await api<Operation>(`/operations/${op.id}`);
         setOperation(op);
       }
+      setHistory((await api<{ items: RevisionSummary[] }>("/revisions")).items);
       if (op.status === "validated") setValidated(op.id);
       if (op.status === "succeeded") {
         await load();
@@ -421,16 +375,18 @@ function App() {
         </a>
         <div className="aside-label">Управление доступом</div>
         <nav>
-          {["Обзор", "Клиенты", "Изменения", "События"].map((p, i) => (
-            <button
-              key={p}
-              className={page === p ? "selected" : ""}
-              onClick={() => setPage(p)}
-            >
-              <span aria-hidden="true">{["◉", "▤", "⇄", "≡"][i]}</span>
-              {p}
-            </button>
-          ))}
+          {["Обзор", "Клиенты", "Настройки", "Изменения", "События"].map(
+            (p, i) => (
+              <button
+                key={p}
+                className={page === p ? "selected" : ""}
+                onClick={() => setPage(p)}
+              >
+                <span aria-hidden="true">{["◉", "▤", "⚙", "⇄", "≡"][i]}</span>
+                {p}
+              </button>
+            ),
+          )}
         </nav>
         <div className="aside-bottom">
           <span>Локальная инсталляция</span>
@@ -457,12 +413,14 @@ function App() {
               <h1>{page === "Обзор" ? "Прокси под контролем" : page}</h1>
               <p>
                 {page === "Обзор"
-                  ? "Состояние соединения и правила ваших машин."
+                  ? "Состояние прокси, настройки и политики клиентов."
                   : page === "Клиенты"
-                    ? "Каждой машине — свой доступ к ресурсам."
-                    : page === "Изменения"
-                      ? "Проверьте новую конфигурацию перед применением."
-                      : "Наблюдаемые запросы и отказы Squid."}
+                    ? "Адреса, сети и группы с индивидуальными правилами доступа."
+                    : page === "Настройки"
+                      ? "Параметры Squid и экспертная конфигурация."
+                      : page === "Изменения"
+                        ? "Проверьте новую конфигурацию перед применением."
+                        : "Наблюдаемые запросы и отказы Squid."}
               </p>
             </div>
             <button
@@ -481,6 +439,35 @@ function App() {
               </button>
             </div>
           )}
+          {status?.runtime.state === "degraded" && (
+            <p role="alert" className="error">
+              Управление требует восстановления: исход предыдущей операции не
+              подтверждён. Новые применения заблокированы.
+            </p>
+          )}
+          {status?.has_unapplied_changes && (
+            <div className="pending-banner">
+              <span>Есть неприменённые изменения</span>
+              <button className="text-button" disabled={busy} onClick={freeze}>
+                Посмотреть diff
+              </button>
+            </div>
+          )}
+          {page === "Настройки" && draft && (
+            <SettingsPanel
+              key={draft.version}
+              snapshot={draft.snapshot}
+              busy={busy}
+              onSave={(next) => work(() => save(next))}
+              onTemplate={async () =>
+                (
+                  await api<{ expert_config: string }>(
+                    "/configuration/expert-template",
+                  )
+                ).expert_config
+              }
+            />
+          )}
           {(page === "Обзор" || page === "Клиенты") && (
             <>
               {page === "Обзор" && (
@@ -491,7 +478,7 @@ function App() {
                   <div className="connection-node">
                     <span className="node-icon">▤</span>
                     <div>
-                      <strong>Клиентские VM</strong>
+                      <strong>Клиенты прокси</strong>
                       <small>Индивидуальные правила</small>
                     </div>
                   </div>
@@ -526,6 +513,13 @@ function App() {
                 </section>
               )}
               <section className="section">
+                {snap?.configuration_mode === "expert" && (
+                  <p className="notice">
+                    В черновике выбран экспертный режим: правила клиентов ниже
+                    сохраняются для визуального режима и не входят в создаваемую
+                    конфигурацию. Для изменения трафика примените ревизию.
+                  </p>
+                )}
                 <div className="section-head">
                   <div>
                     <h2>Клиенты</h2>
@@ -536,16 +530,18 @@ function App() {
                   </div>
                   <button
                     onClick={() => openClient()}
-                    disabled={busy || !draft}
+                    disabled={
+                      busy || !draft || snap?.configuration_mode === "expert"
+                    }
                   >
-                    Добавить VM
+                    Добавить клиента
                   </button>
                 </div>
                 <div className="table-wrap">
                   <table>
                     <thead>
                       <tr>
-                        <th>Машина</th>
+                        <th>Клиент / группа</th>
                         <th>Адрес / сеть</th>
                         <th>Доступ</th>
                         <th>Состояние</th>
@@ -577,8 +573,8 @@ function App() {
                                 className={`client-state ${c.enabled ? "" : "disabled"}`}
                               >
                                 {c.enabled
-                                  ? "Включена в черновике"
-                                  : "Отключена в черновике"}
+                                  ? "Включён в черновике"
+                                  : "Отключён в черновике"}
                               </span>
                             </td>
                             <td className="row-actions">
@@ -614,7 +610,7 @@ function App() {
                   {!snap?.clients.length && (
                     <div className="empty">
                       <span>▤</span>
-                      <h3>Добавьте первую машину</h3>
+                      <h3>Добавьте первого клиента</h3>
                       <p>
                         Укажите IP и выберите: весь web или разрешённые домены.
                         <br />
@@ -624,7 +620,7 @@ function App() {
                         className="secondary"
                         onClick={() => openClient()}
                       >
-                        Добавить VM
+                        Добавить клиента
                       </button>
                     </div>
                   )}
@@ -657,8 +653,8 @@ function App() {
                   <section>
                     <h3>Защитные ограничения</h3>
                     <p>
-                      Внутренние адреса, metadata и опасные порты закрыты для
-                      всех режимов.
+                      Loopback и metadata закрыты. Доступ к частным сетям и
+                      портам задаётся в настройках применяемой ревизии.
                     </p>
                   </section>
                 </div>
@@ -692,6 +688,27 @@ function App() {
                       SHA-256 <code>{preview.policy_hash.slice(0, 16)}…</code>
                     </span>
                   </div>
+                  <ul className="change-summary">
+                    {preview.summary.map((item, i) => (
+                      <li key={i}>{item}</li>
+                    ))}
+                  </ul>
+                  <details open>
+                    <summary>Изменения конфигурации</summary>
+                    <pre className="config-diff">
+                      {preview.config_diff.map((line, i) => (
+                        <span key={i} className={line.kind}>
+                          {line.kind === "added"
+                            ? "+ "
+                            : line.kind === "removed"
+                              ? "- "
+                              : "  "}
+                          {line.text}
+                          {"\n"}
+                        </span>
+                      ))}
+                    </pre>
+                  </details>
                   {preview.warnings.map((w) => (
                     <p className="notice" key={w}>
                       {w}
@@ -703,23 +720,29 @@ function App() {
                   </details>
                   <div className="section-footer">
                     <span>
-                      {validated
-                        ? "Эта ревизия прошла проверку"
-                        : "Требуется проверка конфигурации"}
+                      {rollbackTarget
+                        ? "Откат повторно проверит конфигурацию перед применением"
+                        : validated
+                          ? "Эта ревизия прошла проверку"
+                          : "Требуется проверка конфигурации"}
                     </span>
                     <div className="actions">
                       <button
                         className="secondary"
-                        disabled={busy}
+                        disabled={busy || rollbackTarget}
                         onClick={() => run("validate")}
                       >
                         Проверить
                       </button>
                       <button
-                        disabled={busy || !validated}
-                        onClick={() => run("apply")}
+                        disabled={busy || (!rollbackTarget && !validated)}
+                        onClick={() =>
+                          run(rollbackTarget ? "rollback" : "apply")
+                        }
                       >
-                        Применить
+                        {rollbackTarget
+                          ? "Откатить к этой ревизии"
+                          : "Применить"}
                       </button>
                     </div>
                   </div>
@@ -744,6 +767,74 @@ function App() {
                   ))}
                 </div>
               )}
+            </section>
+          )}
+          {page === "Изменения" && (
+            <section className="section">
+              <div className="section-head">
+                <div>
+                  <h2>История ревизий</h2>
+                  <p>Откат проверяется и применяется отдельной операцией.</p>
+                </div>
+              </div>
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Создана</th>
+                      <th>Ревизия</th>
+                      <th>Статус</th>
+                      <th>Действие</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((rev) => (
+                      <tr key={rev.id}>
+                        <td>
+                          {new Date(rev.created_at).toLocaleString("ru-RU")}
+                        </td>
+                        <td>
+                          <code>{rev.id.slice(0, 8)}</code>
+                        </td>
+                        <td>
+                          {rev.is_current ? (
+                            <Pill value="succeeded" />
+                          ) : (
+                            <Pill value={rev.latest_status} />
+                          )}
+                        </td>
+                        <td>
+                          <button
+                            className="text-button"
+                            disabled={busy}
+                            onClick={() =>
+                              work(async () => {
+                                setPreview(
+                                  await api<Preview>(
+                                    `/revisions/${rev.id}/preview`,
+                                  ),
+                                );
+                                setRollbackTarget(rev.can_rollback);
+                                setValidated("");
+                                setOperation(null);
+                              })
+                            }
+                          >
+                            {rev.can_rollback
+                              ? "Сравнить и откатить"
+                              : "Посмотреть diff"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {!history.length && (
+                  <p className="empty">
+                    Ревизий пока нет. Подготовьте конфигурацию из черновика.
+                  </p>
+                )}
+              </div>
             </section>
           )}
           {(page === "События" || page === "Обзор") && (
@@ -835,7 +926,7 @@ function App() {
           >
             <div className="section-head">
               <h2 id="client-title">
-                {editing ? "Настройки машины" : "Добавить VM"}
+                {editing ? "Настройки клиента" : "Добавить клиента"}
               </h2>
               <button
                 className="text-button"
@@ -858,6 +949,17 @@ function App() {
                 />
               </label>
               <label>
+                Тип клиента
+                <select
+                  value={kind}
+                  onChange={(e) => setKind(e.target.value as typeof kind)}
+                >
+                  <option value="host">Адрес / устройство</option>
+                  <option value="network">Сеть</option>
+                  <option value="group">Группа адресов и сетей</option>
+                </select>
+              </label>
+              <label>
                 IP / CIDR
                 <textarea
                   value={networks}
@@ -867,7 +969,8 @@ function App() {
                   placeholder="192.0.2.11/32"
                 />
                 <small>
-                  Адрес, который видит Squid. Каждая сеть с новой строки.
+                  IP устройства, сеть CIDR или группа адресов, которые видит
+                  Squid. Каждый элемент с новой строки.
                 </small>
               </label>
               <label>

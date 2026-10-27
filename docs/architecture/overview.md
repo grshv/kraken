@@ -19,13 +19,13 @@ flowchart LR
     W --> D[(SQLite)]
     W --> M[Внутренний runtime module]
     M -->|Локальные parse, reload, probes| S[Процесс Squid]
-    V[Клиентские VM] -->|HTTP proxy или TLS к proxy| S
+    V[Клиенты прокси] -->|HTTP proxy или TLS к proxy| S
     S --> I[Внешние ресурсы]
     P[Pebble: один контейнер] -. supervision .-> W
     P -. supervision .-> S
 ```
 
-Запросы VM не проходят через web-приложение. При падении процесса панели Pebble
+Запросы клиентов не проходят через web-приложение. При падении процесса панели Pebble
 перезапускает только его, Squid продолжает работу с последними правилами.
 Остановка/пересоздание всего контейнера прерывает оба сервиса и активные соединения.
 
@@ -40,7 +40,7 @@ flowchart LR
 
 Runtime module — часть Go-приложения, не отдельный демон, не IPC API и не граница
 изоляции от web-кода. Docker socket, privileged mode и host namespaces отсутствуют.
-Компрометация панели потенциально позволяет изменить proxy config и доступ VM;
+Компрометация панели потенциально позволяет изменить proxy config и доступ клиентов;
 общий контейнер увеличивает общую зону поражения. Снижение риска — минимальные
 права и строгая модель политики, а не обещание изоляции внутри одного процесса.
 
@@ -63,7 +63,8 @@ proxy VM: Docker Engine / Compose
   container
     Pebble
       squid-control: HTTPS UI/API, например 8443 -> host management IP:443
-      squid: 3128 (HTTP, если включён), 3129 (TLS, после capability check)
+      squid: HTTP 3128 / TLS 3129 по умолчанию, настраиваемые порты
+      probe: 127.0.0.1:3130 внутри контейнера, без Docker publish
   volumes / read-only secret mounts
     /var/lib/squid-control/app/       SQLite
     /var/lib/squid-control/runtime/   journal, revisions, LKG, межпроцессный lock
@@ -124,7 +125,7 @@ src/
   migrations/               embedded initial SQL
   web/                      React/TS, static build, browser tests
   tests/integration/        реальные сетевые fixtures
-  tools/                    безопасный host helper bootstrap
+  tools/                    безопасные host helpers bootstrap/password-reset
 deploy/                     Dockerfile, Compose и Pebble plan
 scripts/                    проверка документации
 ```
@@ -135,3 +136,8 @@ Go и Squid в первом срезе используют общий UID 13; �
 но не изолирует config/secret permissions между процессами. Контракт внутреннего модуля:
 [runtime contract](../../api/runtime-contract.md). `internal/policy` не импортирует
 HTTP, SQLite или runtime/process APIs.
+
+Настройки и экспертная секция входят в immutable snapshot наравне с политиками.
+Compiler v3 защищает служебные paths/ACL/probe и проверяет expert section;
+в expert mode она заменяет визуальные клиентские правила. Детали границы:
+[ADR 0007](../adr/0007-general-clients-expert-configuration.md).

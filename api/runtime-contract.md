@@ -23,7 +23,10 @@ Request context браузера не владеет lifetime durable operation.
 
 Все данные повторно проверяются на уровне use case/module, даже после HTTP
 validation. Cert references выбираются из локально установленного inventory.
-Нет arbitrary executable/path/argv/image/URL из запроса, raw config или private key.
+Нет arbitrary executable/path/argv/image/URL или private key из запроса.
+По ADR 0007 snapshot может содержать ограниченную expert section: compiler
+валидирует её, добавляет управляемое окружение и защитные ACL. Это не замена
+целого runtime config и не произвольное выполнение команд.
 
 ## Локальный Squid adapter
 

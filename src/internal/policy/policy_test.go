@@ -34,12 +34,12 @@ func TestRenderDenyByDefault(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, want := range []string{"http_access deny blocked_dst", "dstdomain -n example.org", "http_access deny all", "reply_header_add X-Squid-Control-Revision " + Fingerprint(s, o)} {
+	for _, want := range []string{"http_access deny sc_private_dst", "dstdomain -n example.org", "http_access deny all", "reply_header_add X-Squid-Control-Revision " + Fingerprint(s, o)} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("missing %s", want)
 		}
 	}
-	if strings.Index(c, "http_access allow") < strings.Index(c, "http_access deny blocked_dst") {
+	if strings.Index(c, "http_access allow") < strings.Index(c, "http_access deny sc_private_dst") {
 		t.Fatal("allow precedes protection")
 	}
 	s.Policies[0].Destinations = nil
@@ -61,7 +61,7 @@ func TestTLSDowngradeGuard(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if !strings.Contains(c, "allow client_0 tls_listener destinations_0") {
+	if !strings.Contains(c, "allow client_0 sc_tls_listener destinations_0") {
 		t.Fatal("TLS policy permits plaintext")
 	}
 	o.ProxyKey = ""

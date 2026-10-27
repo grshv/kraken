@@ -6,7 +6,8 @@
 внутренние `$ref`, базовая структура API, policy example и текстовый whitespace.
 `make check`: docs, npm typecheck/build, Go race tests, vet и `git diff --check`.
 `make integration`: real-image smoke из src/tests/integration/.
-Это не полноценная валидация OpenAPI, не runtime-тест Squid и не security audit.
+Docs-check не является полноценной валидацией OpenAPI. Сетевой smoke проверяет
+реальный Squid; ни одна из этих команд не заменяет security audit.
 CI документации запускает тот же target, без деплоя и секретов.
 
 Unit/HTTP/runtime fault tests и сетевой smoke реализованы. Остальные пункты
@@ -22,7 +23,7 @@ Unit/HTTP/runtime fault tests и сетевой smoke реализованы. О
 | Contract | OpenAPI request/response и внутренний runtime interface | Generated validator + fake Squid adapter |
 | Integration | Настоящий parse/reload/ACL/TLS на pinned image | Изолированная Linux CI-среда с Docker |
 | Recovery | Crash на каждой durable границе, restart и idempotency | Fault injection + filesystem |
-| E2E | Login, VM policy, preview, apply, conflict, diagnostics | Браузер + backend + fake origins |
+| E2E | Login, client policy, preview, apply, conflict, diagnostics | Браузер + backend + fake origins |
 | Client | APT/curl, TLS trust, direct-egress controls | Изолированные клиентские VM/namespaces |
 
 ## Обязательные policy fixtures
@@ -32,10 +33,10 @@ Unit/HTTP/runtime fault tests и сетевой smoke реализованы. О
 private/loopback/link-local/metadata; IPv6 и IPv4-mapped;
 CONNECT к 25/22 и чужому port → deny; manager недоступен клиенту;
 DNS rebinding не открывает private destination; CIDR overlaps отклоняются.
-Изменение профиля одной VM не расширяет доступ другой.
+Изменение профиля одного клиента не расширяет доступ другой.
 
 Нужны отдельные сетевые источники. Запрос только с localhost доказывает
-исключение localhost, а не правила пользовательских VM.
+исключение localhost, а не правила пользовательских устройств.
 
 ## Apply и failures
 
@@ -86,3 +87,24 @@ GitHub Actions pin по полному commit SHA, минимальные permis
 
 Не требовать бессмысленного 100% coverage. Требовать проверку важных инвариантов
 и реальных отказов. Добавлять pipeline jobs только когда есть исполняемые команды.
+
+## Расширение панели и восстановления
+
+Go race suite проверяет PHC и legacy hashes, атомарный reset/revoke, гонку входа
+со сменой пароля, настройки и expert guard. Fault tests инъецируют ENOSPC при
+записи candidate/journal/active/LKG и убивают отдельный test process через SIGKILL
+на durable границах. Проверяется rollback после отмены forward context и блокировка
+новых операций при ошибке сохранения terminal outcome. Реальный полный диск и
+отключение питания этим не воспроизводятся.
+
+`make integration` проверяет визуальные настройки/expert ACL на настоящем трафике,
+перенос listener с сохранением private probe, отказ parse без изменения active
+и CLI password-reset с отзывом старых сессий.
+
+Браузер: `npm --prefix src/web run test:e2e` после `make image` и установки
+совместимого Chromium (`npx playwright install chromium` из src/web). При необходимости
+`SC_CHROMIUM_PATH` указывает исполняемый файл браузера. Fixture сам создаёт отдельные
+контейнер/volume и случайный пароль в памяти; credentials files/env не используются.
+Он проверяет клиента, настройки, экспертный шаблон, diff/apply/rollback и mobile
+overflow. Self-signed доверие отключено только в этом disposable browser fixture;
+сетевая suite отдельно проверяет TLS chain.

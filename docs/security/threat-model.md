@@ -4,10 +4,10 @@
 
 ## Активы и границы
 
-Защищаются egress, изоляция VM, политика, пароли/сессии, Docker host,
+Защищаются egress, изоляция клиентов, политика, пароли/сессии, Docker host,
 TLS/inspection CA keys, audit и сведения о ресурсах.
 Границы: браузер → HTTPS Go → внутренний runtime module → процесс Squid → internet;
-отдельно VM → Squid, Go → SQLite/journal/files и Squid/helper → signing CA.
+отдельно клиент → Squid, Go → SQLite/journal/files и Squid/helper → signing CA.
 Runtime module не является security boundary: он в том же executable/process.
 
 ## Угрозы
@@ -53,8 +53,23 @@ Docker проверяются извне: одного ufw INPUT недоста�
 [Docker firewall](https://docs.docker.com/engine/network/packet-filtering-firewalls/).
 Служебные SSH/DNS/NTP и direct egress настраиваются отдельно.
 
-IP идентифицирует VM, не человека. CONNECT может нести иной TCP-протокол на
+IP идентифицирует источник сетевого запроса, а не человека. CONNECT может нести иной TCP-протокол на
 разрешённом порту. Inspection требует trust rollout и не гарантирует pinning/mTLS.
 Root/Docker администратор host обходит прикладные ограничения. Локальный audit
 не является tamper-proof при компрометации приложения/host; для этого нужен
 внешний append-only collector. Обновление общего image прерывает оба процесса.
+
+## Экспертная конфигурация и пароль
+
+Expert section предназначена доверенному администратору. Guard блокирует известные
+служебные paths/listeners, helpers/includes и sc_ namespace, а итог проверяет Squid.
+Это не полный sandbox всех директив Squid: cache_peer/ICAP и другие разрешённые
+директивы могут менять сетевые маршруты. Destination ACL не заменяют egress firewall;
+доступ к внутренним сетям должен ограничиваться и вне контейнера. Вывод Squid
+control не включается в web findings, чтобы не раскрывать возможные peer credentials.
+
+В SQLite хранится только salted Argon2id verifier. Исходный пароль проходит через
+RAM при вводе/проверке; полное гарантированное обнуление памяти Go не заявляется.
+CLI reset меняет hash и отзывает sessions одной транзакцией; создание новой сессии
+сверяет текущий hash в транзакции, чтобы старый login не пережил reset.
+[Параметры и границы](password-lifecycle.md).

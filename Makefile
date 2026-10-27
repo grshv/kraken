@@ -1,4 +1,4 @@
-.PHONY: help docs-check web-build build test check image integration dev-cert bootstrap up down
+.PHONY: help docs-check web-build build test check image integration dev-cert bootstrap password-reset up down
 
 help:
 	@echo "build        Build frontend and Go binary in bin/"
@@ -7,6 +7,7 @@ help:
 	@echo "integration  Run isolated real-Squid smoke tests (requires image)"
 	@echo "dev-cert     Create localhost development certificate in Compose volume"
 	@echo "bootstrap    Interactively create initial administrator"
+	@echo "password-reset  Reset an existing password locally and revoke sessions"
 	@echo "up / down    Start/stop local Compose deployment"
 
 docs-check:
@@ -37,6 +38,9 @@ dev-cert:
 
 bootstrap:
 	python3 src/tools/bootstrap.py
+
+password-reset:
+	python3 src/tools/password_reset.py
 
 up:
 	docker compose -f deploy/compose.yaml up -d

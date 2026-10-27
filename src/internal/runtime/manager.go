@@ -30,6 +30,7 @@ var ErrBusy = errors.New("runtime busy")
 var ErrDrift = errors.New("configuration drift detected")
 
 type Manifest struct {
+	Compiler string          `json:"compiler_version,omitempty"`
 	Revision string          `json:"revision_id"`
 	Hash     string          `json:"hash"`
 	Config   string          `json:"config"`
@@ -48,11 +49,13 @@ type Manager struct {
 	Options policy.Options
 	Command func(context.Context, ...string) error
 	mu      sync.Mutex
+	Persist func(string, []byte) error
 	Probe   func(context.Context, string) error
 }
 
 func New(dir, binary, logPath, cert, key string) *Manager {
 	m := &Manager{Dir: dir, Binary: binary, Options: policy.Options{StateDir: dir, LogPath: logPath, ProxyCert: cert, ProxyKey: key}}
+	m.Persist = Atomic
 	m.Command = m.command
 	m.Probe = m.verify
 	return m
@@ -115,7 +118,7 @@ func (m *Manager) write(name string, v any) error {
 	if e != nil {
 		return e
 	}
-	return Atomic(filepath.Join(m.Dir, name), b)
+	return m.Persist(filepath.Join(m.Dir, name), b)
 }
 func (m *Manager) ReadManifest() (Manifest, error) {
 	var v Manifest
@@ -142,7 +145,7 @@ func (m *Manager) command(ctx context.Context, args ...string) error {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if e := cmd.Run(); e != nil {
-		return fmt.Errorf("squid control failed: %w: %s", e, out.String())
+		return fmt.Errorf("squid control failed: %w (configuration output withheld to avoid leaking credentials)", e)
 	}
 	return nil
 }
@@ -162,7 +165,7 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 }
 func (m *Manager) parse(ctx context.Context, config string) error {
 	p := filepath.Join(m.Dir, "candidate.conf")
-	if e := Atomic(p, []byte(config)); e != nil {
+	if e := m.Persist(p, []byte(config)); e != nil {
 		return e
 	}
 	defer os.Remove(p)
@@ -210,11 +213,11 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		if ce != nil {
 			return ce
 		}
-		prev = Manifest{Hash: policy.Fingerprint(s, m.Options), Config: c, Snapshot: s}
+		prev = Manifest{Compiler: policy.CompilerVersion, Hash: policy.Fingerprint(s, m.Options), Config: c, Snapshot: s}
 		if e = m.parse(ctx, c); e != nil {
 			return e
 		}
-		if e = Atomic(m.ActivePath(), []byte(c)); e != nil {
+		if e = m.Persist(m.ActivePath(), []byte(c)); e != nil {
 			return e
 		}
 		return m.write("lkg.json", prev)
@@ -235,7 +238,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		if e = m.parse(ctx, prev.Config); e != nil {
 			return e
 		}
-		if e = Atomic(m.ActivePath(), []byte(prev.Config)); e != nil {
+		if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e != nil {
 			return e
 		}
 		if !offline {
@@ -284,12 +287,12 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	if e = m.parse(ctx, config); e != nil {
 		return "rejected", e
 	}
-	next := Manifest{Revision: revision, Hash: policy.Fingerprint(s, m.Options), Config: config, Snapshot: s}
+	next := Manifest{Compiler: policy.CompilerVersion, Revision: revision, Hash: policy.Fingerprint(s, m.Options), Config: config, Snapshot: s}
 	j := Journal{Operation: id, Stage: "promoting", Previous: prev, Candidate: next}
 	if e = m.write("journal.json", j); e != nil {
 		return "rejected", e
 	}
-	if e = Atomic(m.ActivePath(), []byte(config)); e == nil {
+	if e = m.Persist(m.ActivePath(), []byte(config)); e == nil {
 		j.Stage = "reloading"
 		e = m.write("journal.json", j)
 	}
@@ -308,12 +311,14 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 		}
 	}
 	original := e
+	rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	defer cancelRollback()
 	j.Stage = "rolling_back"
 	if e = m.write("journal.json", j); e != nil {
 		return "degraded", errors.Join(original, e)
 	}
-	if e = Atomic(m.ActivePath(), []byte(prev.Config)); e == nil {
-		e = m.reloadVerify(ctx, prev.Hash)
+	if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e == nil {
+		e = m.reloadVerify(rollbackCtx, prev.Hash)
 	}
 	if e == nil {
 		e = m.write("lkg.json", prev)
@@ -344,7 +349,12 @@ func (m *Manager) verify(ctx context.Context, hash string) error {
 	var last error
 	for {
 		d := net.Dialer{Timeout: time.Second}
-		c, e := d.DialContext(ctx, "tcp", "127.0.0.1:3128")
+		// Old revisions keep their original 3128 probe during migration/rollback.
+		target := "127.0.0.1:3128"
+		if config, e := os.ReadFile(m.ActivePath()); e == nil && strings.Contains(string(config), "http_port 127.0.0.1:3130\n") {
+			target = "127.0.0.1:3130"
+		}
+		c, e := d.DialContext(ctx, "tcp", target)
 		if e == nil {
 			c.SetDeadline(time.Now().Add(time.Second))
 			_, e = io.WriteString(c, "GET http://127.0.0.1/ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")
@@ -396,6 +406,15 @@ func (m *Manager) Status() map[string]any {
 			detail = "Active configuration verified"
 		}
 	}
+	managementState := "up"
+	managementDetail := ""
+	if j, je := m.readJournal(); je == nil && j.Stage != "terminal" {
+		managementState = "degraded"
+		managementDetail = "Unfinished operation; recovery required"
+	} else if je != nil && !errors.Is(je, os.ErrNotExist) {
+		managementState = "degraded"
+		managementDetail = "Cannot read runtime journal"
+	}
 	now := time.Now().UTC().Format(time.RFC3339)
 	component := func(s, d string) map[string]any {
 		return map[string]any{"state": s, "detail": d, "observed_at": now, "stale": false}
@@ -404,7 +423,7 @@ func (m *Manager) Status() map[string]any {
 	if m.Options.ProxyCert != "" {
 		caps = append(caps, "tls_proxy_configured")
 	}
-	return map[string]any{"web": component("up", ""), "runtime": component("up", ""), "squid": component(state, detail), "applied_revision": revision, "observed_config_hash": v.Hash, "capabilities": caps}
+	return map[string]any{"web": component("up", ""), "runtime": component(managementState, managementDetail), "squid": component(state, detail), "applied_revision": revision, "observed_config_hash": v.Hash, "capabilities": caps}
 }
 func (m *Manager) Events() ([]map[string]any, error) {
 	f, e := os.Open(m.Options.LogPath)

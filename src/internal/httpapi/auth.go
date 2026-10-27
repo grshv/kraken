@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"strings"
@@ -19,6 +20,8 @@ import (
 )
 
 func tokenHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }
+
+// PasswordHash persists only a salted one-way Argon2id PHC verifier.
 func PasswordHash(password string) (string, error) {
 	if len(password) < 12 || len(password) > 1024 {
 		return "", errors.New("password must be 12–1024 bytes")
@@ -28,22 +31,73 @@ func PasswordHash(password string) (string, error) {
 		return "", e
 	}
 	key := argon2.IDKey([]byte(password), salt, 2, 19*1024, 1, 32)
-	return "argon2id$" + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key), nil
+	return "$argon2id$v=19$m=19456,t=2,p=1$" + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key), nil
 }
 func passwordMatches(encoded, password string) bool {
-	p := strings.Split(encoded, "$")
-	if len(p) != 3 || p[0] != "argon2id" {
+	if len(password) > 1024 {
 		return false
 	}
-	salt, e := base64.RawStdEncoding.DecodeString(p[1])
+	var saltText, keyText string
+	var memory uint32 = 19456
+	var iterations uint32 = 2
+	var parallel uint8 = 1
+	parts := strings.Split(encoded, "$")
+	if len(parts) == 3 && parts[0] == "argon2id" {
+		saltText, keyText = parts[1], parts[2]
+	} else {
+		if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != "v=19" {
+			return false
+		}
+		var trailing string
+		if n, e := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d%s", &memory, &iterations, &parallel, &trailing); n != 3 || e != io.EOF {
+			return false
+		}
+		if memory < 8192 || memory > 262144 || iterations < 1 || iterations > 10 || parallel < 1 || parallel > 8 {
+			return false
+		}
+		saltText, keyText = parts[4], parts[5]
+	}
+	salt, e := base64.RawStdEncoding.DecodeString(saltText)
 	if e != nil || len(salt) != 16 {
 		return false
 	}
-	key, e := base64.RawStdEncoding.DecodeString(p[2])
+	key, e := base64.RawStdEncoding.DecodeString(keyText)
 	if e != nil || len(key) != 32 {
 		return false
 	}
-	return subtle.ConstantTimeCompare(key, argon2.IDKey([]byte(password), salt, 2, 19*1024, 1, 32)) == 1
+	return subtle.ConstantTimeCompare(key, argon2.IDKey([]byte(password), salt, iterations, memory, parallel, 32)) == 1
+}
+
+// ResetPassword changes the verifier and revokes every session atomically.
+// It never creates an unknown user and never persists the supplied plaintext.
+func ResetPassword(s *store.Store, username, password string) error {
+	hash, e := PasswordHash(password)
+	if e != nil {
+		return e
+	}
+	tx, e := s.DB.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	result, e := tx.Exec("UPDATE users SET password_hash=? WHERE username=?", hash, username)
+	if e != nil {
+		return e
+	}
+	n, e := result.RowsAffected()
+	if e != nil {
+		return e
+	}
+	if n != 1 {
+		return errors.New("administrator not found")
+	}
+	if _, e = tx.Exec("DELETE FROM sessions WHERE username=?", username); e != nil {
+		return e
+	}
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", "local-cli", "password_reset", username, time.Now().UTC().Format(time.RFC3339)); e != nil {
+		return e
+	}
+	return tx.Commit()
 }
 func Bootstrap(s *store.Store, username, password string) error {
 	if len(username) == 0 || len(username) > 128 || strings.TrimSpace(username) != username {
@@ -98,30 +152,57 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 	_, e = s.Store.DB.Exec("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, v.Hash)
 	return v, e
 }
-func (s *Server) newSession(w http.ResponseWriter, user string) (session, error) {
+func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...string) (session, error) {
 	token := rand.Text()
 	v := session{User: user, CSRF: rand.Text(), Hash: tokenHash(token), Expires: time.Now().Add(12 * time.Hour).Unix()}
 	if user == "" {
 		v.Expires = time.Now().Add(10 * time.Minute).Unix()
 	}
-	// Bound persistent pre-auth contexts and remove expired sessions.
-	if _, e := s.Store.DB.Exec("DELETE FROM sessions WHERE expires_at<? OR last_seen_at<?", time.Now().Unix(), time.Now().Add(-30*time.Minute).Unix()); e != nil {
+	tx, e := s.Store.DB.Begin()
+	if e != nil {
+		return v, e
+	}
+	defer tx.Rollback()
+	if user != "" {
+		if len(credentials) != 2 {
+			return v, errors.New("missing credential guard")
+		}
+		var currentHash string
+		if e = tx.QueryRow("SELECT password_hash FROM users WHERE username=?", user).Scan(&currentHash); e != nil {
+			return v, e
+		}
+		if subtle.ConstantTimeCompare([]byte(currentHash), []byte(credentials[0])) != 1 {
+			return v, errCredentialsChanged
+		}
+		if _, e = tx.Exec("DELETE FROM sessions WHERE token_hash=?", credentials[1]); e != nil {
+			return v, e
+		}
+		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", user, "login", "", time.Now().UTC().Format(time.RFC3339)); e != nil {
+			return v, e
+		}
+	}
+	if _, e = tx.Exec("DELETE FROM sessions WHERE expires_at<? OR last_seen_at<?", time.Now().Unix(), time.Now().Add(-30*time.Minute).Unix()); e != nil {
 		return v, e
 	}
 	var count int
-	if e := s.Store.DB.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count); e != nil {
+	if e = tx.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&count); e != nil {
 		return v, e
 	}
 	if count >= 256 {
 		return v, errors.New("session capacity reached")
 	}
-	_, e := s.Store.DB.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", v.Hash, user, v.CSRF, v.Expires, time.Now().Unix())
-	if e != nil {
+	if _, e = tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", v.Hash, user, v.CSRF, v.Expires, time.Now().Unix()); e != nil {
+		return v, e
+	}
+	if e = tx.Commit(); e != nil {
 		return v, e
 	}
 	http.SetCookie(w, &http.Cookie{Name: "__Host-session", Value: token, Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode})
 	return v, nil
 }
+
+var errCredentialsChanged = errors.New("credentials changed while logging in")
+
 func (s *Server) sessionView(w http.ResponseWriter, v session) {
 	var username any
 	var expires any
@@ -209,20 +290,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "invalid_credentials", "Неверное имя или пароль")
 		return
 	}
-	tx, e := s.Store.DB.Begin()
-	if e != nil {
-		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+	v, e = s.newSession(w, input.Username, encoded, v.Hash)
+	if errors.Is(e, errCredentialsChanged) {
+		fail(w, 401, "invalid_credentials", "Пароль изменён. Войдите заново")
 		return
 	}
-	defer tx.Rollback()
-	if _, e = tx.Exec("DELETE FROM sessions WHERE token_hash=?", v.Hash); e == nil {
-		_, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", input.Username, "login", "", time.Now().UTC().Format(time.RFC3339))
-	}
-	if e != nil || tx.Commit() != nil {
-		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-		return
-	}
-	v, e = s.newSession(w, input.Username)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
@@ -254,4 +326,3 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request, v session) {
 	http.SetCookie(w, &http.Cookie{Name: "__Host-session", Value: "", Path: "/", Secure: true, HttpOnly: true, SameSite: http.SameSiteStrictMode, MaxAge: -1})
 	w.WriteHeader(204)
 }
-func safeError(e error) string { return fmt.Sprintf("%v", e) }

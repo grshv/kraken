@@ -13,7 +13,7 @@ services:
     volumes:
       - control-data:/data
     restart: unless-stopped
-    stop_grace_period: 110s
+    stop_grace_period: 160s
     security_opt:
       - no-new-privileges:true
     pids_limit: 128

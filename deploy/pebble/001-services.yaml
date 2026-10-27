@@ -19,4 +19,4 @@ services:
     group: proxy
     on-success: restart
     on-failure: restart
-    kill-delay: 100s
+    kill-delay: 150s

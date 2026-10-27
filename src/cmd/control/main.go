@@ -12,7 +12,6 @@ import (
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/big"
 	"net"
@@ -20,7 +19,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -49,7 +47,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: squid-control serve|bootstrap|dev-cert|squid-start|check")
+		return errors.New("usage: squid-control serve|bootstrap|password-reset|dev-cert|squid-start|check")
 	}
 	cmd := os.Args[1]
 	m := manager()
@@ -78,30 +76,35 @@ func run() error {
 		return m.Verify(ctx, v.Hash)
 	case "dev-cert":
 		return devCert()
-	case "bootstrap":
-		f := flag.NewFlagSet("bootstrap", flag.ContinueOnError)
-		username := f.String("username", "admin", "initial administrator")
+	case "bootstrap", "password-reset":
+		f := flag.NewFlagSet(cmd, flag.ContinueOnError)
+		username := f.String("username", "admin", "administrator username")
+		stdin := f.Bool("password-stdin", false, "read new password from stdin instead of a hidden terminal prompt")
 		if e := f.Parse(os.Args[2:]); e != nil {
 			return e
 		}
-		// Password is stdin only, never argv/env. Use getpass on host before piping.
-		raw, e := io.ReadAll(io.LimitReader(os.Stdin, 1026))
+		password, e := readPassword(*stdin)
 		if e != nil {
 			return e
-		}
-		password := strings.TrimSuffix(strings.TrimSuffix(string(raw), "\n"), "\r")
-		if len(password) > 1024 {
-			return errors.New("password too long")
 		}
 		st, e := store.Open(env("SC_DATABASE_PATH", "/data/app/control.sqlite3"))
 		if e != nil {
 			return e
 		}
 		defer st.DB.Close()
-		if e = httpapi.Bootstrap(st, *username, password); e != nil {
+		if cmd == "bootstrap" {
+			e = httpapi.Bootstrap(st, *username, password)
+		} else {
+			e = httpapi.ResetPassword(st, *username, password)
+		}
+		if e != nil {
 			return e
 		}
-		fmt.Println("Administrator created")
+		if cmd == "bootstrap" {
+			fmt.Println("Administrator created")
+		} else {
+			fmt.Println("Password reset; previous sessions revoked")
+		}
 		return nil
 	case "serve":
 		if os.Geteuid() == 0 {

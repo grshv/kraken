@@ -35,6 +35,9 @@
 Реализованный запуск: [local development](operations/local-development.md).
 Измеренные возможности/ограничения: [image report](research/image-compatibility.md).
 
+Пароль и локальный reset: [password lifecycle](security/password-lifecycle.md).
+Экспертная конфигурация: [ADR 0007](adr/0007-general-clients-expert-configuration.md).
+
 ## Правила достоверности
 
 Документы требований являются спецификацией будущего поведения. Runbooks и

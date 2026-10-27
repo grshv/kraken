@@ -1,12 +1,19 @@
 # Runbooks
 
-Это целевые процедуры. Точные команды будут добавлены вместе с Go-бинарником и
-deployment. До реализации не считать имена будущих CLI рабочими командами.
+Ниже рабочие действия для текущего Compose и целевые процедуры backup/restore.
+Backup/restore ещё не автоматизированы и не подтверждены упражнением восстановления.
+Проверка процессов:
+
+```sh
+docker compose -f deploy/compose.yaml ps
+docker compose -f deploy/compose.yaml exec squid-control pebble services
+docker compose -f deploy/compose.yaml exec --user 13:13 squid-control squid-control check
+```
 
 ## Прокси недоступен
 
 1. Отделить отказ proxy VM/сети от отказа панели. Проверить маршрут к listener
-   с клиентской VM и health на host.
+   с клиентского устройства и health на host.
 2. Проверить Squid process/Pebble health, disk space, DNS, срок сертификата,
    firewall и последние runtime errors.
 3. Сравнить последнюю applied revision, runtime LKG и наблюдаемый config hash.
@@ -19,7 +26,9 @@ deployment. До реализации не считать имена будущ�
 Проверить HTTPS Go → SQLite → runtime module и Pebble service status отдельно.
 Squid не перезапускать для восстановления UI. Если web упал в apply, сначала прочитать runtime journal;
 повторить запрос с прежним idempotency key или выполнить reconciliation.
-Пароль admin можно восстановить локальным CLI только после его реализации.
+Задать новый пароль admin: `make password-reset` из корня репозитория.
+Команда работает и при остановленной панели, прежние сессии отзываются.
+Старый пароль не восстанавливается. [Прямой CLI](../security/password-lifecycle.md).
 
 ## APT/curl не скачивают
 
@@ -96,3 +105,18 @@ Pebble service, без restart всего контейнера.
 Серверный cert: stage новый key+chain, name/expiry check, reload, TLS probe, audit.
 Inspection CA: сначала trust rollout, потом signer switch; при компрометации
 удаление доверия у клиентов обязательно. См. [lifecycle ключей](../security/authentication-and-certificates.md).
+
+## Визуальные настройки и expert squid.conf
+
+Сохранить форму → просмотреть diff → проверить настоящим `squid -k parse` →
+применить. История позволяет выбрать ранее применённую ревизию, посмотреть diff
+и отдельно подтвердить откат. Откат не переписывает черновик; неприменённые
+изменения остаются видны. Смена внутреннего порта не меняет Docker publish:
+публикацию на host нужно согласовать отдельно. Служебный 127.0.0.1:3130 не публиковать.
+
+В expert mode визуальные клиентские политики не действуют; общие настройки
+остаются исходными значениями. Helpers/includes/cache_dir и служебные paths
+запрещены. При parse failure исправить expert section, создать новую ревизию;
+ручная правка active.conf создаёт drift. При degraded после ошибки persistence
+сначала устранить проблему хранилища, затем перезапустить control для reconciliation
+и проверить runtime status до следующего apply.

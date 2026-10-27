@@ -14,6 +14,6 @@ if not 12 <= len(password.encode()) <= 1024:
 result = subprocess.run([
     'docker', 'compose', '-f', str(root/'deploy/compose.yaml'), 'run', '--rm', '--no-deps',
     '-T', '--user', '13:13', '--entrypoint', '/usr/local/bin/squid-control',
-    'squid-control', 'bootstrap', '--username', username,
+    'squid-control', 'bootstrap', '--username', username, '--password-stdin',
 ], input=password+'\n', text=True)
 raise SystemExit(result.returncode)

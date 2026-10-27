@@ -71,3 +71,11 @@ revision hashes, bounded findings, secret references и terminal outcome.
 последние 20 конфигураций плюс закреплённая LKG. Сроки — предложения, не договорённость.
 Удаление по сроку дополняется лимитами bytes и disk watermark. Активная ревизия,
 LKG и ссылки незавершённых operations не удаляются. Не путать rotation с backup.
+
+## Реализованное расширение
+
+Client.kind: host/network/group, несколько source networks. settings и expert_config
+хранятся в immutable snapshot, исходный admin password туда не включается.
+users.password_hash хранит PHC или совместимый legacy verifier. CLI reset меняет
+его вместе с удалением sessions/audit в одной транзакции. Логическая схема выше
+не объявляет будущие tables/migration retention полностью реализованными.

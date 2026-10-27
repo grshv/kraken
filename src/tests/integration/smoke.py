@@ -43,7 +43,7 @@ with tempfile.TemporaryDirectory(prefix='squid-control-fixture-') as temporary:
         docker('volume', 'create', volume)
         docker('run', '--rm', '--user', '13:13', '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'dev-cert')
         password = secrets.token_urlsafe(24)
-        docker('run', '--rm', '-i', '--user', '13:13', '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'bootstrap', input=password+'\n')
+        docker('run', '--rm', '-i', '--user', '13:13', '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'bootstrap', '--password-stdin', input=password+'\n')
         proxy = name+'-proxy'; containers.append(proxy)
         docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.250.17.2', '-p', '127.0.0.1::8443', '-v', volume+':/data', '-e', 'SC_PUBLIC_ORIGIN=https://localhost', '-e', 'SC_PROXY_CERT=/data/certs/panel.crt', '-e', 'SC_PROXY_KEY=/data/certs/panel.key', IMAGE)
         port = docker('port', proxy, '8443/tcp').rsplit(':',1)[1]
@@ -106,7 +106,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
         d=api('/configuration/draft'); snap=d['snapshot']; profile=snap['tls_profiles'][0]['id']
         all_id,allow_id=str(uuid.uuid4()),str(uuid.uuid4())
         snap['policies']=[{'id':all_id,'name':'All web fixture','mode':'all_web','destinations':[],'tls_profile_id':profile},{'id':allow_id,'name':'Allowlist fixture','mode':'allowlist','destinations':[{'domain':'allowed.test','include_subdomains':False}],'tls_profile_id':profile}]
-        snap['clients']=[{'id':str(uuid.uuid4()),'name':'source fixture','source_networks':['11.250.17.10/32'],'enabled':True,'policy_id':all_id},{'id':str(uuid.uuid4()),'name':'client fixture','source_networks':['11.250.17.20/32'],'enabled':True,'policy_id':allow_id}]
+        snap['clients']=[{'id':str(uuid.uuid4()),'name':'source fixture','source_networks':['11.250.17.10/32'],'enabled':True,'policy_id':all_id},{'id':str(uuid.uuid4()),'name':'client fixture','source_networks':['11.250.17.20'],'kind':'group','enabled':True,'policy_id':allow_id}]
         def apply_snapshot(snapshot,expected_version):
             d=api('/configuration/draft','PUT',{'expected_version':expected_version,'snapshot':snapshot})
             revision=api('/revisions','POST',{'expected_draft_version':d['version']})
@@ -186,6 +186,54 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         assert fetch(client)==200
         assert fetch(client,'http://denied.test/')==403
         print('PASS: existing CONNECT survives Go restart; explicit rollback to previous applied revision')
+        # Visual settings are actually compiled and applied, not merely saved as UI state.
+        current_draft=api('/configuration/draft');advanced=copy.deepcopy(api('/revisions/'+first_applied)['snapshot'])
+        advanced['settings']['connect_timeout_seconds']=45
+        advanced['settings']['cache_enabled']=True
+        d=apply_snapshot(advanced,current_draft['version'])
+        assert fetch(client)==200
+        # Arbitrary supported directives live in a user section, lifecycle remains managed.
+        advanced['configuration_mode']='expert'
+        advanced['expert_config']='acl fixture_source src 11.250.17.20/32\nacl fixture_domain dstdomain -n allowed.test\nhttp_access allow fixture_source fixture_domain\nrefresh_pattern -i \\.(deb|rpm)$ 0 20% 4320\n'
+        d=apply_snapshot(advanced,d['version'])
+        assert fetch(client)==200 and fetch(client,'http://denied.test/')==403
+        assert fetch(source)==403  # visual all_web policy is retained but inactive in expert mode
+        print('PASS: visual settings and expert squid.conf affect actual Squid traffic')
+        # Change the public HTTP port; the private runtime probe must remain functional.
+        changed=copy.deepcopy(advanced);changed['settings']['http_port']=8080
+        d=apply_snapshot(changed,d['version'])
+        probe=docker('exec',client,'python','-c',"import http.client;c=http.client.HTTPConnection('proxy',8080);c.request('GET','http://allowed.test/');print(c.getresponse().status)")
+        assert probe=='200'
+        changed['settings']['http_port']=3128;d=apply_snapshot(changed,d['version'])
+        assert fetch(client)==200
+        print('PASS: configurable listener port with independent runtime canary')
+        forbidden=copy.deepcopy(changed);forbidden['expert_config']='include /data/app/*'
+        try:api('/configuration/draft','PUT',{'expected_version':d['version'],'snapshot':forbidden});raise AssertionError('unsafe include accepted')
+        except urllib.error.HTTPError as exc:assert exc.code==422
+        # A syntax error passes draft editing but is rejected by real Squid validation.
+        broken=copy.deepcopy(changed);broken['expert_config']='this_is_not_a_squid_directive yes'
+        bad_draft=api('/configuration/draft','PUT',{'expected_version':d['version'],'snapshot':broken})
+        bad_rev=api('/revisions','POST',{'expected_draft_version':bad_draft['version']})
+        bad_op=api('/operations','POST',{'action':'validate','revision_id':bad_rev['id'],'expected_applied_revision':api('/status')['applied_revision']},str(uuid.uuid4()))
+        def bad_finished():
+            value=api('/operations/'+bad_op['id'])
+            if value['status'] in ['pending','validating']:raise RuntimeError('validation pending')
+            return value
+        assert wait_for(bad_finished)['status']=='rejected'
+        assert fetch(client)==200
+        print('PASS: protected expert directives and real parse failure preserve active traffic')
+        # Local reset updates only a verifier, revokes old cookies, and rejects the old password.
+        replacement=secrets.token_urlsafe(24)
+        output=docker('exec','-i','--user','13:13',proxy,'squid-control','password-reset','--username','admin','--password-stdin',input=replacement+'\n')
+        assert replacement not in output and password not in output
+        try:api('/status');raise AssertionError('old session survived CLI reset')
+        except urllib.error.HTTPError as exc:assert exc.code==401
+        session=api('/session');csrf=session['csrf_token']
+        try:api('/session','POST',{'username':'admin','password':password});raise AssertionError('old password accepted')
+        except urllib.error.HTTPError as exc:assert exc.code==401
+        session=api('/session','POST',{'username':'admin','password':replacement});csrf=session['csrf_token']
+        assert api('/status')['squid']['state']=='up'
+        print('PASS: real CLI password reset, revoked sessions, old-password rejection and new login')
         print('ALL REAL-IMAGE SMOKE CHECKS PASSED')
     except Exception:
         if name+'-proxy' in containers:

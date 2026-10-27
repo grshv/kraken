@@ -1,6 +1,6 @@
 # Проверка реального image, 27.10.2026
 
-Проверено локально через Docker Engine на Linux/arm64. Это измерения первого
+Проверено локально через Docker Engine на Linux/arm64. Это измерения текущего
 рабочего среза; amd64 и production сеть ещё не проверены.
 
 ## Зафиксированная база
@@ -47,26 +47,46 @@ Apply перед изменением проверяет old runtime canary; в 
 | Parse / reload / canary | Supported | Локальный бинарник и revision response header |
 | Independent Go restart | Supported | PID Squid сохраняется, открытый CONNECT проверяется smoke |
 | Squid/container restart | Supported для штатных cases | Gate и persistent applied policy |
-| Fault/crash boundaries | Частично | Unit injection: parse, reload, rollback, pending journal, drift/lock |
+| Fault/crash boundaries | Частично | ENOSPC injection на записи; SIGKILL отдельного Go test process на durable границах; parse/reload/rollback/drift/lock |
+| Визуальные настройки и expert section | Supported в проверенном объёме | Реальный parse/apply и трафик; неизвестная директива не меняет active |
+| Изменение HTTP-порта | Supported | 3128 → 8080 → 3128, canary остаётся на 3130 |
+| CLI password-reset | Supported | Старые сессия/пароль отклоняются, новый вход успешен |
 
 Runtime canary — HTTP 403 обязательного loopback deny с fingerprint compiler,
 snapshot и installed options. Это проверяет перечитывание конфигурации и защитный
-запрет, не доказывает каждый ACL; per-VM поведение проверяется отдельно.
+запрет, не доказывает каждый ACL; поведение клиентских политик проверяется отдельно.
+Compiler v3 использует отдельный listener 127.0.0.1:3130, который не публикуется
+Docker. Для сохранённых конфигураций прежнего compiler probe совместим с 3128.
 
 ## Исполняемые доказательства
 
 - `make check`: Go race tests (auth/CSRF/revoke, stale draft, policy guards,
-  parse/reload/rollback/crash/drift), frontend typecheck/build и docs.
+  parse/reload/rollback/crash/drift, PHC/reset, expert guards), frontend typecheck/build и docs.
 - `make image`: multi-stage image из [deploy](../../deploy/Dockerfile).
 - `make integration`: [реальные сетевые fixtures](../../src/tests/integration/smoke.py),
-  без default password, без TLS verification bypass.
-- [Browser fixture](../../src/web/tests/panel.spec.ts): вход, создание VM,
-  validation/apply, desktop/mobile overflow и logout.
+  без default password, с проверкой цепочки сертификатов.
+- [Browser fixture](../../src/web/tests/panel.spec.ts): вход, создание клиента,
+  visual settings/expert template, validation/apply, история/rollback, desktop/mobile
+  overflow и logout. Каждый запуск создаёт и удаляет отдельный контейнер/volume;
+  случайный пароль существует только в памяти и передаётся CLI по stdin.
+  Только браузерный fixture принимает свой self-signed сертификат без проверки
+  доверия; trust/chain проверяется отдельным сетевым smoke.
 
 ## Открытые работы
 
 Полная TLS/client matrix, DNS rebinding и IPv6 network suite, rotation/truncation
-logs, disk-full/process-kill/reboot fault matrix, backup/restore и migrations,
-исторические события с cursor/retention, UI rollback/certificates, security scan
+logs, полная disk-full/process-kill/reboot fault matrix, backup/restore и migrations,
+исторические события с cursor/retention, UI certificates, security scan
 и релизный manifest. Один контейнер — единая точка обновления/отказа.
 Статус Supported относится к измеренной функции, не к общей production readiness.
+
+ENOSPC здесь инъецируется в слой атомарной записи, а SIGKILL выполняется над
+отдельным тестовым процессом. Это не испытание переполненного реального диска,
+отключения питания или reboot всей VM. Expert guard не является полным sandbox
+Squid; helper/storage provisioning и SSL Bump остаются недоступными.
+
+Финальная проверка расширения: `make check`, `make image`, Docker build target
+`verify` (Go race/vet на Linux/arm64), real-image smoke и Playwright пройдены.
+Сохранённый локальный Compose volume поднят новой версией: `/healthz` и `/`
+возвращают 200 при проверке доверия к panel certificate, оба Pebble services active,
+`check` успешен. Bootstrap/reset существующего администратора не выполнялись.

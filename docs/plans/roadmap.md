@@ -7,7 +7,7 @@ D5 проверен для TLS proxy, SSL Bump unsupported в текущей б�
 
 ## D0 — основание (подготовлено)
 
-Git main, требования, архитектура, политика по VM, TLS-профили, интерфейс,
+Git main, требования, архитектура, политика клиентов, TLS-профили, интерфейс,
 security/operations, контракты, ADR, шаблоны и работающая docs-проверка.
 Это не означает готовность proxy manager к запуску.
 
@@ -22,7 +22,7 @@ security/operations, контракты, ADR, шаблоны и работающ
 
 Один Go-бинарник со static UI, typed policy/compiler, SQLite/migrations,
 внутренний runtime worker/journal и локальный Squid adapter,
-bootstrap CLI, web HTTPS/session/CSRF, первая VM policy. UI может быть минимален,
+bootstrap CLI, web HTTPS/session/CSRF, первая политика клиента. UI может быть минимален,
 но полный путь draft → validate → apply → request должен реально работать.
 Результат: наблюдаемый доступ одной тестовой identity и отказ неизвестной.
 
@@ -36,7 +36,7 @@ Restart только Go должен сохранять работающий Squ
 
 ## D4 — полноценная панель и диагностика
 
-UI по interface spec, per-VM modes, domain lists, events/log cursors,
+UI по interface spec, клиентские режимы, domain lists, events/log cursors,
 ошибки/stale/empty, audit, client instructions, certificate metadata.
 Результат: администратор объясняет отказ без SSH и ручного чтения squid.conf.
 Точные исторические ACL-причины показывать лишь при наличии источника.
@@ -44,7 +44,7 @@ UI по interface spec, per-VM modes, domain lists, events/log cursors,
 ## D5 — транспорт TLS и управляемое inspection
 
 TLS к proxy включить после client compatibility. SSL Bump: provisioning issuer,
-trust instructions, выбор VM, bypass/splice, cert DB, upstream validation,
+trust instructions, выбор клиентов, bypass/splice, cert DB, upstream validation,
 CA rotation, privacy limits. Если transport TLS уже реализован в D2/D4,
 не дублировать работу — закрыть оставшуюся matrix.
 Результат: AC-11/12 и тесты из TLS matrix. Не обещать inspect до capability gate.
@@ -68,3 +68,15 @@ OIDC/read-only roles, push alerts, bandwidth limits, HA. Каждая опция
 D1 можно начинать независимо от выбора UI. Не тратить время на красивую панель,
 пока не проверены образ, ACL semantics и TLS capabilities выбранного Squid.
 При изменении scope обновить requirements и ADR перед параллельной реализацией.
+
+## Реализованное расширение 27.10.2026
+
+Добавлены общие клиенты (host/network/group), визуальные настройки и защищённая
+экспертная секция, история/diff/rollback в UI, отдельный probe listener,
+PHC Argon2id и локальный password-reset с отзывом сессий. D3 дополнен ENOSPC
+injection, SIGKILL тестового процесса на durable границах и восстановлением
+после отмены forward operation. Ошибка сохранения terminal outcome блокирует
+следующие изменения. [План с критериями](active/client-settings-and-recovery.md).
+
+Оставшиеся D3/D4/D6: полная crash/reboot/storage matrix, события с retention/cursor,
+управление сертификатами, backup/restore drill, security scans и release packaging.

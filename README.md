@@ -1,13 +1,14 @@
 # Squid Control
 
-Web-панель для управления исходящим доступом VM через Squid: весь HTTP/HTTPS
+Web-панель для управления исходящим доступом клиентов через Squid: весь HTTP/HTTPS
 либо только разрешённые домены. Один собственный контейнер на базе `ubuntu/squid`,
 Pebble и отдельные процессы Squid и Go. React/TypeScript UI встроен в Go-бинарник.
 Node и Go toolchain нужны только при сборке. Docker socket приложению не выдаётся.
 
 **Состояние на 27.10.2026: первый рабочий срез, для локальной проверки.**
 Реализованы HTTPS-панель, bootstrap admin, Argon2id, серверные сессии/CSRF,
-SQLite-черновик, индивидуальные политики, preview/validate/apply, API rollback,
+SQLite-черновик, индивидуальные политики, настройки Squid и expert-конфиг,
+preview/diff/validate/apply, история и rollback из панели/API,
 журнал применения/LKG, recovery gate и ограниченный просмотр Squid access log.
 Базовый образ проверен на Linux/arm64: Squid 6.13/GnuTLS, TLS proxy и CONNECT.
 SSL Bump в этой сборке отсутствует и отклоняется сервером.
@@ -32,16 +33,23 @@ make up
 `dev-cert` создаёт самоподписанный localhost-сертификат на 30 дней только для
 разработки. Браузеру нужно доверие к этому сертификату; для реальной установки
 подключите свой сертификат. Пароль bootstrap вводится без echo и передаётся по stdin,
-без argv/env; default password нет. Повторный bootstrap отклоняется.
+без argv/env; default password нет. В БД только salted Argon2id PHC hash. Повторный bootstrap отклоняется.
 
 ```sh
 docker compose -f deploy/compose.yaml logs -f
 make down
 ```
 
-`down` сохраняет named volume. Адреса публикуются только на loopback; для VM
+`down` сохраняет named volume. Адреса публикуются только на loopback; для клиентов
 выберите interfaces/firewall осознанно. [Установка и TLS](docs/operations/local-development.md).
 Неизвестные источники запрещены; сохранение черновика само по себе не меняет Squid.
+
+## Пароль и сброс
+
+Исходный пароль не сохраняется; hash односторонний, старый пароль из него
+не восстанавливается. `make password-reset` задаёт новый через local CLI,
+атомарно отзывает sessions и работает также при остановленной панели.
+[Подробности и прямой CLI](docs/security/password-lifecycle.md).
 
 ## Разработка и проверки
 

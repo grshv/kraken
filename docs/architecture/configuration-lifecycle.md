@@ -141,3 +141,14 @@ mutations worker завершает reconciliation, при необходимо�
 Drift от ручного изменения конфигурации обнаруживается по hash. Модуль не
 перезаписывает неожиданный файл молча: read-only режим панели и явный recovery.
 Ручной rollback также создаёт новую операцию, ссылающуюся на старый bundle.
+
+## Расширение настроек и expert mode
+
+Snapshot включает settings, configuration_mode и expert_config. Редактор допускает
+пользовательскую секцию, guard проверяет lifecycle/command границы, полный файл
+генерируется общим compiler. Визуальные правила не смешиваются с expert ACL.
+Смена режима также проходит revision/diff/parse/apply/verify.
+Rollback имеет собственный ограниченный context (45 s), независимый от отменённого
+forward operation. Ошибка сохранения terminal outcome в DB блокирует новые apply
+в этом процессе до restart/reconciliation. Manifest фиксирует фактический compiler,
+даже при перекомпиляции старого snapshot в rollback.
