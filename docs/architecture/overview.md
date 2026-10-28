@@ -140,6 +140,16 @@ Go и Squid в первом срезе используют общий UID 13; �
 HTTP, SQLite или runtime/process APIs.
 
 Настройки и экспертная секция входят в immutable snapshot наравне с политиками.
-Compiler v3 защищает служебные paths/ACL/probe и проверяет expert section;
+Compiler v5 защищает служебные paths/ACL/probe и проверяет expert section;
 в expert mode она заменяет визуальные клиентские правила. Детали границы:
 [ADR 0007](../adr/0007-general-clients-expert-configuration.md).
+
+## Структура React-приложения
+
+AppFrame/ThemeProvider — оболочка; OverviewPanel/useOverview — чтение состояния
+и retained статистики; SettingsPanel — локальные поля и сохранение draft;
+ChangesPanel — сравнение/validation/apply/history; DiagnosticsPanel — журналы;
+AccountsPanel и общий EntityDialog — учётные записи и редакторы. Координатор App
+держит session/permissions/draft/revision/operation; api.ts и useOperationRecovery
+отделяют транспортный сбой от результата команды. Это модули одного embedded UI,
+не новые сервисы. [Полные потоки и состояния](../product/interface.md).

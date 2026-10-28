@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.5.0",
-    "description": "Critical-path API implemented in the first development slice. Full-draft editing is initial interface; later CRUD, users and retention APIs require explicit extension. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
+    "version": "0.6.0",
+    "description": "Critical-path API implemented in the first development slice. Draft editing, local users/admin-viewer roles, separate proxy accounts, bounded event history and retained 24-hour statistics are implemented. Listener ports are installation settings and cannot change via draft/revision operations. Draft preview is read-only. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
   },
   "servers": [
     {
@@ -235,7 +235,7 @@
             }
           }
         },
-        "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes. Admin role required; viewer receives 403."
+        "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes. Admin role required; viewer receives 403. HTTP/TLS listener changes are rejected with 422 installation_setting; existing installed custom ports are preserved."
       }
     },
     "/revisions": {
@@ -456,7 +456,7 @@
             }
           }
         },
-        "description": "Creates a durable SQLite operation intent before the in-process worker runs. 409 for conflicting key/revision; busy is explicit. Apply requires validated exact inputs. Rollback uses the local Squid adapter and is verified. No separate runner or Docker API. Admin role required; viewer receives 403."
+        "description": "Creates a durable SQLite operation intent before the in-process worker runs. 409 for conflicting key/revision; busy is explicit. Apply requires validated exact inputs. Rollback uses the local Squid adapter and is verified. No separate runner or Docker API. Admin role required; viewer receives 403. Revision operations cannot change installation-owned HTTP/TLS listeners, including rollback to old revisions."
       }
     },
     "/operations/{id}": {
@@ -623,7 +623,7 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin role required; viewer receives 403. Empty client rules generate fail-closed http_access deny all, rather than an empty editor."
       }
     },
     "/audit": {
@@ -1041,6 +1041,63 @@
                 }
               }
             }
+          }
+        }
+      }
+    },
+    "/configuration/preview": {
+      "get": {
+        "operationId": "previewDraft",
+        "summary": "Preview saved draft without creating a revision",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DraftPreview"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "description": "Admin role required; viewer receives 403."
+      }
+    },
+    "/statistics": {
+      "get": {
+        "operationId": "getStatistics",
+        "summary": "Retained request statistics for the last 24 hours; admin/viewer read permission",
+        "responses": {
+          "200": {
+            "description": "Rolling statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Statistics"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "503": {
+            "description": "Statistics unavailable; never fake zero counters on storage error"
           }
         }
       }
@@ -1472,7 +1529,9 @@
           "generated_config",
           "warnings",
           "expected_applied_revision",
-          "config_diff"
+          "config_diff",
+          "user_changes",
+          "runtime_changes"
         ],
         "properties": {
           "revision_id": {
@@ -1486,7 +1545,8 @@
             "type": "array",
             "items": {
               "type": "string"
-            }
+            },
+            "description": "User changes only. Empty when effective user settings match, including runtime-only updates."
           },
           "generated_config": {
             "type": "string"
@@ -1508,7 +1568,16 @@
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/DiffLine"
-            }
+            },
+            "description": "Raw Squid configuration diff; UI can show it as an optional technical view. Empty when neither effective user settings nor managed runtime configuration changed."
+          },
+          "user_changes": {
+            "type": "boolean",
+            "description": "Effective user configuration differs from the applied snapshot, after expanding omitted defaults and normalizing set-like values."
+          },
+          "runtime_changes": {
+            "type": "boolean",
+            "description": "The installed compiler/runtime options render the applied snapshot differently from the currently running managed configuration. This is a separate update, not a user setting change."
           }
         }
       },
@@ -1718,7 +1787,8 @@
           "applied_revision",
           "observed_config_hash",
           "capabilities",
-          "has_unapplied_changes"
+          "has_unapplied_changes",
+          "runtime_update_available"
         ],
         "properties": {
           "web": {
@@ -1754,7 +1824,15 @@
             "type": [
               "boolean",
               "null"
-            ]
+            ],
+            "description": "Effective user changes only; omitted defaults, nil/empty lists and ordering of set-like ACL values do not create pending changes."
+          },
+          "runtime_update_available": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Managed configuration update is available independently of user changes; null when current runtime/draft cannot be read."
           }
         }
       },
@@ -1958,12 +2036,14 @@
           "http_port": {
             "type": "integer",
             "minimum": 1024,
-            "maximum": 65535
+            "maximum": 65535,
+            "description": "Installation-owned listener. The API retains existing installed values and rejects draft updates and operations that change this port with 422 installation_setting. It is not a web-editable setting."
           },
           "tls_port": {
             "type": "integer",
             "minimum": 1024,
-            "maximum": 65535
+            "maximum": 65535,
+            "description": "Installation-owned listener. The API retains existing installed values and rejects draft updates and operations that change this port with 422 installation_setting. It is not a web-editable setting."
           },
           "cache_memory_mb": {
             "type": "integer",
@@ -2361,6 +2441,158 @@
             "maxLength": 1024,
             "writeOnly": true,
             "description": "12–1024 UTF-8 bytes; never returned or persisted as plaintext. Proxy passwords cannot contain NUL/CR/LF."
+          }
+        }
+      },
+      "DraftPreview": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "policy_hash",
+          "summary",
+          "generated_config",
+          "warnings",
+          "expected_applied_revision",
+          "config_diff",
+          "user_changes",
+          "runtime_changes",
+          "draft_version"
+        ],
+        "properties": {
+          "policy_hash": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "User changes only. Empty when effective user settings match, including runtime-only updates."
+          },
+          "generated_config": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "expected_applied_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "config_diff": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiffLine"
+            },
+            "description": "Raw Squid configuration diff; UI can show it as an optional technical view. Empty when neither effective user settings nor managed runtime configuration changed."
+          },
+          "user_changes": {
+            "type": "boolean",
+            "description": "Effective user configuration differs from the applied snapshot, after expanding omitted defaults and normalizing set-like values."
+          },
+          "runtime_changes": {
+            "type": "boolean",
+            "description": "The installed compiler/runtime options render the applied snapshot differently from the currently running managed configuration. This is a separate update, not a user setting change."
+          },
+          "draft_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "Statistics": {
+        "type": "object",
+        "description": "Retained completed access-log records by event timestamp over [from,to), rolling 24 hours. Denied means Squid DENIED result, not arbitrary origin HTTP403. bytes_observed is logged bytes only; not bandwidth or active tunnel traffic. observed_at is calculation time; ingestion freshness comes from events response. retention_limited marks the 50000-row retention cap.",
+        "required": [
+          "requests",
+          "denied",
+          "bytes_observed",
+          "unique_sources",
+          "record_limit",
+          "from",
+          "to",
+          "observed_at",
+          "retention_limited",
+          "hourly"
+        ],
+        "properties": {
+          "requests": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "denied": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "bytes_observed": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "unique_sources": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "record_limit": {
+            "type": "integer",
+            "minimum": 0,
+            "format": "int64"
+          },
+          "from": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "to": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "observed_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "retention_limited": {
+            "type": "boolean"
+          },
+          "hourly": {
+            "type": "array",
+            "minItems": 24,
+            "maxItems": 24,
+            "items": {
+              "type": "object",
+              "required": [
+                "from",
+                "to",
+                "requests",
+                "denied"
+              ],
+              "properties": {
+                "from": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "to": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "requests": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "denied": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
           }
         }
       }

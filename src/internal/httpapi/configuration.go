@@ -2,7 +2,10 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
+	"net/netip"
+	"sort"
 	"strings"
 
 	"squid-control.local/squid/internal/policy"
@@ -27,10 +30,15 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 	var d Draft
 	m, e := s.Runtime.ReadManifest()
 	var changed any
+	var runtimeUpdate any
 	if e == nil && s.Store.Get("draft", &d) == nil {
-		changed = policy.Hash(d.Snapshot) != policy.Hash(m.Snapshot)
+		changed = len(semanticDiff(m.Snapshot, d.Snapshot)) > 0
+		if config, renderErr := policy.Render(m.Snapshot, s.Runtime.Options); renderErr == nil {
+			runtimeUpdate = config != m.Config
+		}
 	}
 	result["has_unapplied_changes"] = changed
+	result["runtime_update_available"] = runtimeUpdate
 	respond(w, 200, result)
 }
 func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session) {
@@ -48,7 +56,7 @@ func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session
 			return
 		}
 		isCurrent := me == nil && current.Revision == rev.ID
-		items = append(items, RevisionSummary{ID: rev.ID, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: row.Applied, Current: isCurrent, CanRollback: row.Applied && !isCurrent, Status: row.LatestStatus})
+		items = append(items, RevisionSummary{ID: rev.ID, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: row.Applied, Current: isCurrent, CanRollback: row.Applied && !isCurrent && me == nil && sameInstallationPorts(current.Snapshot, rev.Snapshot), Status: row.LatestStatus})
 	}
 	respond(w, 200, map[string]any{"items": items})
 }
@@ -73,6 +81,9 @@ type DiffLine struct {
 
 // Linear bounded diff: exact common prefix/suffix, changed blocks, no quadratic allocation.
 func configDiff(before, after string) []DiffLine {
+	if before == after {
+		return []DiffLine{}
+	}
 	a, b := strings.Split(before, "\n"), strings.Split(after, "\n")
 	start := 0
 	for start < len(a) && start < len(b) && a[start] == b[start] {
@@ -105,7 +116,65 @@ func configDiff(before, after string) []DiffLine {
 	}
 	return out
 }
+
+// comparisonSnapshot expands omitted defaults without changing stored policy hashes.
+// Sorting here is safe for keyed records and set-like ACL fields; DNS server order
+// and expert text remain significant.
+func comparisonSnapshot(input policy.Snapshot) policy.Snapshot {
+	raw, _ := json.Marshal(input)
+	var s policy.Snapshot
+	_ = json.Unmarshal(raw, &s)
+	if s.Mode == "" {
+		s.Mode = "structured"
+	}
+	settings := policy.EffectiveSettings(s)
+	settings.SafePorts = append([]int{}, settings.SafePorts...)
+	settings.ConnectPorts = append([]int{}, settings.ConnectPorts...)
+	settings.DNSNameservers = append([]string{}, settings.DNSNameservers...)
+	sort.Ints(settings.SafePorts)
+	sort.Ints(settings.ConnectPorts)
+	for i, address := range settings.DNSNameservers {
+		if a, e := netip.ParseAddr(address); e == nil {
+			settings.DNSNameservers[i] = a.String()
+		}
+	}
+	s.Settings = &settings
+	s.Clients = append([]policy.Client{}, s.Clients...)
+	s.Policies = append([]policy.Policy{}, s.Policies...)
+	s.TLSProfiles = append([]policy.TLSProfile{}, s.TLSProfiles...)
+	for i := range s.Clients {
+		c := &s.Clients[i]
+		if c.Kind == "" {
+			c.Kind = "host"
+		}
+		c.Networks = append([]string{}, c.Networks...)
+		for j, raw := range c.Networks {
+			if address, e := netip.ParseAddr(raw); e == nil {
+				c.Networks[j] = netip.PrefixFrom(address, address.BitLen()).String()
+			} else if prefix, e := netip.ParsePrefix(raw); e == nil {
+				c.Networks[j] = prefix.Masked().String()
+			}
+		}
+		sort.Strings(c.Networks)
+	}
+	for i := range s.Policies {
+		p := &s.Policies[i]
+		p.Destinations = append([]policy.Destination{}, p.Destinations...)
+		sort.Slice(p.Destinations, func(i, j int) bool {
+			a, b := p.Destinations[i], p.Destinations[j]
+			if a.Domain == b.Domain {
+				return !a.IncludeSubdomains && b.IncludeSubdomains
+			}
+			return a.Domain < b.Domain
+		})
+	}
+	sort.Slice(s.Clients, func(i, j int) bool { return s.Clients[i].ID < s.Clients[j].ID })
+	sort.Slice(s.Policies, func(i, j int) bool { return s.Policies[i].ID < s.Policies[j].ID })
+	sort.Slice(s.TLSProfiles, func(i, j int) bool { return s.TLSProfiles[i].ID < s.TLSProfiles[j].ID })
+	return s
+}
 func semanticDiff(a, b policy.Snapshot) []string {
+	a, b = comparisonSnapshot(a), comparisonSnapshot(b)
 	out := []string{}
 	old := map[string]policy.Client{}
 	for _, c := range a.Clients {
@@ -147,11 +216,63 @@ func semanticDiff(a, b policy.Snapshot) []string {
 	if string(ta) != string(tb) {
 		out = append(out, "Изменены TLS-профили")
 	}
-	if len(out) == 0 {
-		out = append(out, "Пользовательские настройки совпадают; служебный конфиг может измениться при обновлении компилятора")
-	}
 	if len(out) > 100 {
 		out = append(out[:100], "… остальные изменения показаны в diff")
 	}
 	return out
+}
+
+// configurationPreview renders the saved draft without creating a durable revision.
+func (s *Server) configurationPreview(w http.ResponseWriter, r *http.Request, v session) {
+	var draft Draft
+	if e := s.Store.Get("draft", &draft); e != nil {
+		fail(w, 503, "storage_unavailable", "Черновик недоступен")
+		return
+	}
+	result, e := s.previewSnapshot(draft.Snapshot)
+	if e != nil {
+		s.previewFailure(w, e)
+		return
+	}
+	result["draft_version"] = draft.Version
+	result["policy_hash"] = policy.Hash(draft.Snapshot)
+	respond(w, 200, result)
+}
+func (s *Server) previewSnapshot(snapshot policy.Snapshot) (map[string]any, error) {
+	config, e := policy.Render(snapshot, s.Runtime.Options)
+	if e != nil {
+		return nil, e
+	}
+	manifest, e := s.Runtime.ReadManifest()
+	if e != nil {
+		return nil, errPreviewRuntime
+	}
+	summary := semanticDiff(manifest.Snapshot, snapshot)
+	userChanges := len(summary) > 0
+	appliedConfig, renderErr := policy.Render(manifest.Snapshot, s.Runtime.Options)
+	runtimeChanges := renderErr != nil || appliedConfig != manifest.Config
+	var previous any
+	if manifest.Revision != "" {
+		previous = manifest.Revision
+	}
+	lines := []DiffLine{}
+	if userChanges || runtimeChanges {
+		lines = configDiff(manifest.Config, config)
+	}
+	return map[string]any{"summary": summary, "user_changes": userChanges, "runtime_changes": runtimeChanges, "config_diff": lines, "generated_config": config, "warnings": []string{}, "expected_applied_revision": previous}, nil
+}
+
+func sameInstallationPorts(a, b policy.Snapshot) bool {
+	installed, requested := policy.EffectiveSettings(a), policy.EffectiveSettings(b)
+	return installed.HTTPPort == requested.HTTPPort && installed.TLSPort == requested.TLSPort
+}
+
+var errPreviewRuntime = errors.New("preview runtime unavailable")
+
+func (s *Server) previewFailure(w http.ResponseWriter, e error) {
+	if errors.Is(e, errPreviewRuntime) {
+		fail(w, 503, "runtime_unavailable", "Нет рабочей конфигурации")
+		return
+	}
+	fail(w, 422, "invalid_policy", e.Error())
 }

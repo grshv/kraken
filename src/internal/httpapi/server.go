@@ -183,7 +183,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/session", s.login)
 	mux.HandleFunc("DELETE /api/v1/session", s.authenticated(s.logout))
 	mux.HandleFunc("GET /api/v1/status", s.authorized("read", s.status))
+	mux.HandleFunc("GET /api/v1/statistics", s.authorized("read", s.statistics))
 	mux.HandleFunc("GET /api/v1/revisions", s.authorized("configure", s.listRevisions))
+	mux.HandleFunc("GET /api/v1/configuration/preview", s.authorized("configure", s.configurationPreview))
 	mux.HandleFunc("GET /api/v1/configuration/expert-template", s.authorized("configure", s.expertTemplate))
 	mux.HandleFunc("GET /api/v1/configuration/draft", s.authorized("configure", s.getDraft))
 	mux.HandleFunc("PUT /api/v1/configuration/draft", s.authorized("configure", s.updateDraft))
@@ -277,14 +279,23 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 			}
 		}
 	}
+	s.draftMu.Lock()
+	defer s.draftMu.Unlock()
+	manifest, e := s.Runtime.ReadManifest()
+	if e != nil {
+		fail(w, 503, "runtime_unavailable", "Действующая конфигурация недоступна")
+		return
+	}
+	if !sameInstallationPorts(manifest.Snapshot, input.Snapshot) {
+		fail(w, 422, "installation_setting", "Порты подключения к прокси задаются при установке и не изменяются из панели")
+		return
+	}
 	if e := policy.Validate(input.Snapshot, s.Runtime.Options); e != nil {
 		fail(w, 422, "invalid_policy", e.Error())
 		return
 	}
-	s.draftMu.Lock()
-	defer s.draftMu.Unlock()
 	d := Draft{Version: input.Expected + 1, Snapshot: input.Snapshot, Updated: stamp()}
-	e := s.Store.Change("draft", d, v.User, "update_draft", input.Expected)
+	e = s.Store.Change("draft", d, v.User, "update_draft", input.Expected)
 	if errors.Is(e, store.ErrConflict) {
 		fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")
 		return
@@ -344,21 +355,14 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request, v session) {
 	if !ok {
 		return
 	}
-	conf, e := policy.Render(rev.Snapshot, s.Runtime.Options)
+	result, e := s.previewSnapshot(rev.Snapshot)
 	if e != nil {
-		fail(w, 422, "invalid_policy", e.Error())
+		s.previewFailure(w, e)
 		return
 	}
-	m, e := s.Runtime.ReadManifest()
-	if e != nil {
-		fail(w, 503, "runtime_unavailable", "Нет рабочей конфигурации")
-		return
-	}
-	var previous any
-	if m.Revision != "" {
-		previous = m.Revision
-	}
-	respond(w, 200, map[string]any{"revision_id": rev.ID, "policy_hash": rev.Hash, "summary": semanticDiff(m.Snapshot, rev.Snapshot), "config_diff": configDiff(m.Config, conf), "generated_config": conf, "warnings": []string{"Новые правила не гарантируют закрытие уже открытых CONNECT-туннелей"}, "expected_applied_revision": previous})
+	result["revision_id"] = rev.ID
+	result["policy_hash"] = rev.Hash
+	respond(w, 200, result)
 }
 func (s *Server) saveOperation(op Operation) error {
 	b, e := json.Marshal(op)
@@ -483,6 +487,10 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	m, e := s.Runtime.ReadManifest()
 	if e != nil {
 		fail(w, 503, "runtime_unavailable", "Нет рабочей конфигурации")
+		return
+	}
+	if !sameInstallationPorts(m.Snapshot, rev.Snapshot) {
+		fail(w, 422, "installation_setting", "Ревизия меняет порты подключения к прокси. Они задаются при установке")
 		return
 	}
 	expected := ""

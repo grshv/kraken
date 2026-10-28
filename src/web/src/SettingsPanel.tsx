@@ -12,22 +12,70 @@ type Props = {
   busy: boolean;
   onSave: (s: Snapshot) => Promise<void>;
   onTemplate: () => Promise<string>;
+  onPreview: () => Promise<string>;
+  onDirtyChange: (dirty: boolean) => void;
 };
-const tabs = [
-  "Сеть и ACL",
-  "Кеш",
-  "DNS и таймауты",
-  "Экспертный режим",
-] as const;
-export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
+const tabs = ["Сеть и ACL", "Кеш", "DNS и таймауты", "squid.conf"] as const;
+export function SettingsPanel({
+  snapshot,
+  busy,
+  onSave,
+  onTemplate,
+  onPreview,
+  onDirtyChange,
+}: Props) {
   const [settings, setSettings] = useState<Settings>(
     structuredClone(snapshot.settings || defaultSettings),
   );
   const [mode, setMode] = useState(snapshot.configuration_mode || "structured");
   const [expert, setExpert] = useState(snapshot.expert_config || "");
   const [tab, setTab] = useState<(typeof tabs)[number]>("Сеть и ACL");
-  const [dirty, setDirty] = useState(false);
+  const dirty =
+    JSON.stringify({ settings, mode, expert }) !==
+    JSON.stringify({
+      settings: snapshot.settings || defaultSettings,
+      mode: snapshot.configuration_mode || "structured",
+      expert: snapshot.expert_config || "",
+    });
   const [error, setError] = useState("");
+  const [fullConfig, setFullConfig] = useState("");
+  const [configError, setConfigError] = useState("");
+  const [configBusy, setConfigBusy] = useState(false);
+  const [templateBusy, setTemplateBusy] = useState(false);
+  const previewRequest = useRef(onPreview);
+  previewRequest.current = onPreview;
+  useEffect(() => {
+    onDirtyChange(dirty);
+  }, [dirty, onDirtyChange]);
+  useEffect(() => {
+    if (!dirty) return;
+    const beforeUnload = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [dirty]);
+  useEffect(() => {
+    if (tab !== "squid.conf") return;
+    let active = true;
+    setConfigBusy(true);
+    setConfigError("");
+    previewRequest
+      .current()
+      .then((config) => {
+        if (active) setFullConfig(config);
+      })
+      .catch((e) => {
+        if (active) setConfigError(e.message);
+      })
+      .finally(() => {
+        if (active) setConfigBusy(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [tab, snapshot]);
   // Last snapshot version we synchronised from. Used to distinguish an external
   // update (server pushed a newer draft) from our own save: remounting the panel
   // via key=draft.version threw away local tab/dirty/error state, which made
@@ -39,7 +87,6 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
     setSettings(structuredClone(snapshot.settings || defaultSettings));
     setMode(snapshot.configuration_mode || "structured");
     setExpert(snapshot.expert_config || "");
-    setDirty(false);
     setError("");
   }, [snapshot]);
   // Split update into typed paths so number inputs do not need `as never` to
@@ -47,7 +94,6 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
   // arrays) continues through the generic update.
   function update<K extends keyof Settings>(key: K, value: Settings[K]) {
     setSettings({ ...settings, [key]: value });
-    setDirty(true);
   }
   // NumberKeys extracts only the numeric keys so the input handler does not
   // need a cast. `keyof Settings` alone would widen value to the full union.
@@ -56,7 +102,6 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
   }[keyof Settings];
   function updateNumber(key: NumberKeys, value: number) {
     setSettings({ ...settings, [key]: value });
-    setDirty(true);
   }
   function number(
     key: NumberKeys,
@@ -81,12 +126,31 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
     );
   }
   async function loadTemplate() {
+    setTemplateBusy(true);
     try {
       setExpert(await onTemplate());
-      setDirty(true);
       setError("");
     } catch (e) {
       setError((e as Error).message);
+    } finally {
+      setTemplateBusy(false);
+    }
+  }
+  async function changeMode(next: string) {
+    if (next === "expert" && !expert.trim()) {
+      setTemplateBusy(true);
+      try {
+        const template = await onTemplate();
+        setExpert(template);
+        setMode(next as "expert" | "structured");
+        setError("");
+      } catch (e) {
+        setError((e as Error).message);
+      } finally {
+        setTemplateBusy(false);
+      }
+    } else {
+      setMode(next as "expert" | "structured");
     }
   }
   return (
@@ -121,20 +185,6 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
         }}
       >
         <TabsContent value="Сеть и ACL" className="settings-grid">
-          {number(
-            "http_port",
-            "HTTP-порт внутри контейнера",
-            1024,
-            65535,
-            "Изменение публикации порта Docker выполняется отдельно.",
-          )}
-          {number(
-            "tls_port",
-            "TLS-порт внутри контейнера",
-            1024,
-            65535,
-            "Активен только при установленном серверном сертификате.",
-          )}
           <label>
             Разрешённые порты назначения
             <Input
@@ -254,56 +304,82 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
             86400,
           )}
         </TabsContent>
-        <TabsContent value="Экспертный режим" className="expert-panel">
+        <TabsContent value="squid.conf" className="expert-panel">
           <label>
             Режим конфигурации
             <NativeSelect
               aria-label="Режим конфигурации"
               value={mode}
+              disabled={busy || templateBusy}
               onChange={(e) => {
-                setMode(e.target.value as "structured" | "expert");
-                setDirty(true);
+                void changeMode(e.target.value);
               }}
             >
               <option value="structured">Визуальные политики клиентов</option>
-              <option value="expert">Экспертный squid.conf</option>
+              <option
+                value="expert"
+                disabled={snapshot.clients.some(
+                  (c) => c.enabled && c.proxy_username,
+                )}
+              >
+                Экспертный squid.conf
+              </option>
             </NativeSelect>
           </label>
-          <p className="notice">
-            Экспертный конфиг заменяет визуальные правила клиентов.
-          </p>
-          <div className="expert-toolbar">
-            <h3>squid.conf: пользовательская секция</h3>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={loadTemplate}
-            >
-              Загрузить визуальные правила
-            </Button>
-          </div>
-          <label>
-            Экспертная конфигурация
-            <Textarea
-              className="config-editor"
-              aria-label="Экспертная конфигурация"
-              rows={18}
-              value={expert}
-              spellCheck={false}
-              onChange={(e) => {
-                setExpert(e.target.value);
-                setDirty(true);
-              }}
-              placeholder={
-                "# ACL, http_access, refresh_pattern, cache_peer, headers…\nacl office src 192.0.2.0/24\nhttp_access allow office"
-              }
-            />
-          </label>
-          <small>
-            Служебные пути, порты и команды защищены. Полный конфиг доступен в
-            изменениях.
-          </small>
+          {snapshot.clients.some((c) => c.enabled && c.proxy_username) && (
+            <p className="notice">
+              Для экспертного режима сначала отключите клиентов с логином
+              прокси.
+            </p>
+          )}
+          {mode === "expert" && (
+            <>
+              <div className="expert-toolbar">
+                <h3>Правила доступа</h3>
+                <Button
+                  type="button"
+                  variant="outline"
+                  disabled={busy || templateBusy}
+                  onClick={loadTemplate}
+                >
+                  Взять правила из форм
+                </Button>
+              </div>
+              <label>
+                Экспертная конфигурация
+                <Textarea
+                  className="config-editor"
+                  aria-label="Экспертная конфигурация"
+                  rows={18}
+                  value={expert}
+                  spellCheck={false}
+                  onChange={(e) => {
+                    setExpert(e.target.value);
+                  }}
+                  disabled={busy || templateBusy}
+                />
+              </label>
+            </>
+          )}
+          {templateBusy && <p role="status">Загрузка правил…</p>}
+          <details className="final-config">
+            <summary>Итоговый squid.conf</summary>
+            {dirty && (
+              <p className="subtle">
+                Показан сохранённый черновик. Сохраните изменения, чтобы
+                обновить конфиг.
+              </p>
+            )}
+            {configBusy ? (
+              <p role="status">Загрузка конфигурации…</p>
+            ) : configError ? (
+              <p className="error" role="alert">
+                {configError}
+              </p>
+            ) : (
+              <pre>{fullConfig}</pre>
+            )}
+          </details>
         </TabsContent>
 
         {error && (
@@ -317,7 +393,7 @@ export function SettingsPanel({ snapshot, busy, onSave, onTemplate }: Props) {
               ? "Есть несохранённые изменения"
               : "Изменения сохраняются в черновик"}
           </span>
-          <Button disabled={busy || !dirty} type="submit">
+          <Button disabled={busy || templateBusy || !dirty} type="submit">
             Сохранить настройки в черновик
           </Button>
         </div>

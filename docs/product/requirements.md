@@ -29,7 +29,8 @@ sessions пользователя и пишет audit без password/hash. Ст
 
 - Локальный оператор создаёт первого admin без default password и публичной регистрации.
 - Администратор добавляет клиента, IP/CIDR или группу, выбирает режим и TLS transport.
-- Администратор редактирует порты, DNS/TTL, timeouts, кеш памяти, body limit и log rotation.
+- Администратор редактирует порты назначения/CONNECT, DNS/TTL, timeouts, кеш памяти, body limit и log rotation.
+  HTTP/TLS listeners принадлежат установке и не меняются через web/API.
 - Эксперт управляет пользовательскими ACL/http_access/refresh_pattern/cache_peer
   и другими доступными директивами в защищённом блоке squid.conf.
 - Черновик не влияет на трафик. Preview показывает semantic и config diff; validate
@@ -107,6 +108,13 @@ Source IP не идентифицирует человека; NAT может с�
 | AC-18 | Crash/write failure | Candidate не становится рабочим без подтверждения |
 | AC-19 | Users/roles  | Сервер запрещает действия вне роли; блокировка/reset отзывает sessions; последний admin защищён |
 | AC-20 | Proxy auth  | Credentials определяют identity, а политика — доступ; неверные credentials не открывают proxy |
+| AC-21 | Обзор | Состояние и retained статистика суток; нет CRUD, ложных нулей при DB error и обещания видеть активные CONNECT |
+| AC-22 | Сеть панели | Нет связи с API отдельно от Squid; успешное восстановление автоматически снимает network banner |
+| AC-23 | Просмотр изменений | Read-only preview не создаёт revision; defaults не дают ложную правку, служебное обновление отделено |
+| AC-24 | Редакторы и тема | Единый Dialog/focus/pending для сущностей, no-op Save недоступен; light/dark и компактный toggle |
+| AC-25 | Expert editor | Непустой template при переключении, доступный итоговый конфиг; protected directives остаются закрыты |
+| AC-26 | Установка | HTTP/TLS listener нельзя сменить через draft или старую revision; ACL destination ports остаются настройками |
+| AC-27 | Локальные правки | Уход из dirty settings подтверждается; известная pending operation продолжает GET polling после обрыва без повторного POST |
 
 ## Пределы первой поставки
 

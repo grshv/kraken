@@ -1,4 +1,4 @@
-# Проверка реального image, 27.10.2026
+# Проверка реального image, 27–28.10.2026
 
 Проверено локально через Docker Engine на Linux/arm64. Это измерения текущего
 рабочего среза; amd64 и production сеть ещё не проверены.
@@ -42,13 +42,13 @@ Apply перед изменением проверяет old runtime canary; в 
 | HTTPS CONNECT | Supported | TLS origin с проверкой сертификата |
 | TLS до proxy | Supported | GnuTLS listener, trusted server cert |
 | Защита transport от downgrade | Supported | TLS-профиль на HTTP listener получает 403 |
-| TLS до proxy + TLS CONNECT в комбинации | Not tested | Не выводится из отдельных проверок |
+| TLS до proxy + TLS CONNECT в комбинации | Supported в проверенном сценарии | Verified TLS к proxy и отдельная проверка сертификата origin внутри CONNECT, включая proxy auth |
 | Parse / reload / canary | Supported | Локальный бинарник и revision response header |
 | Independent Go restart | Supported | PID Squid сохраняется, открытый CONNECT проверяется smoke |
 | Squid/container restart | Supported для штатных cases | Gate и persistent applied policy |
 | Fault/crash boundaries | Частично | ENOSPC injection на записи; SIGKILL отдельного Go test process на durable границах; parse/reload/rollback/drift/lock |
 | Визуальные настройки и expert section | Supported в проверенном объёме | Реальный parse/apply и трафик; неизвестная директива не меняет active |
-| Изменение HTTP-порта | Supported | 3128 → 8080 → 3128, canary остаётся на 3130 |
+| Listener ports контейнера | Installation setting | Draft и старые revisions не могут менять listeners; реальный 3128 и canary3130 сохраняются после отказа API |
 | CLI password-reset | Supported | Старые сессия/пароль отклоняются, новый вход успешен |
 
 Runtime canary — HTTP 403 обязательного loopback deny с fingerprint compiler,
@@ -166,3 +166,23 @@ revision и hash сохранены; candidate проверен настоящи
 Это выполненная локальная совместимость начального конфига, не автоматическая
 миграция произвольных старых runtime bundles и не общее обещание обновления без
 перерыва. Bootstrap/password-reset на сохранённой установке не выполнялись.
+
+## Потоки панели и retained статистика, 28.10.2026
+
+API 0.6.0, compiler5 и migrations1–5 сохранены. Read-only draft preview отделён от
+создания revision; defaults и эквивалентные CIDR не дают пользовательский delta.
+Managed config update виден отдельно, полный технический diff раскрывается по
+запросу. Listener ports защищены в draft/validate/apply/rollback; уже установленное
+значение сохраняется. Empty expert template fail-closed, итоговый конфиг доступен
+без создания revision. /statistics читает bounded retained историю за сутки,
+ошибки/лимит/источник не скрываются под фиктивными показателями.
+
+Оболочка без branding/avatar/лишнего toolbar; компактная тема, два semantic schemes,
+общий EntityDialog, separate transport state, dirty navigation guard и operation
+GET recovery. Обзор — состояние/статистика, accounts не смешивают список с inline
+editor. Старые «О журнале»/вводные пояснения убраны из рабочих экранов.
+
+`make check`, `make image`, полный native smoke и 15 browser cases прошли.
+Проверены обе темы и desktop/mobile screenshots. Точная матрица и пределы:
+[UI workflows](../plans/active/ui-workflows.md). Это не проверка нового APT клиента
+или новой платформы; работающая локальная установка обновляется после этих проверок.

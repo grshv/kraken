@@ -1,4 +1,10 @@
-import { Card } from "@/components/ui/card";
+import { useOperationRecovery, operationPending } from "./useOperationRecovery";
+import { ChangesPanel } from "./ChangesPanel";
+import { OverviewPanel } from "./OverviewPanel";
+import { useOverview } from "./useOverview";
+import { ConnectionError, fetchPanel } from "./api";
+import { ThemeProvider } from "./ThemeProvider";
+import { EntityDialog } from "./components/EntityDialog";
 import { AppFrame } from "./AppFrame";
 import {
   Dialog,
@@ -6,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge as Pill } from "./StatusBadge";
 import "./theme.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,43 +49,11 @@ import { AccountsPanel, roleNames } from "./AccountsPanel";
 // server ever adds one without a label here, Pill falls back to the raw token
 // and a test should catch it. "draft" is the COALESCE default listRevisions
 // uses for revisions that have no operation yet.
-const labels: Record<string, string> = {
-  up: "Работает",
-  down: "Недоступен",
-  unknown: "Нет данных",
-  degraded: "Нужна проверка",
-  pending: "Принято",
-  accepted: "Принято",
-  staged: "Подготовлено",
-  draft: "Черновик",
-  validating: "Проверка",
-  validated: "Проверено",
-  promoting: "Применение",
-  reloading: "Применение",
-  verifying: "Проверка применения",
-  succeeded: "Применено",
-  rejected: "Отклонено",
-  rolling_back: "Откат",
-  rolled_back: "Восстановлена предыдущая версия",
-};
-
 class SessionExpired extends Error {
   constructor() {
     super("Сессия истекла. Войдите снова");
     this.name = "SessionExpired";
   }
-}
-
-function Pill({ value }: { value: string }) {
-  return (
-    <Badge
-      variant="outline"
-      className={`pill ${value === "up" || value === "succeeded" || value === "validated" ? "good" : value === "down" || value === "rejected" || value === "degraded" ? "bad" : "neutral"}`}
-    >
-      <i />
-      {labels[value] || value}
-    </Badge>
-  );
 }
 
 function App() {
@@ -93,10 +67,13 @@ function App() {
     [fatal, setFatal] = useState(""),
     [error, setError] = useState(""),
     [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState<Draft | null>(null),
-    [status, setStatus] = useState<Status | null>(null),
-    [page, setPage] = useState("Обзор"),
-    [events, setEvents] = useState<Event[]>([]);
+  const [draft, setDraft] = useState<Draft | null>(null);
+  const [page, setPage] = useState("Обзор");
+  const [connectionError, setConnectionError] = useState(false);
+  const [settingsDirty, setSettingsDirty] = useState(false);
+  const [pendingNavigation, setPendingNavigation] = useState<string | null>(
+    null,
+  );
   const [preview, setPreview] = useState<Preview | null>(null),
     [operation, setOperation] = useState<Operation | null>(null),
     [validated, setValidated] = useState("");
@@ -146,12 +123,19 @@ function App() {
       headers["X-CSRF-Token"] = csrf;
     }
     if (key) headers["Idempotency-Key"] = key;
-    const r = await fetch(`/api/v1${path}`, {
-      method,
-      headers,
-      body: data === undefined ? undefined : JSON.stringify(data),
-      signal,
-    });
+    let r: Response;
+    try {
+      r = await fetchPanel(`/api/v1${path}`, {
+        method,
+        headers,
+        body: data === undefined ? undefined : JSON.stringify(data),
+        signal,
+      });
+      if (path === "/status" || path === "/session") setConnectionError(false);
+    } catch (e) {
+      if (e instanceof ConnectionError) setConnectionError(true);
+      throw e;
+    }
     if (r.status === 204) return undefined as T;
     // Refresh the cookie and CSRF holder before showing login after any
     // protected 401. /session itself keeps ordinary wrong-password semantics.
@@ -172,6 +156,22 @@ function App() {
     const result = await r.json();
     if (!r.ok) throw new Error(result.message || `Ошибка ${r.status}`);
     return result;
+  }
+  const {
+    status,
+    setStatus,
+    events,
+    statistics,
+    ingestion,
+    overviewError,
+    refreshOverview,
+  } = useOverview(api, session?.authenticated === true);
+  function navigate(next: string) {
+    if (page === "Настройки" && settingsDirty && next !== page) {
+      setPendingNavigation(next);
+      return;
+    }
+    setPage(next);
   }
   function allowed(permission: string, who: Session | null = session) {
     return who?.permissions?.includes(permission) ?? false;
@@ -196,64 +196,28 @@ function App() {
     }
   }
   useEffect(() => {
-    api<Session>("/session")
-      .then((s) => {
+    let active = true;
+    let timer: ReturnType<typeof setTimeout>;
+    async function connect() {
+      try {
+        const s = await api<Session>("/session");
+        if (!active) return;
         setCsrf(s.csrf_token);
         setSession(s);
-        if (s.authenticated) load(s).catch((e) => setError(e.message));
-      })
-      .catch((e) => setFatal(e.message));
-  }, []);
-  useEffect(() => {
-    if (!session?.authenticated) return;
-    // AbortController lets the cleanup function cancel in-flight fetches when
-    // the tab switches or the session expires mid-poll. The previous code
-    // relied on an `active` flag to guard setState, but the underlying fetch
-    // still ran to completion and could surface as a late 401/timeout after
-    // unmount. Sharing one controller between /events and /status polls keeps
-    // cancellation logically atomic across both endpoints.
-    const controller = new AbortController();
-    let active = true;
-    const refresh = () =>
-      api<{ items: Event[] }>(
-        "/events",
-        "GET",
-        undefined,
-        undefined,
-        controller.signal,
-      )
-        .then((r) => {
-          if (active) setEvents(r.items);
-        })
-        .catch((e) => {
-          if (!active) return;
-          if (e instanceof SessionExpired) {
-            // Session expired mid-page: return the user to login instead of
-            // cascading 401s across subsequent polling calls.
-            setError(e.message);
-          } else if (!(e instanceof DOMException && e.name === "AbortError")) {
-            setError(e.message);
-          }
-        });
-    refresh();
-    const timer = setInterval(() => {
-      refresh();
-      api<Status>("/status", "GET", undefined, undefined, controller.signal)
-        .then((s) => {
-          if (active) setStatus(s);
-        })
-        .catch((e) => {
-          if (active && e instanceof SessionExpired) {
-            setError(e.message);
-          }
-        });
-    }, 10000);
+        setFatal("");
+        if (s.authenticated) await load(s);
+      } catch (e) {
+        if (!active) return;
+        if (!(e instanceof ConnectionError)) setFatal((e as Error).message);
+        timer = setTimeout(connect, 5000);
+      }
+    }
+    void connect();
     return () => {
       active = false;
-      controller.abort();
-      clearInterval(timer);
+      clearTimeout(timer);
     };
-  }, [session?.authenticated]);
+  }, []);
   async function work(fn: (signal?: AbortSignal) => Promise<void>) {
     setBusy(true);
     setError("");
@@ -274,7 +238,7 @@ function App() {
       } else if (e instanceof DOMException && e.name === "AbortError") {
         // Abort from unmount or a new work() call: don't surface as an error,
         // just stop the in-flight sequence.
-      } else {
+      } else if (!(e instanceof ConnectionError)) {
         setError((e as Error).message);
       }
     } finally {
@@ -409,27 +373,38 @@ function App() {
       setPage("Клиенты");
     });
   }
-  async function freeze() {
-    if (!draft) return;
+  async function refreshChanges() {
+    if (operationPending(operation)) return;
     await work(async () => {
-      const r = await api<{ id: string }>("/revisions", "POST", {
-        expected_draft_version: draft.version,
-      });
-      const p = await api<Preview>(`/revisions/${r.id}/preview`);
-      setPreview(p);
+      setPreview(await api<Preview>("/configuration/preview"));
       setRollbackTarget(false);
-      setOperation(null);
       setValidated("");
-      setPage("Изменения");
+      setOperation(null);
     });
   }
+  function freeze() {
+    if (page !== "Изменения") navigate("Изменения");
+    else void refreshChanges();
+  }
+  useEffect(() => {
+    if (page === "Изменения" && session?.authenticated && allowed("configure"))
+      void refreshChanges();
+  }, [page, session?.authenticated]);
   async function run(action: "validate" | "apply" | "rollback") {
     if (!preview) return;
     await work(async (signal) => {
+      let target = preview;
+      if (!target.revision_id) {
+        const revision = await api<{ id: string }>("/revisions", "POST", {
+          expected_draft_version: target.draft_version ?? draft?.version,
+        });
+        target = await api<Preview>(`/revisions/${revision.id}/preview`);
+        setPreview(target);
+      }
       const input = {
         action,
-        revision_id: preview.revision_id,
-        expected_applied_revision: preview.expected_applied_revision,
+        revision_id: target.revision_id,
+        expected_applied_revision: target.expected_applied_revision,
         ...(action === "apply" ? { validation_operation_id: validated } : {}),
       };
       let op = await api<Operation>(
@@ -479,13 +454,32 @@ function App() {
       if (op.status === "validated") setValidated(op.id);
       if (op.status === "succeeded") {
         await load();
-        setPreview(null);
+        setPreview(await api<Preview>("/configuration/preview"));
+        setRollbackTarget(false);
         setValidated("");
       }
       if (["rejected", "degraded", "rolled_back"].includes(op.status))
         setError(op.findings.join(" "));
     });
   }
+  useOperationRecovery(
+    api,
+    operation,
+    busy,
+    session?.authenticated === true,
+    async (next) => {
+      setOperation(next);
+      if (next.status === "validated") setValidated(next.id);
+      if (next.status === "succeeded") {
+        await load();
+        setPreview(await api<Preview>("/configuration/preview"));
+        setValidated("");
+        setRollbackTarget(false);
+      }
+      if (["rejected", "degraded", "rolled_back"].includes(next.status))
+        setError(next.findings.join(" "));
+    },
+  );
   if (fatal)
     return (
       <main className="login-wrap">
@@ -506,7 +500,7 @@ function App() {
     return (
       <main className="login-wrap">
         <section className="login">
-          <h1>Squid Control</h1>
+          <h1>Панель управления</h1>
           <form onSubmit={login}>
             <label>
               Имя пользователя
@@ -526,6 +520,11 @@ function App() {
                 required
               />
             </label>
+            {connectionError && (
+              <p className="error" role="alert">
+                Нет связи с панелью. Повторяем подключение…
+              </p>
+            )}
             {error && (
               <p className="error" role="alert">
                 {error}
@@ -551,7 +550,7 @@ function App() {
     <AppFrame
       navigation={navigation}
       page={page}
-      onNavigate={setPage}
+      onNavigate={navigate}
       username={session.username || ""}
       role={session.role ? roleNames[session.role] : ""}
       onLogout={logout}
@@ -564,13 +563,18 @@ function App() {
             <Button
               variant="outline"
               disabled={busy}
-              onClick={() => work(() => load())}
+              onClick={() => work(() => refreshOverview())}
             >
               Обновить
             </Button>
           )}
         </div>
-        {error && (
+        {connectionError && (
+          <div className="error" role="alert">
+            Нет связи с панелью. Повторяем подключение…
+          </div>
+        )}
+        {error && !showForm && (
           <div className="error" role="alert">
             <span>{error}</span>
             <Button variant="ghost" onClick={() => setError("")}>
@@ -583,112 +587,26 @@ function App() {
             Применение заблокировано: требуется восстановление состояния.
           </p>
         )}
-        {canConfigure && status?.has_unapplied_changes && (
-          <div className="pending-banner">
-            <span>Есть неприменённые изменения</span>
-            <Button variant="ghost" disabled={busy} onClick={freeze}>
-              Посмотреть diff
-            </Button>
-          </div>
-        )}
+        {canConfigure &&
+          page !== "Изменения" &&
+          status?.has_unapplied_changes && (
+            <div className="pending-banner">
+              <span>Есть неприменённые изменения</span>
+              <Button variant="ghost" disabled={busy} onClick={freeze}>
+                Посмотреть изменения
+              </Button>
+            </div>
+          )}
         {page === "Обзор" && (
-          <>
-            <Card
-              className="status-panel"
-              role="region"
-              aria-label="Состояние прокси"
-            >
-              <div>
-                <span>Squid</span>
-                <Pill value={status?.squid.state || "unknown"} />
-              </div>
-              <div>
-                <span>Управление</span>
-                <Pill value={status?.runtime.state || "unknown"} />
-              </div>
-              <div className="status-time">
-                {status?.squid.observed_at
-                  ? `Проверено ${new Date(status.squid.observed_at).toLocaleTimeString("ru-RU")}`
-                  : "Ожидаем данные"}
-              </div>
-            </Card>
-            {canConfigure && (
-              <Card className="overview-summary">
-                <div>
-                  <h2>
-                    {snap?.configuration_mode === "expert"
-                      ? "Экспертный режим"
-                      : "Доступ клиентов"}
-                  </h2>
-                  <p>
-                    {snap?.configuration_mode === "expert"
-                      ? "Действуют правила squid.conf"
-                      : snap?.clients.length
-                        ? `${snap.clients.filter((c) => c.enabled).length} включено из ${snap.clients.length}`
-                        : "Клиенты ещё не добавлены"}
-                  </p>
-                </div>
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    if (snap?.configuration_mode === "expert") {
-                      setPage("Настройки");
-                      return;
-                    }
-                    setPage("Клиенты");
-                    if (!snap?.clients.length) openClient();
-                  }}
-                >
-                  {snap?.configuration_mode === "expert"
-                    ? "Открыть настройки"
-                    : snap?.clients.length
-                      ? "Открыть клиентов"
-                      : "Добавить клиента"}
-                </Button>
-              </Card>
-            )}
-            <section className="section">
-              <div className="section-head">
-                <h2>Последние запросы</h2>
-                <Button variant="ghost" onClick={() => setPage("События")}>
-                  Весь журнал
-                </Button>
-              </div>
-              <div className="table-wrap">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Время</TableHead>
-                      <TableHead>Источник</TableHead>
-                      <TableHead>Назначение</TableHead>
-                      <TableHead>Результат</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {events.slice(0, 6).map((e) => (
-                      <TableRow key={e.id}>
-                        <TableCell>
-                          {new Date(e.timestamp).toLocaleTimeString("ru-RU")}
-                        </TableCell>
-                        <TableCell className="mono">{e.source_ip}</TableCell>
-                        <TableCell className="mono destination">
-                          {e.destination}
-                        </TableCell>
-                        <TableCell
-                          className={
-                            e.proxy_result.includes("DENIED") ? "denied" : ""
-                          }
-                        >
-                          {e.proxy_result}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              {!events.length && <p className="empty">Запросов пока нет.</p>}
-            </section>
-          </>
+          <OverviewPanel
+            status={status}
+            statistics={statistics}
+            ingestion={ingestion}
+            events={events}
+            offline={connectionError}
+            error={overviewError}
+            onEvents={() => navigate("События")}
+          />
         )}
         {page === "Клиенты" && canConfigure && (
           <section className="section">
@@ -797,25 +715,16 @@ function App() {
                 Добавьте клиента, чтобы разрешить ему доступ.
               </p>
             )}
-            <div className="section-footer">
-              <span>
-                Черновик {draft?.version}. Изменения вступят в силу после
-                применения.
-              </span>
-              <Button
-                variant="outline"
-                disabled={busy || !draft}
-                onClick={freeze}
-              >
-                Посмотреть изменения
-              </Button>
-            </div>
           </section>
         )}
         {page === "Настройки" && draft && canConfigure && (
           <SettingsPanel
             snapshot={draft.snapshot}
             busy={busy}
+            onDirtyChange={setSettingsDirty}
+            onPreview={async () =>
+              (await api<Preview>("/configuration/preview")).generated_config
+            }
             onSave={(next) => work(() => save(next))}
             onTemplate={async () =>
               (
@@ -827,176 +736,27 @@ function App() {
           />
         )}
         {page === "Изменения" && canConfigure && (
-          <>
-            <section className="section">
-              <div className="section-head">
-                <h2>
-                  {rollbackTarget
-                    ? "Откат конфигурации"
-                    : "Изменения конфигурации"}
-                </h2>
-                <Button
-                  variant="outline"
-                  onClick={freeze}
-                  disabled={busy || !draft}
-                >
-                  Подготовить из черновика
-                </Button>
-              </div>
-              {preview ? (
-                <>
-                  <ul className="change-summary">
-                    {preview.summary.map((item, i) => (
-                      <li key={i}>{item}</li>
-                    ))}
-                  </ul>
-                  <pre
-                    className="config-diff"
-                    aria-label="Изменения squid.conf"
-                  >
-                    {preview.config_diff.map((line, i) => (
-                      <span key={i} className={line.kind}>
-                        {line.kind === "added"
-                          ? "+ "
-                          : line.kind === "removed"
-                            ? "- "
-                            : "  "}
-                        {line.text}
-                        {"\n"}
-                      </span>
-                    ))}
-                  </pre>
-                  {preview.warnings.map((w) => (
-                    <p className="notice" key={w}>
-                      {w}
-                    </p>
-                  ))}
-                  <details>
-                    <summary>Полный squid.conf</summary>
-                    <pre>{preview.generated_config}</pre>
-                    <small>
-                      Ревизия {preview.revision_id} · SHA-256{" "}
-                      {preview.policy_hash}
-                    </small>
-                  </details>
-                  <div className="section-footer">
-                    <span>
-                      {rollbackTarget
-                        ? "Конфигурация будет проверена перед откатом"
-                        : validated
-                          ? "Эта ревизия прошла проверку"
-                          : "Требуется проверка конфигурации"}
-                    </span>
-                    <div className="actions">
-                      <Button
-                        variant="outline"
-                        disabled={
-                          busy ||
-                          rollbackTarget ||
-                          status?.runtime.state === "degraded"
-                        }
-                        onClick={() => run("validate")}
-                      >
-                        Проверить
-                      </Button>
-                      <Button
-                        disabled={
-                          busy ||
-                          !canApply ||
-                          (!rollbackTarget && !validated) ||
-                          status?.runtime.state === "degraded"
-                        }
-                        onClick={() =>
-                          run(rollbackTarget ? "rollback" : "apply")
-                        }
-                      >
-                        {rollbackTarget
-                          ? "Откатить к этой ревизии"
-                          : "Применить"}
-                      </Button>
-                    </div>
-                  </div>
-                </>
-              ) : (
-                <p className="empty">
-                  Подготовьте черновик для проверки и применения.
-                </p>
-              )}
-              {operation && (
-                <div className="operation">
-                  <Pill value={operation.status} />
-                  {operation.findings.length > 0 && (
-                    <ul className="findings">
-                      {operation.findings.map((f) => (
-                        <li key={f}>{f}</li>
-                      ))}
-                    </ul>
-                  )}
-                </div>
-              )}
-            </section>
-            <section className="section">
-              <div className="section-head">
-                <h2>История ревизий</h2>
-              </div>
-              <div className="table-wrap">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Создана</TableHead>
-                      <TableHead>Ревизия</TableHead>
-                      <TableHead>Статус</TableHead>
-                      <TableHead>
-                        <span className="sr-only">Действия</span>
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {history.map((rev) => (
-                      <TableRow key={rev.id}>
-                        <TableCell>
-                          {new Date(rev.created_at).toLocaleString("ru-RU")}
-                        </TableCell>
-                        <TableCell className="mono">
-                          {rev.id.slice(0, 8)}
-                        </TableCell>
-                        <TableCell>
-                          <Pill
-                            value={
-                              rev.is_current ? "succeeded" : rev.latest_status
-                            }
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Button
-                            variant="ghost"
-                            disabled={busy}
-                            onClick={() =>
-                              work(async () => {
-                                setPreview(
-                                  await api<Preview>(
-                                    `/revisions/${rev.id}/preview`,
-                                  ),
-                                );
-                                setRollbackTarget(rev.can_rollback);
-                                setValidated("");
-                                setOperation(null);
-                              })
-                            }
-                          >
-                            {rev.can_rollback
-                              ? "Сравнить и откатить"
-                              : "Посмотреть diff"}
-                          </Button>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-              {!history.length && <p className="empty">Ревизий пока нет.</p>}
-            </section>
-          </>
+          <ChangesPanel
+            preview={preview}
+            operation={operation}
+            history={history}
+            busy={busy || operationPending(operation)}
+            validated={!!validated}
+            rollback={rollbackTarget}
+            canApply={canApply}
+            blocked={status?.runtime.state === "degraded"}
+            onRefresh={refreshChanges}
+            onValidate={() => run("validate")}
+            onApply={() => run(rollbackTarget ? "rollback" : "apply")}
+            onHistory={(rev) =>
+              work(async () => {
+                setPreview(await api<Preview>(`/revisions/${rev.id}/preview`));
+                setRollbackTarget(rev.can_rollback);
+                setValidated("");
+                setOperation(null);
+              })
+            }
+          />
         )}
         {(page === "События" || page === "Аудит") && (
           <DiagnosticsPanel
@@ -1020,178 +780,183 @@ function App() {
           />
         )}
       </div>
-      <Dialog
+      <EntityDialog
         open={showForm && canConfigure}
+        onOpenChange={setShowForm}
+        busy={busy}
+        title={editing ? "Настройки клиента" : "Добавить клиента"}
+        onSubmit={submitClient}
+        error={error || (connectionError ? "Нет связи с панелью" : "")}
+        submitLabel="Сохранить черновик"
+      >
+        <div className="form-grid">
+          <label>
+            Название
+            <Input
+              aria-label="Название"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              required
+              maxLength={128}
+              autoFocus
+            />
+          </label>
+          <label>
+            Тип клиента
+            <NativeSelect
+              value={kind}
+              onChange={(e) => setKind(e.target.value as typeof kind)}
+            >
+              <option value="host">Устройство</option>
+              <option value="network">Сеть</option>
+              <option value="group">Группа адресов</option>
+            </NativeSelect>
+          </label>
+        </div>
+        <label>
+          IP / CIDR
+          <Textarea
+            aria-label="IP / CIDR"
+            value={networks}
+            onChange={(e) => setNetworks(e.target.value)}
+            required
+            rows={2}
+            placeholder="192.0.2.11 или 192.0.2.0/24"
+          />
+        </label>
+        <label>
+          Режим доступа
+          <NativeSelect
+            aria-label="Режим доступа"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as typeof mode)}
+          >
+            <option value="allowlist">Только разрешённые ресурсы</option>
+            <option value="all_web">Весь внешний HTTP/HTTPS</option>
+          </NativeSelect>
+        </label>
+        {mode === "allowlist" && (
+          <label>
+            Разрешённые домены
+            <Textarea
+              aria-label="Разрешённые домены"
+              value={domains}
+              onChange={(e) => setDomains(e.target.value)}
+              rows={4}
+              placeholder={"packages.example.org\n.archive.example.org"}
+            />
+            <small>
+              По одному на строку. Точка в начале включает поддомены.
+            </small>
+          </label>
+        )}
+        <div className="form-grid">
+          <label>
+            Подключение к прокси
+            <NativeSelect
+              aria-label="Подключение к прокси"
+              value={transport}
+              onChange={(e) => {
+                setTransport(e.target.value);
+              }}
+            >
+              <option value="http" disabled={!!proxyUsername}>
+                HTTP
+              </option>
+              <option
+                value="tls"
+                disabled={
+                  !status?.capabilities.includes("tls_proxy_configured")
+                }
+              >
+                TLS
+                {status?.capabilities.includes("tls_proxy_configured")
+                  ? ""
+                  : " — сертификат не настроен"}
+              </option>
+            </NativeSelect>
+          </label>
+          <label>
+            Логин прокси
+            <NativeSelect
+              aria-label="Логин прокси"
+              value={proxyUsername}
+              onChange={(e) => {
+                setProxyUsername(e.target.value);
+                if (e.target.value) setTransport("tls");
+              }}
+              disabled={!status?.capabilities.includes("tls_proxy_configured")}
+            >
+              <option value="">Без пароля, по IP</option>
+              {proxyAccounts.map((a) => (
+                <option
+                  key={a.username}
+                  value={a.username}
+                  disabled={!a.enabled}
+                >
+                  {a.username}
+                  {a.enabled ? "" : " — заблокирован"}
+                </option>
+              ))}
+              {proxyUsername &&
+                !proxyAccounts.some((a) => a.username === proxyUsername) && (
+                  <option value={proxyUsername}>{proxyUsername}</option>
+                )}
+            </NativeSelect>
+            {!status?.capabilities.includes("tls_proxy_configured") && (
+              <small>Для логина нужен TLS-сертификат прокси.</small>
+            )}
+          </label>
+        </div>
+        <details>
+          <summary>Описание</summary>
+          <label>
+            <span className="sr-only">Описание</span>
+            <Input
+              aria-label="Описание"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              maxLength={1024}
+            />
+          </label>
+        </details>
+      </EntityDialog>
+      <Dialog
+        open={pendingNavigation !== null}
         onOpenChange={(open) => {
-          if (!busy) setShowForm(open);
+          if (!open) setPendingNavigation(null);
         }}
       >
-        <DialogContent
-          className="client-dialog"
-          showCloseButton={false}
-          aria-describedby={undefined}
-        >
+        <DialogContent aria-describedby={undefined}>
           <DialogHeader>
-            <DialogTitle id="client-title">
-              {editing ? "Настройки клиента" : "Добавить клиента"}
-            </DialogTitle>
+            <DialogTitle>Несохранённые изменения</DialogTitle>
           </DialogHeader>
-          <form onSubmit={submitClient}>
-            <div className="form-grid">
-              <label>
-                Название
-                <Input
-                  aria-label="Название"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  maxLength={128}
-                  autoFocus
-                />
-              </label>
-              <label>
-                Тип клиента
-                <NativeSelect
-                  value={kind}
-                  onChange={(e) => setKind(e.target.value as typeof kind)}
-                >
-                  <option value="host">Устройство</option>
-                  <option value="network">Сеть</option>
-                  <option value="group">Группа адресов</option>
-                </NativeSelect>
-              </label>
-            </div>
-            <label>
-              IP / CIDR
-              <Textarea
-                aria-label="IP / CIDR"
-                value={networks}
-                onChange={(e) => setNetworks(e.target.value)}
-                required
-                rows={2}
-                placeholder="192.0.2.11 или 192.0.2.0/24"
-              />
-            </label>
-            <label>
-              Режим доступа
-              <NativeSelect
-                aria-label="Режим доступа"
-                value={mode}
-                onChange={(e) => setMode(e.target.value as typeof mode)}
-              >
-                <option value="allowlist">Только разрешённые ресурсы</option>
-                <option value="all_web">Весь внешний HTTP/HTTPS</option>
-              </NativeSelect>
-            </label>
-            {mode === "allowlist" && (
-              <label>
-                Разрешённые домены
-                <Textarea
-                  aria-label="Разрешённые домены"
-                  value={domains}
-                  onChange={(e) => setDomains(e.target.value)}
-                  rows={4}
-                  placeholder={"packages.example.org\n.archive.example.org"}
-                />
-                <small>
-                  По одному на строку. Точка в начале включает поддомены.
-                </small>
-              </label>
-            )}
-            <div className="form-grid">
-              <label>
-                Подключение к прокси
-                <NativeSelect
-                  aria-label="Подключение к прокси"
-                  value={transport}
-                  onChange={(e) => {
-                    setTransport(e.target.value);
-                  }}
-                >
-                  <option value="http" disabled={!!proxyUsername}>
-                    HTTP
-                  </option>
-                  <option
-                    value="tls"
-                    disabled={
-                      !status?.capabilities.includes("tls_proxy_configured")
-                    }
-                  >
-                    TLS
-                    {status?.capabilities.includes("tls_proxy_configured")
-                      ? ""
-                      : " — сертификат не настроен"}
-                  </option>
-                </NativeSelect>
-              </label>
-              <label>
-                Логин прокси
-                <NativeSelect
-                  aria-label="Логин прокси"
-                  value={proxyUsername}
-                  onChange={(e) => {
-                    setProxyUsername(e.target.value);
-                    if (e.target.value) setTransport("tls");
-                  }}
-                  disabled={
-                    !status?.capabilities.includes("tls_proxy_configured")
-                  }
-                >
-                  <option value="">Без пароля, по IP</option>
-                  {proxyAccounts.map((a) => (
-                    <option
-                      key={a.username}
-                      value={a.username}
-                      disabled={!a.enabled}
-                    >
-                      {a.username}
-                      {a.enabled ? "" : " — заблокирован"}
-                    </option>
-                  ))}
-                  {proxyUsername &&
-                    !proxyAccounts.some(
-                      (a) => a.username === proxyUsername,
-                    ) && <option value={proxyUsername}>{proxyUsername}</option>}
-                </NativeSelect>
-                {!status?.capabilities.includes("tls_proxy_configured") && (
-                  <small>Для логина нужен TLS-сертификат прокси.</small>
-                )}
-              </label>
-            </div>
-            <details>
-              <summary>Описание</summary>
-              <label>
-                <span className="sr-only">Описание</span>
-                <Input
-                  aria-label="Описание"
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  maxLength={1024}
-                />
-              </label>
-            </details>
-            {error && (
-              <p className="error" role="alert">
-                {error}
-              </p>
-            )}
-            <div className="modal-actions">
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowForm(false)}
-                disabled={busy}
-              >
-                Отмена
-              </Button>
-              <Button disabled={busy}>
-                {busy ? "Сохранение…" : "Сохранить черновик"}
-              </Button>
-            </div>
-          </form>
+          <p>Выйти из настроек без сохранения?</p>
+          <div className="actions justify-end">
+            <Button
+              variant="outline"
+              onClick={() => setPendingNavigation(null)}
+            >
+              Остаться
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setSettingsDirty(false);
+                setPage(pendingNavigation!);
+                setPendingNavigation(null);
+              }}
+            >
+              Не сохранять
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
     </AppFrame>
   );
 }
-createRoot(document.getElementById("root")!).render(<App />);
+createRoot(document.getElementById("root")!).render(
+  <ThemeProvider>
+    <App />
+  </ThemeProvider>,
+);

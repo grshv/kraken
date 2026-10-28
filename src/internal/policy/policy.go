@@ -325,6 +325,9 @@ func ExpertTemplate(s Snapshot, o Options) (string, error) {
 	}
 	_, rest, _ := strings.Cut(config, "# BEGIN user policy\n")
 	body, _, _ := strings.Cut(rest, "# END user policy")
+	if strings.TrimSpace(body) == "" {
+		body = "http_access deny all\n"
+	}
 	return body, nil
 }
 

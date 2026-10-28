@@ -200,14 +200,20 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         assert fetch(client)==200 and fetch(client,'http://denied.test/')==403
         assert fetch(source)==403  # visual all_web policy is retained but inactive in expert mode
         print('PASS: visual settings and expert squid.conf affect actual Squid traffic')
-        # Change the public HTTP port; the private runtime probe must remain functional.
-        changed=copy.deepcopy(advanced);changed['settings']['http_port']=8080
-        d=apply_snapshot(changed,d['version'])
-        probe=docker('exec',client,'python','-c',"import http.client;c=http.client.HTTPConnection('proxy',8080);c.request('GET','http://allowed.test/');print(c.getresponse().status)")
-        assert probe=='200'
-        changed['settings']['http_port']=3128;d=apply_snapshot(changed,d['version'])
+        # Listener ports belong to installation; web edits must not break published ports.
+        changed=copy.deepcopy(advanced)
+        for key,value in [('http_port',8080),('tls_port',4443)]:
+            rejected=copy.deepcopy(changed);rejected['settings'][key]=value
+            try:
+                api('/configuration/draft','PUT',{'expected_version':d['version'],'snapshot':rejected})
+                raise AssertionError('installation listener change accepted')
+            except urllib.error.HTTPError as exc:
+                assert exc.code==422
+                assert json.load(exc)['code']=='installation_setting'
+        assert api('/configuration/draft')['version']==d['version']
         assert fetch(client)==200
-        print('PASS: configurable listener port with independent runtime canary')
+        wait_for(lambda:docker('exec','--user','13:13',proxy,'squid-control','check'))
+        print('PASS: installation listener changes rejected, published port and diagnostic probe preserved')
         forbidden=copy.deepcopy(changed);forbidden['expert_config']='include /data/app/*'
         try:api('/configuration/draft','PUT',{'expected_version':d['version'],'snapshot':forbidden});raise AssertionError('unsafe include accepted')
         except urllib.error.HTTPError as exc:assert exc.code==422

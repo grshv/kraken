@@ -13,6 +13,30 @@ SQLite, filesystem и процесс Squid не участвуют в общей
 Они показываются раздельно. Факт сохранения формы не означает apply;
 exit code reload не доказывает готовность Squid и правильность ACL.
 
+## Предпросмотр и пользовательские изменения
+
+`GET /configuration/preview` читает сохранённый draft, возвращает полный итоговый
+конфиг и diff без записи новой revision. `summary` содержит только пользовательские
+изменения; при их отсутствии это пустой массив. Сравнение разворачивает defaults,
+считает пустые списки и omitted значения эквивалентными, нормализует IP/CIDR и
+порядок set-like ACL. Порядок DNS servers и экспертный текст остаются значимыми.
+Криптографические policy hashes сохранённых ревизий этим сравнением не меняются.
+
+`user_changes` и status `has_unapplied_changes` показывают изменение пользовательской
+конфигурации. `runtime_changes` и status `runtime_update_available` отдельно
+показывают необходимость перерендерить действующий snapshot текущим compiler и
+параметрами установки. Поэтому служебное обновление не изображается как замена
+пользовательской настройки самой на себя и не скрывается под «нет изменений».
+Полный raw config diff доступен как технический просмотр; parse/apply по-прежнему
+требуют immutable revision и явного действия. Expert template без клиентов
+возвращает рабочий fail-closed `http_access deny all`, не пустое поле.
+
+HTTP/TLS listener ports принадлежат установке. Draft PUT и validate/apply/rollback
+ревизии с другими listener ports возвращают `422 installation_setting`. Это не
+затрагивает safe destination ports и CONNECT ports. Ранее установленные другие
+listeners не заменяются defaults; история не предлагает такой откат как допустимый.
+Штатный Compose публикует 3128/3129; произвольное изменение упаковки из web отсутствует.
+
 ## Ревизия
 
 Immutable bundle содержит canonical policy JSON, compiler version, schema version,

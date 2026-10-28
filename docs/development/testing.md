@@ -160,3 +160,18 @@ Real-image suite выполняет verified TLS proxy login, 407, plaintext403,
 users/roles и proxy accounts, новая компоновка shadcn/ui проверяется на 1440/390 px.
 Мобильные переходы открывают Sheet и закрывают его после выбора; повторный вход
 проверяется и при скрытой боковой панели. Вкладки и диалог используют Radix.
+
+## Согласованность UI-потоков (0.6.0)
+
+`workflow.spec.ts` использует отдельный real-image fixture на сценарий. Проверяет
+system preference до ручного override и сохранение темы после reload, расположение
+sidebar trigger и mobile Sheet, реальные /statistics из логов, network abort/recovery,
+единые Dialog/focus/password clearing/no-op submit, fixed listener UI, загрузку
+expert template и полного config, read-only preview без POST revisions, dirty
+navigation confirm и восстановление polling без повторной операции. Все 15
+browser cases вместе с `panel.spec.ts` пройдены 28.10.2026.
+
+Go tests покрывают bounded статистику/временные границы/DB errors, no-op/default
+normalization, runtime-only delta и guards listeners в draft/revision operations.
+Native smoke проверяет не только HTTP422, но и сохранение actual traffic/canary.
+[Критерии, найденные расхождения и результат](../plans/active/ui-workflows.md).

@@ -39,8 +39,8 @@ duration и bytes. URL path/query/userinfo не попадают в нормал
 источник с файловыми правами/rotation. Для HTTPS доступны только CONNECT metadata;
 длительные туннели логируются при закрытии. Исторические ACL/revision неизвестны.
 
-Имя/ID клиента — уникальное совпадение source IP/CIDR в активном manifest при
-сборе (policy_at_ingest), включая подписи источников в expert mode. Неоднозначные
+Имя/ID клиента — уникальное совпадение source IP/CIDR и, для auth-bound clients,
+logged proxy username в активном manifest при сборе (policy_at_ingest), включая подписи источников в expert mode. Неоднозначные
 совпадения остаются unknown. Изменение клиента не переписывает сохранённую запись.
 Фильтр включает сохранённые ID, даже если клиента уже нет в текущем draft;
 список показывает до 200 последних известных клиентов.
@@ -57,7 +57,8 @@ proxy HTTP status >= 400). Неизвестный matched ACL не угадыв�
 GET /audit показывает actor/action/entity/time из audit_events с точными
 фильтрами actor/action и cursor. Это журнал принятых действий: итог apply смотрят
 в operation/history. Пароли, session tokens, ключи и тела конфигураций туда не
-добавляются. Доступ ко всем трём endpoints, включая /events/clients, только admin.
+добавляются. Доступ к событиям, /events/clients и аудиту имеют admin и viewer;
+изменение конфигурации/учётных записей viewer недоступно.
 Решение: [ADR 0011](../adr/0011-durable-diagnostics.md).
 
 ## Метрики
@@ -101,3 +102,14 @@ Audit в локальной SQLite не является неизменяемы�
 Pebble следит за процессами отдельно. Ошибка панели не должна приводить watchdog
 к пересозданию всего контейнера при работающем Squid. Container-level status
 не подменяет состояние каждого процесса. Upgrade общего image прерывает оба.
+
+## Показатели обзора
+
+GET /statistics читает не более 50 000 нормализованных строк SQLite; новых tables,
+фонового агрегатора или сервиса нет. Окно [now−24h, now) определяется timestamp
+события, в ответе 24 часовых bucket. requests, DENIED, logged bytes и source IP
+считаются только по сохранённым завершённым записям. `observed_at` — время расчёта;
+свежесть источника берётся из ingestion metadata /events. Нельзя считать
+calculation time доказательством текущего чтения Squid. `retention_limited`
+обозначает достижение cap; полнота суток тогда не обещается. Ошибка DB/формата
+возвращает 503, а не ложные нули. HTTP403 от origin не равен Squid DENIED.

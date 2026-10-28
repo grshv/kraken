@@ -1,9 +1,9 @@
 import type { ReactNode } from "react";
 import {
   Activity,
-  ArrowUpRight,
+  Moon,
+  Sun,
   FileClock,
-  Globe2,
   KeyRound,
   LayoutDashboard,
   LogOut,
@@ -29,7 +29,7 @@ import {
   useSidebar,
 } from "@/components/ui/sidebar";
 import { Button } from "@/components/ui/button";
-import { Separator } from "@/components/ui/separator";
+import { useTheme } from "./ThemeProvider";
 
 const icons: Record<string, typeof Activity> = {
   Обзор: LayoutDashboard,
@@ -67,21 +67,22 @@ function Frame({
   children,
 }: Props) {
   const { setOpenMobile, isMobile, openMobile, open } = useSidebar();
+  const { setTheme, dark } = useTheme();
   return (
     <>
       <a className="skip-link" href="#main-content">
         К содержимому
       </a>
-      <Sidebar collapsible="offcanvas">
-        <SidebarHeader className="px-5 py-6">
-          <a href="/" className="console-brand">
-            <span className="brand-mark">
-              <Globe2 size={21} aria-hidden="true" />
-            </span>
-            <span>
-              Squid Control<small>Панель управления</small>
-            </span>
-          </a>
+      <Sidebar collapsible="icon">
+        <SidebarHeader className="sidebar-brand-row">
+          <span className="panel-title group-data-[collapsible=icon]:hidden">
+            Панель управления
+          </span>
+
+          <SidebarTrigger
+            aria-label="Открыть или скрыть меню"
+            aria-expanded={isMobile ? openMobile : open}
+          />
         </SidebarHeader>
         <SidebarContent>
           <nav aria-label="Разделы панели">
@@ -98,6 +99,7 @@ function Frame({
                           return (
                             <SidebarMenuItem key={p}>
                               <SidebarMenuButton
+                                tooltip={p}
                                 isActive={page === p}
                                 aria-current={page === p ? "page" : undefined}
                                 onClick={() => {
@@ -107,12 +109,6 @@ function Frame({
                               >
                                 <Icon aria-hidden="true" />
                                 <span>{p}</span>
-                                {page === p && (
-                                  <ArrowUpRight
-                                    className="ml-auto !size-3.5 opacity-50"
-                                    aria-hidden="true"
-                                  />
-                                )}
                               </SidebarMenuButton>
                             </SidebarMenuItem>
                           );
@@ -125,15 +121,23 @@ function Frame({
             })}
           </nav>
         </SidebarContent>
-        <SidebarFooter className="border-t p-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <span className="user-avatar" aria-hidden="true">
-              {username.slice(0, 1).toUpperCase()}
-            </span>
-            <div className="min-w-0 flex-1">
+        <SidebarFooter className="sidebar-footer border-t">
+          <div className="flex min-w-0 items-center gap-1 group-data-[collapsible=icon]:flex-col">
+            <div className="min-w-0 flex-1 group-data-[collapsible=icon]:hidden">
               <p className="truncate text-sm font-medium">{username}</p>
               <p className="text-xs text-muted-foreground">{role}</p>
             </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Тёмная тема"
+              title="Переключить тему"
+              aria-pressed={dark}
+              onClick={() => setTheme(dark ? "light" : "dark")}
+            >
+              <Sun className="hidden dark:block" aria-hidden="true" />
+              <Moon className="dark:hidden" aria-hidden="true" />
+            </Button>
             <Button
               variant="ghost"
               size="icon"
@@ -147,14 +151,11 @@ function Frame({
         </SidebarFooter>
       </Sidebar>
       <SidebarInset className="min-w-0 bg-background">
-        <header className="console-toolbar">
+        <header className="mobile-navigation">
           <SidebarTrigger
             aria-label="Открыть или скрыть меню"
-            aria-expanded={isMobile ? openMobile : open}
+            aria-expanded={openMobile}
           />
-          <Separator orientation="vertical" className="!h-4" />
-          <span>Управление прокси</span>
-          <span className="ml-auto text-xs">Squid Control</span>
         </header>
         {children}
       </SidebarInset>

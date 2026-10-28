@@ -38,7 +38,7 @@ test.beforeAll(async ({ browser }) => {
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto(fixture.origin);
   await expect(
-    page.getByRole("heading", { name: "Squid Control", exact: true }),
+    page.getByRole("heading", { name: "Панель управления", exact: true }),
   ).toBeVisible();
   await page.getByLabel("Имя пользователя").fill(fixture.username);
   await page.getByLabel("Пароль", { exact: true }).fill(fixture.password);
@@ -53,6 +53,7 @@ test.afterAll(async () => {
 
 test.describe.serial("panel e2e flow", () => {
   test("clients: add or update build-fixture, then apply", async () => {
+    await navigate(page, "Клиенты");
     const existing = page.getByRole("row").filter({
       has: page.getByRole("cell", { name: "build-fixture", exact: true }),
     });
@@ -92,7 +93,7 @@ test.describe.serial("panel e2e flow", () => {
       page.getByText("Есть неприменённые изменения", { exact: true }),
     ).toBeVisible();
     await page
-      .getByRole("button", { name: "Посмотреть diff", exact: true })
+      .getByRole("button", { name: "Посмотреть изменения", exact: true })
       .first()
       .click();
     await expect(
@@ -118,13 +119,11 @@ test.describe.serial("panel e2e flow", () => {
 
   test("expert mode apply, responsive screenshots, logout", async () => {
     await navigate(page, "Настройки");
-    await page.getByRole("tab", { name: "Экспертный режим" }).click();
+    await page.getByRole("tab", { name: "squid.conf" }).click();
     await page
       .getByLabel("Режим конфигурации", { exact: true })
       .selectOption("expert");
-    await page
-      .getByRole("button", { name: "Загрузить визуальные правила" })
-      .click();
+    await page.getByRole("button", { name: "Взять правила из форм" }).click();
     await expect(
       page.getByLabel("Экспертная конфигурация", { exact: true }),
     ).not.toHaveValue("");
@@ -132,7 +131,7 @@ test.describe.serial("panel e2e flow", () => {
       .getByRole("button", { name: "Сохранить настройки в черновик" })
       .click();
     await page
-      .getByRole("button", { name: "Посмотреть diff", exact: true })
+      .getByRole("button", { name: "Посмотреть изменения", exact: true })
       .first()
       .click();
     await page.getByRole("button", { name: "Проверить", exact: true }).click();
@@ -355,7 +354,10 @@ test("accounts: create viewer, enforce read-only access, revoke on block", async
     page.getByLabel("Роль пользователя").locator("option"),
   ).toHaveCount(2);
   await page.getByLabel("Роль пользователя").selectOption("viewer");
-  await users.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Сохранить", exact: true })
+    .click();
   await expect(
     users.getByRole("cell", { name: "review-viewer", exact: true }),
   ).toBeVisible();
@@ -422,7 +424,10 @@ test("accounts: create viewer, enforce read-only access, revoke on block", async
   await page
     .getByLabel("Пароль учётной записи")
     .fill(randomBytes(24).toString("base64url"));
-  await proxy.getByRole("button", { name: "Сохранить", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Сохранить", exact: true })
+    .click();
   await expect(
     proxy.getByRole("cell", { name: "review-proxy", exact: true }),
   ).toBeVisible();

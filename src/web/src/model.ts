@@ -60,6 +60,7 @@ export type Component = {
 };
 export type Status = {
   has_unapplied_changes: boolean | null;
+  runtime_update_available: boolean | null;
   web: Component;
   runtime: Component;
   squid: Component;
@@ -71,9 +72,12 @@ export type Status = {
   capabilities: string[];
 };
 export type Preview = {
+  draft_version?: number;
+  user_changes: boolean;
+  runtime_changes: boolean;
   summary: string[];
   config_diff: { kind: string; text: string }[];
-  revision_id: string;
+  revision_id?: string;
   policy_hash: string;
   generated_config: string;
   warnings: string[];

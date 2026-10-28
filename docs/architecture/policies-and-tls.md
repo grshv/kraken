@@ -67,7 +67,7 @@ submission (587), imaps (993), pop3s (995), tor (9050, 9051). `all_web` не
 | --- | --- | --- |
 | 3130 | приложение | Loopback-only diagnostic listener, всегда эмитируется `policy.Render` как `http_port 127.0.0.1:3130`. Запрещён в `validateSettings` для HTTPPort/TLSPort. Verify-проба всегда идёт на 3130. |
 | 8443 | приложение | Panel listener. Запрещён в `validateSettings` для HTTPPort/TLSPort. |
-| 3128, 3129 | администратор | Конвенциональные Squid-порты для HTTP и TLS. Не зарезервированы — администратор волен их использовать. `DefaultSettings` возвращает именно эти значения. runtime verify не использует их как probe fallback (только канонический 3130), поэтому одновременное наличие пользовательского `http_port 3128` и probe `127.0.0.1:3130` не конфликтует. |
+| 3128, 3129 | установка | Конвенциональные Squid listeners HTTP/TLS. Порты заданы упаковкой; web/API не могут менять их ни через draft, ни через старую revision/rollback. Уже установленные другие значения сохраняются. `DefaultSettings` возвращает 3128/3129, verify использует только независимый 3130. Порты назначения/CONNECT остаются настройками политики. |
 
 ### IPv4-mapped IPv6 и приватные destino
 

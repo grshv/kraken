@@ -52,7 +52,7 @@ func TestUsersRolesAndServerPermissions(t *testing.T) {
 			t.Fatalf("viewer cannot read %s: %s", path, w.Body.String())
 		}
 	}
-	for _, path := range []string{"/users", "/proxy-accounts", "/configuration/draft", "/configuration/expert-template", "/revisions", "/revisions/any", "/revisions/any/preview", "/operations/any"} {
+	for _, path := range []string{"/users", "/proxy-accounts", "/configuration/draft", "/configuration/expert-template", "/configuration/preview", "/revisions", "/revisions/any", "/revisions/any/preview", "/operations/any"} {
 		if w := request(h, "GET", path, nil, viewer, "", ""); w.Code != 403 {
 			t.Fatalf("viewer accessed %s: %d", path, w.Code)
 		}

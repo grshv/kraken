@@ -1,3 +1,5 @@
+import { RefreshCw } from "lucide-react";
+import { EntityDialog } from "./components/EntityDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { NativeSelect } from "@/components/ui/native-select";
@@ -36,9 +38,25 @@ export function AccountsPanel({
   const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
     [role, setRole] = useState<PanelRole>("viewer");
+  const unchanged =
+    editing !== null &&
+    password === "" &&
+    (kind === "proxy-accounts" ||
+      role === items.find((account) => account.username === editing)?.role);
   async function reload() {
     const result = await api.current<{ items: Account[] }>(`/${kind}`);
     setItems(result.items);
+    setError("");
+  }
+  async function refreshList() {
+    setLoading(true);
+    try {
+      await reload();
+    } catch (e) {
+      setError((e as Error).message);
+    } finally {
+      setLoading(false);
+    }
   }
   useEffect(() => {
     let active = true;
@@ -54,6 +72,12 @@ export function AccountsPanel({
       active = false;
     };
   }, [kind]);
+  function closeEditor() {
+    if (busy) return;
+    setOpen(false);
+    setPassword("");
+    setError("");
+  }
   function edit(account?: Account) {
     setEditing(account?.username ?? null);
     setUsername(account?.username ?? "");
@@ -64,6 +88,7 @@ export function AccountsPanel({
   }
   async function submit(e: React.SubmitEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (busy || unchanged) return;
     setBusy(true);
     setError("");
     try {
@@ -119,95 +144,99 @@ export function AccountsPanel({
     >
       <div className="section-head">
         <h2>{kind === "users" ? "Пользователи панели" : "Логины прокси"}</h2>
-        <Button onClick={() => edit()} disabled={busy}>
-          {kind === "users" ? "Добавить пользователя" : "Добавить логин"}
-        </Button>
+        <div className="actions">
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Обновить список"
+            onClick={refreshList}
+            disabled={busy || loading}
+          >
+            <RefreshCw aria-hidden="true" />
+          </Button>
+          <Button onClick={() => edit()} disabled={busy}>
+            {kind === "users" ? "Добавить пользователя" : "Добавить логин"}
+          </Button>
+        </div>
       </div>
-      {kind === "proxy-accounts" && (
-        <p className="inline-note">
-          Назначьте логин клиенту в его настройках. Парольная авторизация
-          требует TLS к прокси.
-        </p>
-      )}
-      {error && (
+      {error && !open && (
         <p className="error" role="alert">
           {error}
         </p>
       )}
-      {open && (
-        <form
-          className="account-form"
-          onSubmit={submit}
-          aria-label={
-            editing ? "Редактирование учётной записи" : "Новая учётная запись"
-          }
-        >
+      <EntityDialog
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) closeEditor();
+        }}
+        busy={busy}
+        title={
+          kind === "users"
+            ? editing
+              ? "Изменить пользователя"
+              : "Добавить пользователя"
+            : editing
+              ? "Изменить логин прокси"
+              : "Добавить логин прокси"
+        }
+        onSubmit={submit}
+        submitDisabled={unchanged}
+        error={error}
+        formLabel={
+          editing ? "Редактирование учётной записи" : "Новая учётная запись"
+        }
+      >
+        <label>
+          Логин
+          <Input
+            aria-label="Логин учётной записи"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            disabled={editing !== null}
+            pattern="[A-Za-z0-9._-]+"
+            maxLength={128}
+            required
+            autoComplete="off"
+            autoCapitalize="none"
+            spellCheck={false}
+            autoFocus
+          />
+        </label>
+        {kind === "users" && (
           <label>
-            Логин
-            <Input
-              aria-label="Логин учётной записи"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              disabled={editing !== null}
-              pattern="[A-Za-z0-9._-]+"
-              maxLength={128}
-              required
-              autoComplete="off"
-              autoFocus
-            />
-          </label>
-          {kind === "users" && (
-            <label>
-              Роль
-              <NativeSelect
-                aria-label="Роль пользователя"
-                value={role}
-                onChange={(e) => setRole(e.target.value as PanelRole)}
-              >
-                {Object.entries(roleNames).map(([value, name]) => (
-                  <option key={value} value={value}>
-                    {name}
-                  </option>
-                ))}
-              </NativeSelect>
-            </label>
-          )}
-          <label>
-            {editing ? "Новый пароль" : "Пароль"}
-            <Input
-              aria-label="Пароль учётной записи"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              minLength={12}
-              maxLength={1024}
-              required={!editing}
-              autoComplete="new-password"
-              placeholder={
-                editing
-                  ? "Оставьте пустым, чтобы сохранить"
-                  : "Не менее 12 символов"
-              }
-            />
-          </label>
-          <div className="actions">
-            <Button disabled={busy}>
-              {busy ? "Сохранение…" : "Сохранить"}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={busy}
-              onClick={() => {
-                setOpen(false);
-                setPassword("");
-              }}
+            Роль
+            <NativeSelect
+              aria-label="Роль пользователя"
+              value={role}
+              onChange={(e) => setRole(e.target.value as PanelRole)}
             >
-              Отмена
-            </Button>
-          </div>
-        </form>
-      )}
+              {Object.entries(roleNames).map(([value, name]) => (
+                <option key={value} value={value}>
+                  {name}
+                </option>
+              ))}
+            </NativeSelect>
+          </label>
+        )}
+        <label>
+          {editing ? "Новый пароль" : "Пароль"}
+          <Input
+            aria-label="Пароль учётной записи"
+            type="password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            minLength={12}
+            maxLength={1024}
+            required={!editing}
+            autoComplete="new-password"
+            placeholder={
+              editing
+                ? "Оставьте пустым, чтобы сохранить"
+                : "Не менее 12 символов"
+            }
+          />
+        </label>
+      </EntityDialog>
       <div className="table-wrap">
         <Table>
           <TableHeader>
@@ -261,7 +290,7 @@ export function AccountsPanel({
         </Table>
       </div>
       {loading && <p className="empty">Загрузка…</p>}
-      {!loading && !items.length && !error && (
+      {!loading && !error && !items.length && (
         <p className="empty">
           {kind === "users"
             ? "Пользователей пока нет."

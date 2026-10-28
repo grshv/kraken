@@ -5,30 +5,26 @@ Filesystem journal внутреннего runtime module фиксирует пр
 SQLite и journal обслуживает один Go executable, но транзакции между DB, файлами
 и Squid нет. Recovery gate умеет восстановить LKG без HTTP readiness панели.
 
-## Сущности
+## Фактические данные
 
-| Сущность | Основные поля | Инвариант |
+| Таблица | Что хранит | Инвариант |
 | --- | --- | --- |
-| users | id, username, password_hash, enabled, created_at | Уникальное нормализованное имя; не plaintext password |
-| sessions | id, user_id, token_hash, csrf_secret, expires_at, last_seen_at | Отзываются при logout/password reset; raw token не хранится |
-| clients | id, name, description, enabled, version | Устойчивый ID, независимый от имени |
-| client_networks | client_id, canonical_cidr | Нет пересечений enabled clients; проверка в транзакции |
-| policies | id, name, mode, tls_profile_id, version | Только известный enum; пустой allowlist закрывает доступ |
-| destinations | policy_id, domain_ascii, include_subdomains | Уникальная нормализованная цель |
-| tls_profiles | id, mode(tunnel), transport, cert_ref, version | Ссылки на секреты; ключей в DB нет |
-| revisions | id, snapshot_json, policy_hash, compiler_version, image_digest, created_by, created_at | Immutable; содержит snapshot всех clients/policies |
-| validations | id, revision_id, capability_hash, status, findings, expires_at | Действительна только для точного набора inputs |
-| operations | id, idempotency_key, request_hash, revision_id, expected_revision, action, status, timestamps | Один key — один payload |
-| applied_state | singleton_id, revision_id, observed_hash, verified_at, status | Не обновляется при сохранении draft |
-| audit_events | id, actor_id, action, entity_id, operation_id, safe_details, created_at | Добавление в транзакции с mutation |
-| log_cursors | source, inode_or_file_id, offset, updated_at | Rotation-aware ingestion; не бесконечный replay |
-| traffic_buckets | time_bucket, client_id, counters, format_version | Ограниченная cardinality, нет full URL в ключах |
-| schema_migrations | version, checksum, applied_at | Применённая миграция не редактируется |
+| users | username, password_hash, role, enabled | Только verifier; admin/viewer, последний active admin защищён |
+| sessions | token_hash, username, csrf, expires_at, last_seen_at | Cookie token хранится только как hash, password/role/disable mutation отзывает sessions |
+| proxy_accounts | username, password_hash, enabled, created_at, updated_at | Отдельные credentials proxy, без прав в панели |
+| kv | key, value | Draft/revisions/checkpoint как JSON; optimistic version и validation на уровне приложения |
+| operations | id, idempotency_key, request_hash, body | Один key — один payload; outcome операции хранится отдельно от draft |
+| audit_events | id, actor, action, entity_id, created_at | Без паролей/ключей/config body, mutation и audit атомарны |
+| proxy_events | seq, event_id, client_id/name, failed, ingested_at, body | Уникальная нормализованная запись; события и checkpoint атомарны |
+| schema_migrations | version, checksum, applied_at | DDL/data/version в одной транзакции; применённая миграция не редактируется |
 
-Это первоначальная логическая схема, не список требуемых SQL tables. Фактические
-kv/users/sessions/operations/audit/proxy_events и checkpoint описаны ниже.
-Переделка в полный набор реляционных таблиц не запланирована: данные расширяются
-адресно под реализуемую функцию. Сущности вроде traffic_buckets не обязательны.
+Клиенты, source networks, policies, destinations, TLS profiles и settings —
+типизированные части snapshot в kv, а не отдельные SQL tables. Правила ссылок,
+пересечений IP/auth identities и secret refs проверяет policy.Validate.
+Validation привязана к immutable revision и operation. Отдельных validations,
+traffic_buckets, client_networks и applied_state tables нет; их создание и полная
+реляционная переделка не запланированы. Точное применение подтверждает manifest
+и fingerprint процесса Squid, не один JSON-флаг в SQLite.
 
 ## Версии и consistency
 
@@ -89,7 +85,7 @@ secret references и terminal outcome. Он связывается с запис
   добавлен для совместимости с прежними anonymous rows (`username=''`), которые
   истекают и удаляются обычной очисткой; целостность проверяет приложение.
 
-Переход к полной реляционной схеме требует миграции 004+ и пересмотра
+Не запланированный переход к полной реляционной схеме потребовал бы новых миграций и пересмотра
 `draftMu`/`opsMu` (см. ADR 0009).
 
 ## Миграции и архивирование
@@ -104,10 +100,10 @@ Bootstrap, DDL, перенос данных и версия выполняютс
 Это не заменяет backup и не чинит автоматически частичную миграцию, созданную
 старой версией приложения. См. [ADR 0010](../adr/0010-session-and-recovery-safety.md).
 
-Предварительный retention: raw access logs 7 дней, агрегаты 30 дней, audit 90 дней,
-последние 20 конфигураций плюс закреплённая LKG. Сроки — предложения, не договорённость.
-Удаление по сроку дополняется лимитами bytes и disk watermark. Активная ревизия,
-LKG и ссылки незавершённых operations не удаляются. Не путать rotation с backup.
+Текущий retention нормализованных событий и audit указан ниже. Отдельные
+30-дневные агрегаты и disk watermark automation не реализованы и не входят в
+объём. Активная ревизия, LKG и ссылки незавершённых operations сохраняются;
+rotation сырого access.log не равна backup.
 
 `store.Prune` реализует базовый retention: удаляет audit_events старше cutoff (по
 умолчанию 90 дней) и оставшиеся сверху 5000 событий по capped-retention, а также
@@ -153,3 +149,7 @@ proxy_accounts — отдельная таблица username/password_hash/enab
 helper режимы читают таблицу read-only, не выполняют migrations. Generation
 SHA-256 от PHC verifier привязывает Basic auth к текущему состоянию без передачи
 verifier на сторону клиента. См. [ADR 0012](../adr/0012-local-users-and-proxy-passwords.md).
+
+Обзор не сохраняет отдельные traffic_buckets: bounded агрегаты /statistics
+вычисляются из proxy_events за сутки. Это не реализация первоначально предложенной
+подсистемы долгосрочной аналитики. Схема DB в UI-срезе 0.6.0 не меняется.
