@@ -4,10 +4,12 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
 	"squid-control.local/squid/internal/events"
+	"squid-control.local/squid/internal/policy"
 	"squid-control.local/squid/internal/store"
 )
 
@@ -43,5 +45,48 @@ func TestStatisticsAggregateAndStorageFailure(t *testing.T) {
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &failure); err != nil || failure.Code != "statistics_unavailable" {
 		t.Fatalf("unexpected storage error: %s", w.Body.String())
+	}
+}
+
+func TestActivityReadsConfirmedPolicyAndDoesNotExposeCheckpoint(t *testing.T) {
+	s, h := fixtureServer(t)
+	cookie, _ := loginTest(t, h)
+	var draft Draft
+	if err := s.Store.Get("draft", &draft); err != nil {
+		t.Fatal(err)
+	}
+	draft.Snapshot.Clients = append(draft.Snapshot.Clients, policy.Client{ID: "draft-only", Enabled: true})
+	if err := s.Store.Put("draft", draft); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Store.SaveEvents(nil, events.Checkpoint{Files: map[string]events.Position{"private-path": {Anchor: "private-anchor"}}, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		t.Fatal(err)
+	}
+	w := request(h, "GET", "/activity", nil, cookie, "", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var got struct {
+		Applied struct {
+			Enabled int `json:"enabled_clients"`
+		} `json:"applied"`
+		Activity store.Activity `json:"activity"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Applied.Enabled != 0 || got.Activity.Sources == nil {
+		t.Fatal(w.Body.String())
+	}
+	for _, secret := range []string{"private-path", "private-anchor", "password", "generated_config"} {
+		if strings.Contains(w.Body.String(), secret) {
+			t.Fatal("internal data exposed")
+		}
+	}
+	if w := request(h, "GET", "/activity?minutes=1440", nil, cookie, "", ""); w.Code != 400 {
+		t.Fatal(w.Code)
+	}
+	if w := request(h, "GET", "/activity", nil, nil, "", ""); w.Code != 401 {
+		t.Fatal(w.Code)
 	}
 }

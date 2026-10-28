@@ -1182,6 +1182,48 @@
           }
         }
       }
+    },
+    "/activity": {
+      "get": {
+        "operationId": "readActivity",
+        "summary": "Recent sources and grouped access problems",
+        "responses": {
+          "200": {
+            "description": "Rolling statistics",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActivityReport"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Insufficient permissions"
+          },
+          "503": {
+            "description": "Statistics unavailable; never fake zero counters on storage error"
+          }
+        },
+        "description": "Admin/viewer read-only operational view over retained completed access-log events in [from,to). minutes=15 or 60 (default). Sources grouped by IP and proxy username; issues additionally by sanitized destination and exact Squid result. Denied means DENIED; errors count other >=400/FAIL/ABORTED results. At most 10 rows per group, sorted by frequency; totals expose omissions. No inference of client availability, matched ACL or live tunnel contents. Applied policy counts come from confirmed runtime manifest, never draft. Ingestion exposes public quality fields only. 503 on storage error.",
+        "parameters": [
+          {
+            "name": "minutes",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "enum": [
+                15,
+                60
+              ],
+              "default": 60
+            }
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -2827,6 +2869,207 @@
           }
         },
         "additionalProperties": false
+      },
+      "ActivityReport": {
+        "type": "object",
+        "properties": {
+          "activity": {
+            "type": "object",
+            "properties": {
+              "from": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "to": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "sources": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source_ip": {
+                      "type": "string"
+                    },
+                    "client_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "proxy_username": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requests": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "denied": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "errors": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "bytes_observed": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "last_seen": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "source_ip",
+                    "client_name",
+                    "proxy_username",
+                    "requests",
+                    "denied",
+                    "errors",
+                    "bytes_observed",
+                    "last_seen"
+                  ]
+                }
+              },
+              "issues": {
+                "type": "array",
+                "maxItems": 10,
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "source_ip": {
+                      "type": "string"
+                    },
+                    "client_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "proxy_username": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "destination": {
+                      "type": "string"
+                    },
+                    "result": {
+                      "type": "string"
+                    },
+                    "count": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "last_seen": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": [
+                    "source_ip",
+                    "client_name",
+                    "proxy_username",
+                    "destination",
+                    "result",
+                    "count",
+                    "last_seen"
+                  ]
+                }
+              },
+              "total_sources": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total_issues": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "retention_limited": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "from",
+              "to",
+              "sources",
+              "issues",
+              "total_sources",
+              "total_issues",
+              "retention_limited"
+            ]
+          },
+          "applied": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "properties": {
+              "mode": {
+                "type": "string"
+              },
+              "enabled_clients": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "allowlist_clients": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "all_web_clients": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "mode",
+              "enabled_clients",
+              "allowlist_clients",
+              "all_web_clients"
+            ]
+          },
+          "ingestion": {
+            "type": "object",
+            "properties": {
+              "observed_at": {
+                "type": "string"
+              },
+              "source_available": {
+                "type": "boolean"
+              },
+              "gap": {
+                "type": "boolean"
+              },
+              "backlog": {
+                "type": "boolean"
+              },
+              "dropped_records": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "required": [
+              "observed_at",
+              "source_available",
+              "gap",
+              "backlog",
+              "dropped_records"
+            ]
+          }
+        },
+        "required": [
+          "activity",
+          "applied",
+          "ingestion"
+        ]
       }
     }
   }

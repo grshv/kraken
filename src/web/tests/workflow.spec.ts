@@ -129,7 +129,7 @@ test("desktop menu control stays in the sidebar and mobile navigation opens sepa
   ).toBeTruthy();
 });
 
-test("overview shows real retained request statistics and no client creation action", async ({
+test("overview prioritizes applied access and grouped problems with exact drilldown", async ({
   page,
   appliance,
 }) => {
@@ -137,11 +137,14 @@ test("overview shows real retained request statistics and no client creation act
   await expect(
     page.getByRole("button", { name: "Добавить клиента", exact: true }),
   ).toHaveCount(0);
+  await expect(
+    page.getByText("Нет включённых клиентов — доступ закрыт", { exact: true }),
+  ).toBeVisible();
   const now = (Date.now() / 1000).toFixed(3);
-  const records = ["TCP_MISS/200", "TCP_DENIED/403", "TCP_MISS/200"]
+  const lines = ["TCP_MISS/200", "TCP_DENIED/403", "TCP_DENIED/403"]
     .map(
-      (result, index) =>
-        `${now} 12 198.51.100.${index + 10} ${result} 128 GET http://stats-${index}.example.test/ - HIER_NONE/- -\n`,
+      (r) =>
+        `${now} 12 198.51.100.11 ${r} 128 GET http://blocked.example.test/ - HIER_NONE/- -\n`,
     )
     .join("");
   appliance.docker(
@@ -155,38 +158,45 @@ test("overview shows real retained request statistics and no client creation act
       "-a",
       "/data/logs/access.log",
     ],
-    records,
+    lines,
   );
   await expect
-    .poll(async () => {
-      const response = await page.request.get(
-        appliance.origin + "/api/v1/statistics",
-      );
-      expect(response.status()).toBe(200);
-      return (await response.json()).requests;
-    })
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get(appliance.origin + "/api/v1/activity")
+          ).json()
+        ).activity.sources[0]?.requests,
+    )
     .toBe(3);
   await page.getByRole("button", { name: "Обновить", exact: true }).click();
-  const stats = page.getByRole("region", { name: "Статистика за 24 часа" });
+  const panel = page.getByRole("region", { name: "Диагностика доступа" });
+  const problem = panel.getByRole("row").filter({ hasText: "TCP_DENIED/403" });
+  await expect(problem).toHaveCount(1);
   await expect(
-    stats.getByText("Запросы за 24 часа", { exact: true }),
+    problem.getByRole("cell", { name: "2", exact: true }),
   ).toBeVisible();
   await expect(
-    stats.locator("dt").filter({ hasText: /^Отказы$/ }),
-  ).toBeVisible();
+    page.getByText("Запросы за 24 часа", { exact: true }),
+  ).toHaveCount(0);
+  await expect(page.getByRole("img")).toHaveCount(0);
+  await expect(page.getByText("Пик памяти", { exact: true })).toBeHidden();
+  await screenshot(page, "overview-operational-light.png");
+  await problem.getByRole("button", { name: "Записи", exact: true }).click();
+  await expect(page.getByLabel("IP источника", { exact: true })).toHaveValue(
+    "198.51.100.11",
+  );
   await expect(
-    stats
-      .locator("dt")
-      .filter({ hasText: /^Запросы за 24 часа$/ })
-      .locator("+ dd"),
-  ).toHaveText("3");
+    page.getByLabel("Домен / назначение", { exact: true }),
+  ).toHaveValue("blocked.example.test");
   await expect(
-    stats
-      .locator("dt")
-      .filter({ hasText: /^Отказы$/ })
-      .locator("+ dd"),
-  ).toHaveText("1 · 33,3%");
-  await screenshot(page, "workflow-statistics.png");
+    page.getByLabel("Результат прокси", { exact: true }),
+  ).toHaveValue("TCP_DENIED/403");
+  await expect(page.getByLabel("Только отказы", { exact: true })).toBeChecked();
+  await expect(
+    page.getByRole("cell", { name: "TCP_DENIED/403", exact: true }),
+  ).toHaveCount(2);
 });
 
 test("a recovered panel connection clears the network warning automatically", async ({
@@ -553,16 +563,19 @@ test("overview reads live Squid state and exposes failures as a useful drilldown
   expect(live.active_requests).toBeGreaterThanOrEqual(0);
   expect(live.memory_peak_bytes).toBeGreaterThan(0);
   await page.getByRole("button", { name: "Обновить", exact: true }).click();
-  await expect(
-    page.getByText("Активные запросы", { exact: true }),
-  ).toBeVisible();
+  await expect(page.getByText(/Запросов сейчас/)).toBeVisible();
+  await expect(page.getByText("Пик памяти", { exact: true })).toBeHidden();
+  await page.getByText("Технические показатели Squid", { exact: true }).click();
   await expect(page.getByText("Пик памяти", { exact: true })).toBeVisible();
-  await expect(page.getByRole("heading", { name: /Squid 6\./ })).toBeVisible();
+  await expect(page.getByText(/^Squid 6\./)).toBeVisible();
   await expect(
     page.getByRole("img", { name: /Запросы и отказы по часам/ }),
   ).toHaveCount(0);
   await screenshot(page, "squid-live-overview.png");
-  await page.getByRole("button", { name: "Все ошибки", exact: true }).click();
+  await page
+    .locator(".operational-activity")
+    .getByRole("button", { name: "Журнал", exact: true })
+    .click();
   await expect(
     page.getByRole("heading", { name: "События", level: 1 }),
   ).toBeVisible();
@@ -715,8 +728,9 @@ test("event filters query the full stored history and reset pagination", async (
     page.getByRole("cell", { name: "repo-59.example.test", exact: true }),
   ).toBeVisible();
   await navigate(page, "Обзор");
+  await expect(page.getByRole("img")).toHaveCount(0);
   await expect(
-    page.getByRole("img", { name: "Запросы и отказы за последние 24 часа" }),
+    page.getByRole("heading", { name: "Кто использует прокси", exact: true }),
   ).toBeVisible();
   await screenshot(page, "review-overview.png");
   await page.getByRole("button", { name: "Тёмная тема", exact: true }).click();

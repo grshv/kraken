@@ -223,3 +223,11 @@ empty input и ограничения памяти/вывода. Event tests п�
 невалидные IP/диапазоны отклоняются HTTP400. Browser suite включает раскрытие
 доменов, точный +3/-0, отмену подтверждения без mutation, apply ровно один раз,
 полнотекстовый поиск назначения за пределами первой страницы и reset pagination.
+
+Рабочий обзор доступа: `RecentActivity` tests проверяют окно15/60мин и exclusive
+верхнюю границу, разделение DENIED/ошибок ответа/успешного CONNECT, группировку
+повторов, NAT username identities, top10+общий размер и storage errors. HTTP tests
+проверяют confirmed snapshot при другом draft, отсутствие checkpoint paths/anchors,
+анонимный401, viewer read и invalid window400. Browser проверяет компактный статус,
+свёрнутые технические показатели, отсутствие графиков/суточных карточек, одну группу
+для повторных отказов и переход в журнал с IP/destination/result/time filters.

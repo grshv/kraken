@@ -1,7 +1,7 @@
 import { useOperationRecovery, operationPending } from "./useOperationRecovery";
 import { DestinationList } from "./DestinationList";
 import { ChangesPanel } from "./ChangesPanel";
-import { OverviewPanel } from "./OverviewPanel";
+import { OverviewPanel, type EventPreset } from "./OverviewPanel";
 import { useOverview } from "./useOverview";
 import { ConnectionError, fetchPanel } from "./api";
 import { ThemeProvider } from "./ThemeProvider";
@@ -71,6 +71,7 @@ function App() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [page, setPage] = useState("Обзор");
   const [eventFailures, setEventFailures] = useState(false);
+  const [eventPreset, setEventPreset] = useState<EventPreset>({});
   const [connectionError, setConnectionError] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(
@@ -164,10 +165,10 @@ function App() {
   const {
     status,
     setStatus,
-    statistics,
+    activity,
+    minutes,
+    setMinutes,
     metrics,
-    failures,
-    ingestion,
     overviewError,
     refreshOverview,
   } = useOverview(api, session?.authenticated === true);
@@ -609,13 +610,15 @@ function App() {
         {page === "Обзор" && (
           <OverviewPanel
             status={status}
-            statistics={statistics}
+            activity={activity}
+            minutes={minutes}
+            onMinutes={setMinutes}
+            onConfigure={canConfigure ? () => navigate("Клиенты") : undefined}
             metrics={metrics}
-            failures={failures}
-            ingestion={ingestion}
             offline={connectionError}
             error={overviewError}
-            onEvents={(onlyFailures = false) => {
+            onEvents={(onlyFailures = false, preset = {}) => {
+              setEventPreset(preset);
               setEventFailures(onlyFailures);
               setPage("События");
             }}
@@ -782,6 +785,7 @@ function App() {
             key={page}
             kind={page === "Аудит" ? "audit" : "events"}
             initialFailures={eventFailures}
+            initialFilters={eventPreset}
             request={api}
           />
         )}

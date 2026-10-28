@@ -1,25 +1,49 @@
 import { useEffect, useRef, useState } from "react";
 import type { Request } from "./api";
 import { ConnectionError } from "./api";
-import type { Status, Event } from "./model";
-export type Statistics = {
-  from: string;
-  to: string;
-  observed_at: string;
+import type { Status } from "./model";
+export type ActivitySource = {
+  source_ip: string;
+  client_name: string | null;
+  proxy_username: string | null;
   requests: number;
   denied: number;
+  errors: number;
   bytes_observed: number;
-  unique_sources: number;
-  record_limit: number;
-  retention_limited: boolean;
-  hourly: { from: string; to: string; requests: number; denied: number }[];
+  last_seen: string;
 };
-export type Ingestion = {
-  observed_at: string;
-  stale: boolean;
-  source_available: boolean;
-  backlog: boolean;
-  dropped_records: number;
+export type ActivityIssue = {
+  proxy_username: string | null;
+  source_ip: string;
+  client_name: string | null;
+  destination: string;
+  result: string;
+  count: number;
+  last_seen: string;
+};
+export type ActivityReport = {
+  activity: {
+    from: string;
+    to: string;
+    sources: ActivitySource[];
+    issues: ActivityIssue[];
+    total_sources: number;
+    total_issues: number;
+    retention_limited: boolean;
+  };
+  applied: {
+    mode: string;
+    enabled_clients: number;
+    allowlist_clients: number;
+    all_web_clients: number;
+  } | null;
+  ingestion: {
+    observed_at: string;
+    source_available: boolean;
+    gap: boolean;
+    backlog: boolean;
+    dropped_records: number;
+  };
 };
 export type SquidMetrics = {
   available: boolean;
@@ -48,11 +72,10 @@ export function useOverview(request: Request, enabled: boolean) {
   const api = useRef(request);
   api.current = request;
   const [status, setStatus] = useState<Status | null>(null),
-    [statistics, setStatistics] = useState<Statistics | null>(null),
+    [activity, setActivity] = useState<ActivityReport | null>(null),
     [metrics, setMetrics] = useState<SquidMetrics | null>(null),
-    [failures, setFailures] = useState<Event[]>([]),
-    [ingestion, setIngestion] = useState<Ingestion | null>(null),
     [overviewError, setOverviewError] = useState("");
+  const [minutes, setMinutes] = useState("60");
   const liveError = useRef(""),
     historyError = useRef("");
   function updateError() {
@@ -105,32 +128,24 @@ export function useOverview(request: Request, enabled: boolean) {
     updateError();
   }
   async function refreshHistory(signal?: AbortSignal) {
-    const results = await Promise.allSettled([
-      api.current<{ items: Event[]; ingestion: Ingestion }>(
-        "/events?failures_only=true&limit=5",
+    try {
+      const report = await api.current<ActivityReport>(
+        `/activity?minutes=${minutes}`,
         "GET",
         undefined,
         undefined,
         signal,
-      ),
-      api.current<Statistics>(
-        "/statistics",
-        "GET",
-        undefined,
-        undefined,
-        signal,
-      ),
-    ]);
-    if (signal?.aborted) return;
-    const [history, stats] = results;
-    if (history.status === "fulfilled") {
-      setFailures(history.value.items);
-      setIngestion(history.value.ingestion);
-    } else setIngestion((prev) => (prev ? { ...prev, stale: true } : null));
-    if (stats.status === "fulfilled") setStatistics(stats.value);
-    historyError.current = visibleError(results)
-      ? "История запросов не обновилась."
-      : "";
+      );
+      if (signal?.aborted) return;
+      setActivity(report);
+      historyError.current = "";
+    } catch (e) {
+      if (signal?.aborted) return;
+      historyError.current =
+        e instanceof ConnectionError
+          ? ""
+          : "Активность клиентов не обновилась. Показаны последние полученные данные.";
+    }
     updateError();
   }
   async function refreshOverview(signal?: AbortSignal) {
@@ -140,9 +155,7 @@ export function useOverview(request: Request, enabled: boolean) {
     if (!enabled) {
       setStatus(null);
       setMetrics(null);
-      setStatistics(null);
-      setFailures([]);
-      setIngestion(null);
+      setActivity(null);
       return;
     }
     const controller = new AbortController();
@@ -177,14 +190,14 @@ export function useOverview(request: Request, enabled: boolean) {
       clearInterval(liveTimer);
       clearInterval(historyTimer);
     };
-  }, [enabled]);
+  }, [enabled, minutes]);
   return {
     status,
     setStatus,
-    statistics,
+    activity,
+    minutes,
+    setMinutes,
     metrics,
-    failures,
-    ingestion,
     overviewError,
     refreshOverview,
   };

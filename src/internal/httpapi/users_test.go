@@ -47,7 +47,7 @@ func TestUsersRolesAndServerPermissions(t *testing.T) {
 	if v.Role != "viewer" || strings.Join(v.Permissions, ",") != "read,audit" {
 		t.Fatal(w.Body.String())
 	}
-	for _, path := range []string{"/squid/metrics", "/status", "/events", "/events/clients", "/audit", "/certificates"} {
+	for _, path := range []string{"/activity", "/squid/metrics", "/status", "/events", "/events/clients", "/audit", "/certificates"} {
 		if w := request(h, "GET", path, nil, viewer, "", ""); w.Code != 200 {
 			t.Fatalf("viewer cannot read %s: %s", path, w.Body.String())
 		}

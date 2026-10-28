@@ -8,6 +8,7 @@ import { TableRow } from "@/components/ui/table";
 import { TableHead } from "@/components/ui/table";
 import { TableCell } from "@/components/ui/table";
 import { useEffect, useRef, useState } from "react";
+import type { EventPreset } from "./OverviewPanel";
 import type { Event } from "./model";
 
 type Audit = {
@@ -69,10 +70,12 @@ export function DiagnosticsPanel({
   kind,
   request,
   initialFailures = false,
+  initialFilters = {},
 }: {
   kind: "events" | "audit";
   request: Request;
   initialFailures?: boolean;
+  initialFilters?: EventPreset;
 }) {
   const api = useRef(request);
   api.current = request;
@@ -92,8 +95,21 @@ export function DiagnosticsPanel({
     from: "",
     to: "",
   };
-  const [eventInput, setEventInput] = useState(emptyEventFilters);
-  const [eventFilters, setEventFilters] = useState(emptyEventFilters);
+  function localDate(value?: string) {
+    if (!value) return "";
+    const d = new Date(value);
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000)
+      .toISOString()
+      .slice(0, 23);
+  }
+  const initialEventFilters = {
+    ...emptyEventFilters,
+    ...initialFilters,
+    from: localDate(initialFilters.from),
+    to: localDate(initialFilters.to),
+  };
+  const [eventInput, setEventInput] = useState(initialEventFilters);
+  const [eventFilters, setEventFilters] = useState(initialEventFilters);
   const [limit, setLimit] = useState("50");
   const [paused, setPaused] = useState(false);
   const [previousPages, setPreviousPages] = useState<string[]>([]);
@@ -315,6 +331,7 @@ export function DiagnosticsPanel({
             С
             <Input
               type="datetime-local"
+              step="any"
               value={eventInput.from}
               onChange={(e) =>
                 setEventInput({ ...eventInput, from: e.target.value })
@@ -325,6 +342,7 @@ export function DiagnosticsPanel({
             До
             <Input
               type="datetime-local"
+              step="any"
               value={eventInput.to}
               onChange={(e) =>
                 setEventInput({ ...eventInput, to: e.target.value })

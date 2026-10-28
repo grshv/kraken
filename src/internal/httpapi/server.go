@@ -184,6 +184,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("DELETE /api/v1/session", s.authenticated(s.logout))
 	mux.HandleFunc("GET /api/v1/status", s.authorized("read", s.status))
 	mux.HandleFunc("GET /api/v1/squid/metrics", s.authorized("read", s.squidMetrics))
+	mux.HandleFunc("GET /api/v1/activity", s.authorized("read", s.activity))
 	mux.HandleFunc("GET /api/v1/statistics", s.authorized("read", s.statistics))
 	mux.HandleFunc("GET /api/v1/revisions", s.authorized("configure", s.listRevisions))
 	mux.HandleFunc("GET /api/v1/configuration/preview", s.authorized("configure", s.configurationPreview))
