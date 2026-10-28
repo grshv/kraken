@@ -189,3 +189,24 @@ editor. Старые «О журнале»/вводные пояснения у�
 оба Pebble services active, `check` успешен, /healthz и новый embedded bundle
 возвращают 200 с проверкой доверия к panel certificate. Сохранён прежний named
 volume; password-reset/bootstrap и изменение политики доступа не выполнялись.
+
+## Живой обзор Squid и геометрия форм, 28.10.2026
+
+API0.7.0, compiler6. Отдельный loopback manager listener3131 обслуживает только
+четыре read-only reports для Go; public listeners закрывают manager до user ACL.
+API публикует aggregates, без raw URI/credentials. Читаются version/uptime, active
+requests без self/idle/probes, CPU, peak RSS, origin counters и rates. Client
+counters включают polling, поэтому пользовательским трафиком не объявляются.
+Native проверены HTTP delta, idle+0 origin requests, held CONNECT и public403.
+
+Локальный service-update применяет confirmed snapshot с новой immutable revision,
+operation/audit и обычным journal/parse/verify/rollback, сохраняя draft. Старый
+bundle и dirty draft проверены в application smoke. Недоступные/stale поля
+не подменяются нулями; скорости могут быть null до первого интервала Squid.
+
+Светлая тема начальная независимо от OS; dark сохраняется только после выбора.
+Grid controls и filter checkbox выровнены независимо от descriptions, проверены
+DOM coordinates и screenshots. Обзор без пустого графика: live state/load/traffic,
+компактная history сводка и последние ошибки с рабочим drilldown.
+`make check`, `make image`, полный real-image smoke и 17 browser cases прошли.
+Подробные измерения и ограничения: [metrics research](squid-live-metrics.md).

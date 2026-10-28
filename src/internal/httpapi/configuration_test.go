@@ -264,3 +264,42 @@ func TestDraftPreviewUnavailableRuntimeIsSafe503(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 }
+
+func TestRollbackCompatibilityMatchesCompilerAndImage(t *testing.T) {
+	s, _ := fixtureServer(t)
+	manifest, err := s.Runtime.ReadManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		id, compiler, image string
+		allowed             bool
+	}{{"current-build", policy.CompilerVersion, s.Image, true}, {"legacy-build", "5", s.Image, false}, {"other-image", policy.CompilerVersion, "other-image", false}} {
+		revision := Revision{ID: tc.id, Snapshot: manifest.Snapshot, Compiler: tc.compiler, Image: tc.image}
+		body, _ := json.Marshal(revision)
+		if err = s.Store.InsertRevision(tc.id, string(body), "fixture", "create_revision"); err != nil {
+			t.Fatal(err)
+		}
+		op := Operation{ID: "applied-" + tc.id, Action: "apply", Revision: tc.id, Status: "succeeded"}
+		body, _ = json.Marshal(op)
+		if err = s.Store.InsertOperation(op.ID, string(body), "compatibility-"+tc.id, "fixture", "fixture", "apply"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	w := httptest.NewRecorder()
+	s.listRevisions(w, httptest.NewRequest("GET", "/api/v1/revisions", nil), session{})
+	var result struct {
+		Items []RevisionSummary `json:"items"`
+	}
+	if err = json.Unmarshal(w.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Items) != 3 {
+		t.Fatal(w.Body.String())
+	}
+	for _, item := range result.Items {
+		if item.CanRollback != (item.ID == "current-build") {
+			t.Fatal("incompatible rollback offered", item)
+		}
+	}
+}

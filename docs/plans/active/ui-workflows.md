@@ -1,6 +1,6 @@
 # Исправление пользовательских потоков панели
 
-Дата: 2026-10-27. Статус: Completed 28.10.2026. Основание — разбор владельцем реальных экранов.
+Дата: 2026-10-27. Статус: Completed 28.10.2026, включая повторный разбор выравнивания и живого обзора. Основание — разбор владельцем реальных экранов.
 
 ## Обнаружено
 
@@ -96,3 +96,51 @@ roadmap. Новые сервисы/миграции/долгосрочная а�
 подтверждён CLI check, /healthz и актуальный UI bundle — HTTP200 с доверенным cert.
 Volume, пароли и действующая клиентская политика сохранены. Отдельное служебное
 обновление конфига остаётся явным действием, не выполняется молча при просмотре.
+
+## Повторный разбор: живое состояние Squid и выравнивание
+
+Текущий этап открыт после новых фактических скриншотов владельца. Ранее пройденные
+15 сценариев не проверяли геометрию controls при разной высоте подсказок и не
+подтверждали полезность обзора для текущей работы Squid.
+
+- Причина смещений — растянутые grid labels с неявными auto rows; description
+  участвовал в распределении свободной высоты. Общие labels и grids получают
+  start alignment; checkbox фильтра выравнивается по control, не по label+control.
+  Header/footer sidebar используют те же horizontal gutters, что group labels.
+- Новая установка начинает со светлой темы независимо от ОС; только ручной выбор
+  включает тёмную и сохраняет его. Автоматического следования ОС нет.
+- Первичный источник обзора — fixed read-only Squid reports. Проверенные live
+  показатели: версия/uptime, активные запросы без probes, CPU, peak RSS, origin
+  requests/errors и bytes/rates. Не подменять peak RSS текущей RAM; не считать
+  manager polling пользовательским трафиком. Недоступные значения — null.
+- Пустой часовой график удалён. Retained access log остаётся компактной сводкой
+  суток и последними ошибками с переходом в уже отфильтрованный журнал.
+- Новый manager listener только loopback, exact reports/method/source/localport;
+  public proxy по-прежнему закрывает manager. GET не меняет конфигурацию.
+  Служебный upgrade применяет только confirmed snapshot, не пользовательский draft.
+
+Критерии: сравнение координат полей settings/client/filter на реальной странице;
+light default при dark OS + explicit dark persistence; native readings при HTTP,
+idle manager polling и открытом CONNECT; наружный manager403; no fake data при
+отказе/старом bundle; service-update сохраняет dirty draft и действующую политику.
+Подробная граница: [ADR 0013](../../adr/0013-read-only-squid-metrics.md).
+Подтверждено на финальной сборке:
+
+- `make check`, image build и полный real-image smoke прошли; 17 browser cases
+  прошли вместе, включая сравнение координат paired settings/client controls,
+  checkbox/select filter baseline и sidebar text gutters.
+- При dark OS без сохранённого выбора UI светлый, ручная тёмная сохраняется.
+- Live endpoint возвращает реальные version/uptime/resources; простой =0 active,
+  held CONNECT=1; polling manager не меняет origin request counters.
+- Native test обнаружил переписывание authority manager URI на первый listener
+  3130. Parser исправлен по local socket + exact report path, idle sockets не
+  считаются активными; тест с пустой нагрузкой не ослаблен.
+- Public manager read/write reports получают403. CLI service-update переводит
+  старый bundle на новый compiler и сохраняет dirty draft неизменным; отказ parse
+  сохраняет прежний runtime. Старые несовместимые revisions не предлагаются для rollback.
+- Screenshots новых settings/client/filter baseline, светлого live overview и
+  dark/mobile просмотрены. Пустого графика и прежних четырёх больших zero cards нет.
+
+Ограничения: rates отражают интервал Squid до5мин и могут отсутствовать сразу
+после запуска; peak RSS не current RSS; telemetry содержит origin traffic, а не
+скрытые HTTP-запросы внутри HTTPS. Это не обещание видеть расшифрованный трафик.

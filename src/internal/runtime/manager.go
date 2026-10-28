@@ -42,6 +42,10 @@ type Journal struct {
 	Outcome   string   `json:"outcome,omitempty"`
 }
 type Manager struct {
+	metricsMu      sync.Mutex
+	metricsLast    Metrics
+	metricsAttempt time.Time
+
 	Dir     string
 	Binary  string
 	Options policy.Options

@@ -64,51 +64,33 @@ async function screenshot(page: Page, filename: string, fullPage = true) {
   });
 }
 
-test("theme follows the system, switches explicitly and survives reload", async ({
+test("theme starts light even on a dark OS and preserves an explicit choice", async ({
   page,
   appliance,
 }) => {
   await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
   await login(page, appliance);
   const theme = page.getByRole("button", { name: "Тёмная тема", exact: true });
-  await expect(theme).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
-  // Until a manual selection, changes to the OS preference remain effective.
-  await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
   await expect(theme).toHaveAttribute("aria-pressed", "false");
   await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
-  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await expect(theme).toHaveAttribute("aria-pressed", "true");
-  await theme.click();
-  await expect(theme).toHaveAttribute("aria-pressed", "false");
-  await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await screenshot(page, "workflow-light-desktop.png");
   await theme.click();
   await expect(theme).toHaveAttribute("aria-pressed", "true");
   await page.emulateMedia({ colorScheme: "light", reducedMotion: "reduce" });
-  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
   await page.reload();
   await expect(
-    page.getByRole("heading", { name: "Обзор", exact: true }),
+    page.getByRole("heading", { name: "Обзор", level: 1 }),
   ).toBeVisible();
-  await expect(
-    page.getByRole("button", { name: "Тёмная тема", exact: true }),
-  ).toHaveAttribute("aria-pressed", "true");
-  await expect(page.locator("html")).toHaveClass(/\bdark\b/);
-  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expect(theme).toHaveAttribute("aria-pressed", "true");
   await screenshot(page, "workflow-dark-desktop.png");
   await page.setViewportSize({ width: 390, height: 844 });
   await screenshot(page, "workflow-dark-mobile.png");
   expect(
     await page.evaluate(
-      () => document.documentElement.scrollWidth <= window.innerWidth,
+      () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
-  await page.setViewportSize({ width: 1440, height: 1000 });
-  await page.getByRole("button", { name: "Тёмная тема", exact: true }).click();
-  await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
-  await page.emulateMedia({ colorScheme: "dark", reducedMotion: "reduce" });
-  await expect(page.locator("html")).not.toHaveClass(/\bdark\b/);
-  await screenshot(page, "workflow-light-desktop.png");
 });
 
 test("desktop menu control stays in the sidebar and mobile navigation opens separately", async ({
@@ -479,4 +461,108 @@ test("validation polling recovers without submitting the operation again", async
   ).toBeVisible({ timeout: 15000 });
   expect(interrupted).toBeTruthy();
   expect(posts).toHaveLength(1);
+});
+
+test("form controls and sidebar text share their intended baselines", async ({
+  page,
+  appliance,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await login(page, appliance);
+  const titleX = await page
+    .locator(".panel-title")
+    .evaluate((el) => el.getBoundingClientRect().left);
+  const groupX = await page
+    .locator('[data-slot="sidebar-group-label"]')
+    .first()
+    .evaluate((el) => {
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      return r.getBoundingClientRect().left;
+    });
+  expect(Math.abs(titleX - groupX)).toBeLessThanOrEqual(1);
+  await navigate(page, "Настройки");
+  async function top(label: string) {
+    return page
+      .getByLabel(label)
+      .evaluate((el) => el.getBoundingClientRect().top);
+  }
+  expect(
+    Math.abs(
+      (await top("Разрешённые порты назначения")) -
+        (await top("Порты CONNECT")),
+    ),
+  ).toBeLessThanOrEqual(1);
+  expect(
+    Math.abs(
+      (await top("Максимальный запрос, MiB")) -
+        (await top("Количество архивов журналов")),
+    ),
+  ).toBeLessThanOrEqual(1);
+  await screenshot(page, "squid-settings-alignment.png");
+  await navigate(page, "Клиенты");
+  await page
+    .getByRole("button", { name: "Добавить клиента", exact: true })
+    .click();
+  expect(
+    Math.abs((await top("Подключение к прокси")) - (await top("Логин прокси"))),
+  ).toBeLessThanOrEqual(1);
+  await screenshot(page, "squid-client-alignment.png");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Отмена", exact: true })
+    .click();
+  await navigate(page, "События");
+  const selectCenter = await page
+    .getByLabel("Фильтр клиента", { exact: true })
+    .evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return b.top + b.height / 2;
+    });
+  const checkCenter = await page
+    .getByLabel("Только отказы", { exact: true })
+    .evaluate((el) => {
+      const b = el.getBoundingClientRect();
+      return b.top + b.height / 2;
+    });
+  expect(Math.abs(selectCenter - checkCenter)).toBeLessThanOrEqual(1);
+  await screenshot(page, "squid-filter-alignment.png");
+});
+
+test("overview reads live Squid state and exposes failures as a useful drilldown", async ({
+  page,
+  appliance,
+}) => {
+  await login(page, appliance);
+  await expect
+    .poll(async () => {
+      const r = await page.request.get(
+        appliance.origin + "/api/v1/squid/metrics",
+      );
+      return (await r.json()).available;
+    })
+    .toBeTruthy();
+  const response = await page.request.get(
+    appliance.origin + "/api/v1/squid/metrics",
+  );
+  const live = await response.json();
+  expect(live.squid_version).toMatch(/^6\./);
+  expect(live.uptime_seconds).toBeGreaterThanOrEqual(0);
+  expect(live.active_requests).toBeGreaterThanOrEqual(0);
+  expect(live.memory_peak_bytes).toBeGreaterThan(0);
+  await page.getByRole("button", { name: "Обновить", exact: true }).click();
+  await expect(
+    page.getByText("Активные запросы", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByText("Пик памяти", { exact: true })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /Squid 6\./ })).toBeVisible();
+  await expect(
+    page.getByRole("img", { name: /Запросы и отказы по часам/ }),
+  ).toHaveCount(0);
+  await screenshot(page, "squid-live-overview.png");
+  await page.getByRole("button", { name: "Все ошибки", exact: true }).click();
+  await expect(
+    page.getByRole("heading", { name: "События", level: 1 }),
+  ).toBeVisible();
+  await expect(page.getByLabel("Только отказы", { exact: true })).toBeChecked();
 });

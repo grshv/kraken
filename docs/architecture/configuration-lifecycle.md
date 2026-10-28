@@ -205,5 +205,16 @@ Snapshot включает settings, configuration_mode и expert_config. Ред�
 Смена режима также проходит revision/diff/parse/apply/verify.
 Rollback имеет собственный ограниченный context (45 s), независимый от отменённого
 forward operation. Ошибка сохранения terminal outcome в DB блокирует новые apply
-в этом процессе до restart/reconciliation. Manifest фиксирует фактический compiler,
-даже при перекомпиляции старого snapshot в rollback.
+в этом процессе до restart/reconciliation. Manifest фиксирует фактический compiler. Rollback допускает только совместимые
+compiler/image ревизии; старые исторические ревизии остаются доступными для чтения.
+
+Compiler 6 добавляет read-only management listener для live metrics. Старый
+active config сохраняет прежние ACL до отдельного служебного применения applied
+snapshot; GET metrics возвращает configuration_update_required. Просмотр не
+применяет пользовательский draft. [ADR 0013](../adr/0013-read-only-squid-metrics.md).
+
+Локальный `squid-control service-update` создаёт immutable revision из текущего
+LKG snapshot и operation/audit (`local-cli`, `service_update`). Команда не читает
+и не меняет draft, использует обычный Runtime.Apply с expected revision, file lock,
+parse, durable journal, verify и rollback. Ошибка busy/recovery/conflict видна CLI;
+повторное применение уже актуального service config отклоняется как no-op.

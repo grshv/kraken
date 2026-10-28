@@ -50,7 +50,7 @@ func main() {
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: squid-control serve|bootstrap|password-reset|dev-cert|squid-start|check|proxy-auth")
+		return errors.New("usage: squid-control serve|bootstrap|password-reset|dev-cert|squid-start|check|proxy-auth|service-update")
 	}
 	cmd := os.Args[1]
 	m := manager()
@@ -80,6 +80,22 @@ func run() error {
 			return syscall.Exec(m.Binary, []string{m.Binary, "-N", "-f", m.ActivePath()}, os.Environ())
 		}
 		return local.ErrBusy
+	case "service-update":
+		if len(os.Args) != 2 {
+			return errors.New("usage: squid-control service-update")
+		}
+		st, e := store.Open(env("SC_DATABASE_PATH", "/data/app/control.sqlite3"))
+		if e != nil {
+			return e
+		}
+		defer st.DB.Close()
+		operationCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		defer cancel()
+		op, e := httpapi.ApplyServiceUpdate(operationCtx, st, m, baseImage)
+		if op.ID != "" {
+			fmt.Printf("Service update %s: %s\n", op.ID, op.Status)
+		}
+		return e
 	case "check":
 		v, e := m.ReadManifest()
 		if e != nil {

@@ -57,21 +57,24 @@ const actions: Record<string, string> = {
   rollback: "Откат",
   update_draft: "Изменение черновика",
   csrf_failed: "Отклонён CSRF",
+  service_update: "Обновление служебной конфигурации",
   rate_limited: "Ограничение входа",
   session_capacity_reached: "Достигнут лимит сессий",
 };
 export function DiagnosticsPanel({
   kind,
   request,
+  initialFailures = false,
 }: {
   kind: "events" | "audit";
   request: Request;
+  initialFailures?: boolean;
 }) {
   const api = useRef(request);
   api.current = request;
   const [data, setData] = useState<Page<Event | Audit> | null>(null);
   const [client, setClient] = useState("");
-  const [failures, setFailures] = useState(false);
+  const [failures, setFailures] = useState(initialFailures);
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [clientError, setClientError] = useState("");
   const [actor, setActor] = useState("");

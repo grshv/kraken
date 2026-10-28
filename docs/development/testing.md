@@ -161,17 +161,28 @@ users/roles и proxy accounts, новая компоновка shadcn/ui про�
 Мобильные переходы открывают Sheet и закрывают его после выбора; повторный вход
 проверяется и при скрытой боковой панели. Вкладки и диалог используют Radix.
 
-## Согласованность UI-потоков (0.6.0)
+## Согласованность UI-потоков (0.7.0)
 
 `workflow.spec.ts` использует отдельный real-image fixture на сценарий. Проверяет
-system preference до ручного override и сохранение темы после reload, расположение
+начальную светлую тему независимо от OS и сохранение ручного выбора после reload, расположение
 sidebar trigger и mobile Sheet, реальные /statistics из логов, network abort/recovery,
 единые Dialog/focus/password clearing/no-op submit, fixed listener UI, загрузку
 expert template и полного config, read-only preview без POST revisions, dirty
-navigation confirm и восстановление polling без повторной операции. Все 15
-browser cases вместе с `panel.spec.ts` пройдены 28.10.2026.
+navigation confirm и восстановление polling без повторной операции. Дополнительно
+проверяет реальный /squid/metrics, переход к отфильтрованным ошибкам и DOM coordinates
+для paired fields с разными descriptions. Все 17 browser cases вместе с
+`panel.spec.ts` пройдены 28.10.2026.
 
 Go tests покрывают bounded статистику/временные границы/DB errors, no-op/default
 normalization, runtime-only delta и guards listeners в draft/revision operations.
 Native smoke проверяет не только HTTP422, но и сохранение actual traffic/canary.
 [Критерии, найденные расхождения и результат](../plans/active/ui-workflows.md).
+
+Runtime metrics tests проверяют bounded reports, числа/nullable значения,
+manager self/idle/CONNECT, original timestamp при stale, old config update-required.
+HTTP/service-update tests подтверждают источник LKG вместо dirty draft,
+revision/operation/audit/journal consistency и parse failure. Native case сначала
+открывает старый bundle, сохраняет dirty draft, запускает CLI upgrade и сравнивает
+его полное содержимое до/после; проверяет публичный manager403, HTTP origin delta,
+idle polling без origin delta и реальный held CONNECT. Источники/форматы —
+[live research](../research/squid-live-metrics.md), граница — ADR0013.

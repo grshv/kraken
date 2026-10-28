@@ -38,27 +38,28 @@ func EffectiveSettings(s Snapshot) Settings {
 	}
 	return *s.Settings
 }
+
 // dangerousPorts is an admin-independent denylist of service ports that all_web
 // must never expose via CONNECT or HTTP fetch. SMTP 25 is included here too.
 // The list mirrors AGENTS.md ("dangerous ports") and complements the management
-// listener blacklist owned by the runtime (3128/3129/3130/8443).
+// listener blacklist owned by the runtime (3128/3129/3130/3131/8443).
 var dangerousPorts = map[int]bool{
-	22: true,   // ssh
-	23: true,   // telnet
-	25: true,   // smtp
-	110: true,  // pop3
-	143: true,  // imap
-	465: true,  // smtps
-	587: true,  // submission
-	993: true,  // imaps
-	995: true,  // pop3s
+	22:   true, // ssh
+	23:   true, // telnet
+	25:   true, // smtp
+	110:  true, // pop3
+	143:  true, // imap
+	465:  true, // smtps
+	587:  true, // submission
+	993:  true, // imaps
+	995:  true, // pop3s
 	9050: true, // tor
 	9051: true, // tor control
 }
 
 func validateSettings(v Settings) error {
-	if v.HTTPPort < 1024 || v.HTTPPort > 65535 || v.TLSPort < 1024 || v.TLSPort > 65535 || v.HTTPPort == v.TLSPort || v.HTTPPort == 3130 || v.TLSPort == 3130 || v.HTTPPort == 8443 || v.TLSPort == 8443 {
-		return errors.New("proxy ports must be distinct, 1024–65535; 3130 and 8443 are reserved")
+	if v.HTTPPort < 1024 || v.HTTPPort > 65535 || v.TLSPort < 1024 || v.TLSPort > 65535 || v.HTTPPort == v.TLSPort || v.HTTPPort == 3130 || v.TLSPort == 3130 || v.HTTPPort == 3131 || v.TLSPort == 3131 || v.HTTPPort == 8443 || v.TLSPort == 8443 {
+		return errors.New("proxy ports must be distinct, 1024–65535; 3130, 3131 and 8443 are reserved")
 	}
 	if len(v.SafePorts) == 0 || len(v.SafePorts) > 64 || len(v.ConnectPorts) == 0 || len(v.ConnectPorts) > 64 {
 		return errors.New("invalid allowed port list")
@@ -138,7 +139,7 @@ func validateExpert(text string) error {
 		return errors.New("unfinished expert continuation")
 	}
 	depth := 0
-	forbidden := map[string]bool{"include": true, "pid_filename": true, "cache_log": true, "access_log": true, "cache_store_log": true, "logfile_daemon": true, "cache_effective_user": true, "cache_effective_group": true, "chroot": true, "chdir": true, "coredump_dir": true, "workers": true, "debug_options": true, "external_acl_type": true, "auth_param": true, "ecap_service": true, "loadable_modules": true, "reply_header_add": true, "reply_header_access": true, "reply_header_replace": true, "reply_header_remove": true, "request_header_add": true, "http_port": true, "https_port": true, "snmp_port": true, "icp_port": true, "htcp_port": true, "snmp_access": true, "icp_access": true, "htcp_access": true, "adaptation_access": true, "icap_service": true, "cache_dir": true, "mime_table": true, "error_directory": true}
+	forbidden := map[string]bool{"cachemgr_passwd": true, "include": true, "pid_filename": true, "cache_log": true, "access_log": true, "cache_store_log": true, "logfile_daemon": true, "cache_effective_user": true, "cache_effective_group": true, "chroot": true, "chdir": true, "coredump_dir": true, "workers": true, "debug_options": true, "external_acl_type": true, "auth_param": true, "ecap_service": true, "loadable_modules": true, "reply_header_add": true, "reply_header_access": true, "reply_header_replace": true, "reply_header_remove": true, "request_header_add": true, "http_port": true, "https_port": true, "snmp_port": true, "icp_port": true, "htcp_port": true, "snmp_access": true, "icp_access": true, "htcp_access": true, "adaptation_access": true, "icap_service": true, "cache_dir": true, "mime_table": true, "error_directory": true}
 	for i, line := range strings.Split(logical, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {

@@ -22,3 +22,5 @@
 
 Новая запись использует [шаблон](../templates/adr.md). Accepted запись не переписывают
 так, будто прежнего решения не было: при замене создаётся новая и Superseded ссылка.
+
+- [0013 — Read-only Squid metrics](0013-read-only-squid-metrics.md) — Accepted.

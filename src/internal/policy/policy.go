@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "5"
+const CompilerVersion = "6"
 
 // Squid Basic TTL zero never becomes valid. A separate uncached generation
 // check on every allowed request enforces reset/disable despite Basic caching.
@@ -225,7 +225,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	h := Fingerprint(s, o)
 	var b strings.Builder
 	settings := EffectiveSettings(s)
-	fmt.Fprintf(&b, "# squid-control compiler=%s revision=%s\nvisible_hostname squid-control\nhttp_port 127.0.0.1:3130\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.StateDir, o.StateDir)
+	fmt.Fprintf(&b, "# squid-control compiler=%s revision=%s\nvisible_hostname squid-control\nhttp_port 127.0.0.1:3130\nhttp_port 127.0.0.1:3131\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.StateDir, o.StateDir)
 	if o.ProxyCert != "" && o.ProxyKey != "" {
 		fmt.Fprintf(&b, "https_port %d tls-cert=%s tls-key=%s\n", settings.TLSPort, o.ProxyCert, o.ProxyKey)
 	}
@@ -235,6 +235,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	fmt.Fprintf(&b, "acl sc_safe_ports port %s\nacl sc_ssl_ports port %s\nacl sc_http_listener localport %d\nacl sc_tls_listener localport %d\n", portList(settings.SafePorts), portList(settings.ConnectPorts), settings.HTTPPort, settings.TLSPort)
 	b.WriteString("acl sc_protected_dst dst 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4 240.0.0.0/4 ::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 fe80::/10 ff00::/8\n")
 	b.WriteString("acl sc_private_dst dst 10.0.0.0/8 100.64.0.0/10 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 2001:db8::/32 fc00::/7\n")
+	b.WriteString("acl sc_manager_listener localport 3131\nacl sc_manager_method method GET\nacl sc_manager_path urlpath_regex ^/squid-internal-mgr/(info|counters|5min|active_requests)$\ncachemgr_passwd none info counters 5min active_requests\ncachemgr_passwd disable all\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\nhttp_access deny sc_manager_listener\n")
 	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports\nhttp_access deny CONNECT !sc_ssl_ports\nhttp_access deny manager\nhttp_access deny sc_protected_dst\n")
 	if !settings.AllowPrivateDestinations {
 		b.WriteString("http_access deny sc_private_dst\n")

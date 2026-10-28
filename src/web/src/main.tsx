@@ -69,6 +69,7 @@ function App() {
     [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [page, setPage] = useState("Обзор");
+  const [eventFailures, setEventFailures] = useState(false);
   const [connectionError, setConnectionError] = useState(false);
   const [settingsDirty, setSettingsDirty] = useState(false);
   const [pendingNavigation, setPendingNavigation] = useState<string | null>(
@@ -160,8 +161,9 @@ function App() {
   const {
     status,
     setStatus,
-    events,
     statistics,
+    metrics,
+    failures,
     ingestion,
     overviewError,
     refreshOverview,
@@ -171,6 +173,7 @@ function App() {
       setPendingNavigation(next);
       return;
     }
+    if (next === "События") setEventFailures(false);
     setPage(next);
   }
   function allowed(permission: string, who: Session | null = session) {
@@ -601,11 +604,15 @@ function App() {
           <OverviewPanel
             status={status}
             statistics={statistics}
+            metrics={metrics}
+            failures={failures}
             ingestion={ingestion}
-            events={events}
             offline={connectionError}
             error={overviewError}
-            onEvents={() => navigate("События")}
+            onEvents={(onlyFailures = false) => {
+              setEventFailures(onlyFailures);
+              setPage("События");
+            }}
           />
         )}
         {page === "Клиенты" && canConfigure && (
@@ -762,6 +769,7 @@ function App() {
           <DiagnosticsPanel
             key={page}
             kind={page === "Аудит" ? "audit" : "events"}
+            initialFailures={eventFailures}
             request={api}
           />
         )}

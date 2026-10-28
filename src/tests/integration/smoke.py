@@ -70,12 +70,42 @@ with tempfile.TemporaryDirectory(prefix='squid-control-fixture-') as temporary:
         status = wait_for(lambda: api('/status'))
         assert status['squid']['state'] == 'up', status
         print('PASS: HTTPS trust, bootstrap, login, active config fingerprint')
+        # Simulate an existing compiler-5 bundle on this disposable volume only.
+        old_bundle_code = """import json,pathlib
+root=pathlib.Path('/data/runtime');manifest=json.loads((root/'lkg.json').read_text())
+lines=manifest['config'].splitlines(True)
+manifest['config']=''.join(line for line in lines if not (line.startswith('http_port 127.0.0.1:3131') or 'sc_manager_' in line or line.startswith('cachemgr_passwd ')))
+manifest['compiler_version']='5'
+(root/'active.conf').write_text(manifest['config']);(root/'lkg.json').write_text(json.dumps(manifest))
+"""
+        draft_before = api('/configuration/draft')
+        dirty = copy.deepcopy(draft_before['snapshot'])
+        dirty['tls_profiles'][0]['name'] = 'Unapplied fixture draft'
+        dirty_before = api('/configuration/draft', 'PUT', {'expected_version': draft_before['version'], 'snapshot': dirty})
+        docker('run', '--rm', '--user', '13:13', '-v', volume+':/data', PYTHON, 'python', '-c', old_bundle_code)
+        docker('exec', proxy, 'pebble', 'restart', 'squid')
+        wait_for(lambda: docker('exec', '--user', '13:13', proxy, 'squid-control', 'check'))
+        assert api('/squid/metrics')['reason'] == 'configuration_update_required'
+        docker('exec', '--user', '13:13', proxy, 'squid-control', 'service-update')
+        assert api('/configuration/draft') == dirty_before
+        def upgraded_metrics():
+            value = api('/squid/metrics')
+            assert value['available'], value
+            return value
+        wait_for(upgraded_metrics)
+        print('PASS: local service update upgrades old bundle without applying or changing dirty draft')
+        metrics = api('/squid/metrics')
+        assert metrics['available'] and metrics['squid_version'] == '6.13', metrics
+        assert metrics['uptime_seconds'] > 0 and metrics['memory_peak_bytes'] > 0, metrics
+        assert metrics['active_requests'] == 0, metrics
+        print('PASS: live Squid metrics include uptime/resources, exclude the manager request')
+
         # Deterministic HTTP + HTTPS origin and a separate source identity.
         subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',str(fixtures/'origin.key'),'-out',str(fixtures/'origin.crt'),'-subj','/CN=allowed.test','-addext','subjectAltName=DNS:allowed.test,DNS:denied.test'], check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         origin_code = '''import http.server,ssl,threading,time
 class Handler(http.server.BaseHTTPRequestHandler):
  def do_GET(self):
-  self.send_response(200);self.end_headers();self.wfile.write(b'fixture origin')
+  self.send_response(200);self.end_headers();self.wfile.write(b'fixture origin'*1024)
  def log_message(self,*args):pass
 plain=http.server.HTTPServer(('0.0.0.0',80),Handler)
 secure=http.server.HTTPServer(('0.0.0.0',443),Handler)
@@ -103,6 +133,10 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
         assert fetch(client)==403
         assert fetch(source)==403
         print('PASS: unknown source denied')
+        for report in ['info', 'counters', '5min', 'active_requests', 'shutdown', 'config']:
+            assert fetch(client, 'http://proxy:3128/squid-internal-mgr/' + report) == 403
+        print('PASS: external proxy clients cannot access read-only or mutable manager reports')
+
         d=api('/configuration/draft'); snap=d['snapshot']; profile=snap['tls_profiles'][0]['id']
         all_id,allow_id=str(uuid.uuid4()),str(uuid.uuid4())
         snap['policies']=[{'id':all_id,'name':'All web fixture','mode':'all_web','destinations':[],'tls_profile_id':profile},{'id':allow_id,'name':'Allowlist fixture','mode':'allowlist','destinations':[{'domain':'allowed.test','include_subdomains':False}],'tls_profile_id':profile}]
@@ -134,6 +168,17 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
         assert fetch(client,'http://127.0.0.1/')==403
         assert fetch(source,'http://169.254.169.254/')==403
         assert fetch(client,connect=True)==200
+        assert fetch(client, 'http://allowed.test/?fixture=' + 'x'*4096) == 200
+        def origin_metrics():
+            value = api('/squid/metrics')
+            assert value['available'] and value['origin_requests_total'] > 0, value
+            assert value['origin_bytes_in_total'] > 0 and value['origin_bytes_out_total'] > 0, value
+            return value
+        measured = wait_for(origin_metrics)
+        time.sleep(2.1)
+        idle = api('/squid/metrics')
+        assert idle['origin_requests_total'] == measured['origin_requests_total'], (measured, idle)
+        print('PASS: real HTTP/CONNECT origin counters change; idle telemetry does not inflate them')
         print('PASS: all_web/allowlist, private/metadata guards, real TLS CONNECT, idempotent operations')
         # Invalid desired configuration must leave live traffic unchanged.
         invalid=copy.deepcopy(snap);invalid['policies'][1]['destinations'][0]['domain']='allowed.test\nhttp_access allow all'
@@ -161,6 +206,12 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
 """
         held=subprocess.Popen(['docker','exec','-i',source,'python','-c',held_code],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         assert held.stdout.readline().strip()=='READY'
+        def active_metrics():
+            value = api('/squid/metrics')
+            assert value['available'] and value['active_requests'] >= 1, value
+            return value
+        wait_for(active_metrics)
+        print('PASS: held real CONNECT appears in active request aggregate')
         squid_pid=docker('exec',proxy,'cat','/data/runtime/squid.pid')
         docker('exec',proxy,'pebble','restart','control')
         wait_for(lambda:api('/status'))

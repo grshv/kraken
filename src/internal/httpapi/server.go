@@ -183,6 +183,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/session", s.login)
 	mux.HandleFunc("DELETE /api/v1/session", s.authenticated(s.logout))
 	mux.HandleFunc("GET /api/v1/status", s.authorized("read", s.status))
+	mux.HandleFunc("GET /api/v1/squid/metrics", s.authorized("read", s.squidMetrics))
 	mux.HandleFunc("GET /api/v1/statistics", s.authorized("read", s.statistics))
 	mux.HandleFunc("GET /api/v1/revisions", s.authorized("configure", s.listRevisions))
 	mux.HandleFunc("GET /api/v1/configuration/preview", s.authorized("configure", s.configurationPreview))
@@ -480,7 +481,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	if !ok {
 		return
 	}
-	if input.Action != "rollback" && (rev.Compiler != policy.CompilerVersion || rev.Image != s.Image) {
+	if rev.Compiler != policy.CompilerVersion || rev.Image != s.Image {
 		fail(w, 422, "version_mismatch", "Ревизия создана другой сборкой. Подготовьте новую")
 		return
 	}

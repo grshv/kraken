@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.6.0",
+    "version": "0.7.0",
     "description": "Critical-path API implemented in the first development slice. Draft editing, local users/admin-viewer roles, separate proxy accounts, bounded event history and retained 24-hour statistics are implemented. Listener ports are installation settings and cannot change via draft/revision operations. Draft preview is read-only. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
   },
   "servers": [
@@ -1101,6 +1101,31 @@
           }
         }
       }
+    },
+    "/squid/metrics": {
+      "get": {
+        "operationId": "getSquidMetrics",
+        "summary": "Live Squid aggregate metrics (admin/viewer)",
+        "description": "Bounded fixed loopback manager reports only. Last successful sample is retained in memory on failure, marked unavailable/stale with original observed_at. Unsupported or unmeasured values are null. No raw URLs, usernames or manager reports. Five-minute metrics are null until Squid has a sampling interval. Origin traffic and request rate exclude manager polling and cache hits. Old active configs require a separate service configuration update; GET never applies drafts.",
+        "responses": {
+          "200": {
+            "description": "Current or unavailable sample",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SquidMetrics"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "403": {
+            "description": "Forbidden"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1707,7 +1732,8 @@
             "enum": [
               "validate",
               "apply",
-              "rollback"
+              "rollback",
+              "service_update"
             ]
           },
           "revision_id": {
@@ -2595,6 +2621,156 @@
             }
           }
         }
+      },
+      "SquidMetrics": {
+        "type": "object",
+        "required": [
+          "available",
+          "stale",
+          "observed_at"
+        ],
+        "properties": {
+          "available": {
+            "type": "boolean"
+          },
+          "stale": {
+            "type": "boolean"
+          },
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "unavailable",
+              "configuration_update_required"
+            ]
+          },
+          "squid_version": {
+            "type": "string"
+          },
+          "uptime_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "active_requests": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Active request URI records excluding fixed manager/canary requests and idle socket blocks. Includes open CONNECT tunnels. Manager identity uses reported local socket and fixed path; Squid may rewrite URI authority to its first listener."
+          },
+          "cpu_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "cpu_usage_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "cpu_usage_5m_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "memory_peak_bytes": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Maximum Resident Size reported by Squid; peak RSS, not current memory."
+          },
+          "cache_hit_ratio_percent": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Squid reported info 5min ratio; includes diagnostic requests."
+          },
+          "origin_bytes_in_total": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "origin_bytes_out_total": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "origin_bytes_in_per_second": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "origin_bytes_out_per_second": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "origin_requests_total": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "origin_errors_total": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "origin_requests_per_second": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "5min server.all.requests rate, excludes diagnostics and cache hits."
+          },
+          "memory_accounted_bytes": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "cache_enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ],
+            "description": "Effective setting from confirmed active LKG snapshot; null if unavailable or drifted."
+          }
+        },
+        "additionalProperties": false
       }
     }
   }

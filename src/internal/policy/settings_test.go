@@ -153,3 +153,22 @@ func TestSettingsValidationAndRendering(t *testing.T) {
 		})
 	}
 }
+
+func TestManagementListenerIsProtected(t *testing.T) {
+	s := Empty()
+	config, err := Render(s, Options{StateDir: "/tmp/runtime", LogPath: "/tmp/access.log"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	allow := strings.Index(config, "http_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager")
+	deny := strings.Index(config, "http_access deny sc_manager_listener")
+	user := strings.Index(config, "# BEGIN user policy")
+	if allow < 0 || deny < allow || user < deny || !strings.Contains(config, "http_port 127.0.0.1:3131") {
+		t.Fatal(config)
+	}
+	s.Mode = "expert"
+	s.Expert = "cachemgr_passwd none all"
+	if _, err := Render(s, Options{}); err == nil {
+		t.Fatal("expert changed manager access")
+	}
+}

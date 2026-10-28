@@ -56,7 +56,7 @@ func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session
 			return
 		}
 		isCurrent := me == nil && current.Revision == rev.ID
-		items = append(items, RevisionSummary{ID: rev.ID, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: row.Applied, Current: isCurrent, CanRollback: row.Applied && !isCurrent && me == nil && sameInstallationPorts(current.Snapshot, rev.Snapshot), Status: row.LatestStatus})
+		items = append(items, RevisionSummary{ID: rev.ID, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: row.Applied, Current: isCurrent, CanRollback: row.Applied && !isCurrent && me == nil && rev.Compiler == policy.CompilerVersion && rev.Image == s.Image && sameInstallationPorts(current.Snapshot, rev.Snapshot), Status: row.LatestStatus})
 	}
 	respond(w, 200, map[string]any{"items": items})
 }

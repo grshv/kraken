@@ -2,7 +2,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "./StatusBadge";
 import type { Status, Event } from "./model";
-import type { Statistics, Ingestion } from "./useOverview";
+import type { Statistics, Ingestion, SquidMetrics } from "./useOverview";
 import {
   Table,
   TableHeader,
@@ -11,221 +11,255 @@ import {
   TableHead,
   TableCell,
 } from "@/components/ui/table";
-const number = (value?: number) =>
-  value === undefined ? "—" : new Intl.NumberFormat("ru-RU").format(value);
-function bytes(value?: number) {
-  if (value === undefined) return "—";
-  if (value < 1024) return `${value} Б`;
-  const units = ["КиБ", "МиБ", "ГиБ", "ТиБ"];
-  let n = value / 1024,
-    i = 0;
+function amount(value: number | null | undefined, decimals = 0) {
+  return value == null
+    ? "—"
+    : new Intl.NumberFormat("ru-RU", {
+        maximumFractionDigits: decimals,
+      }).format(value);
+}
+function bytes(value: number | null | undefined) {
+  if (value == null) return "—";
+  const units = ["Б", "КиБ", "МиБ", "ГиБ", "ТиБ"];
+  let i = 0,
+    n = value;
   while (n >= 1024 && i < units.length - 1) {
     n /= 1024;
     i++;
   }
-  return `${new Intl.NumberFormat("ru-RU", { maximumFractionDigits: 1 }).format(n)} ${units[i]}`;
+  return `${amount(n, i ? 1 : 0)} ${units[i]}`;
+}
+function uptime(value: number | null | undefined) {
+  if (value == null) return "—";
+  const seconds = Math.floor(value),
+    days = Math.floor(seconds / 86400),
+    hours = Math.floor(seconds / 3600) % 24,
+    minutes = Math.floor(seconds / 60) % 60;
+  return days
+    ? `${days} д ${hours} ч`
+    : hours
+      ? `${hours} ч ${minutes} мин`
+      : minutes
+        ? `${minutes} мин ${seconds % 60} с`
+        : `${seconds} с`;
 }
 function time(value: string | null | undefined) {
   return value ? new Date(value).toLocaleTimeString("ru-RU") : "—";
 }
+function rate(value: number | null | undefined) {
+  return value == null ? "—" : `${bytes(value)}/с`;
+}
 export function OverviewPanel({
   status,
   statistics,
+  metrics,
+  failures,
   ingestion,
-  events,
   offline,
   error,
   onEvents,
 }: {
   status: Status | null;
   statistics: Statistics | null;
+  metrics: SquidMetrics | null;
+  failures: Event[];
   ingestion: Ingestion | null;
-  events: Event[];
   offline: boolean;
   error: string;
-  onEvents: () => void;
+  onEvents: (failures?: boolean) => void;
 }) {
-  const max = Math.max(1, ...(statistics?.hourly.map((h) => h.requests) || []));
+  const stale = offline || metrics?.stale === true;
+  const samples = metrics?.available || metrics?.stale;
   return (
     <>
-      <section className="health-grid" aria-label="Состояние прокси">
-        {(
-          [
-            ["Squid", status?.squid],
-            ["Управление", status?.runtime],
-          ] as const
-        ).map(([title, value]) => (
-          <Card key={title} className="health-card">
-            <div className="flex items-center justify-between gap-4">
-              <h2>{title}</h2>
-              <StatusBadge
-                value={
-                  offline || value?.stale
-                    ? "unknown"
-                    : value?.state || "unknown"
-                }
-              />
+      <Card
+        className="squid-overview"
+        role="region"
+        aria-label="Состояние прокси"
+      >
+        <div className="squid-overview-head">
+          <div className="actions">
+            <h2>
+              Squid{metrics?.squid_version ? ` ${metrics.squid_version}` : ""}
+            </h2>
+            <StatusBadge
+              value={
+                offline || status?.squid.stale
+                  ? "unknown"
+                  : status?.squid.state || "unknown"
+              }
+            />
+          </div>
+          <span className="subtle">
+            В работе: {uptime(metrics?.uptime_seconds)}
+          </span>
+        </div>
+        {samples ? (
+          <>
+            <dl className="live-metrics" aria-label="Текущая нагрузка Squid">
+              <div>
+                <dt>Активные запросы</dt>
+                <dd>{amount(metrics?.active_requests)}</dd>
+              </div>
+              <div>
+                <dt>
+                  {metrics?.cpu_usage_5m_percent != null
+                    ? "CPU за 5 минут"
+                    : "CPU с запуска"}
+                </dt>
+                <dd>
+                  {metrics?.cpu_usage_5m_percent != null
+                    ? `${amount(metrics.cpu_usage_5m_percent, 2)}%`
+                    : metrics?.cpu_usage_percent != null
+                      ? `${amount(metrics.cpu_usage_percent, 2)}%`
+                      : "—"}
+                </dd>
+              </div>
+              <div>
+                <dt>Пик памяти</dt>
+                <dd>{bytes(metrics?.memory_peak_bytes)}</dd>
+              </div>
+              <div>
+                <dt title="Среднее за интервал Squid до 5 минут">
+                  К ресурсам, запросов/с
+                </dt>
+                <dd>{amount(metrics?.origin_requests_per_second, 2)}</dd>
+              </div>
+              <div>
+                <dt title="Среднее за интервал Squid до 5 минут">
+                  Получение от ресурсов
+                </dt>
+                <dd>{rate(metrics?.origin_bytes_in_per_second)}</dd>
+              </div>
+              <div>
+                <dt title="Среднее за интервал Squid до 5 минут">
+                  Отправка ресурсам
+                </dt>
+                <dd>{rate(metrics?.origin_bytes_out_per_second)}</dd>
+              </div>
+            </dl>
+            <dl className="squid-totals">
+              <div>
+                <dt>С запуска: запросов к ресурсам</dt>
+                <dd>{amount(metrics?.origin_requests_total)}</dd>
+              </div>
+              <div>
+                <dt>Ошибок обращения</dt>
+                <dd>{amount(metrics?.origin_errors_total)}</dd>
+              </div>
+              <div>
+                <dt>Получено</dt>
+                <dd>{bytes(metrics?.origin_bytes_in_total)}</dd>
+              </div>
+              <div>
+                <dt>Отправлено</dt>
+                <dd>{bytes(metrics?.origin_bytes_out_total)}</dd>
+              </div>
+            </dl>
+            <div className="squid-observation">
+              <span>
+                {stale ? "Последние данные" : "Обновлено"}{" "}
+                {time(metrics?.observed_at)}
+              </span>
+              <span>
+                HTTP-кеш:{" "}
+                {metrics?.cache_enabled === false
+                  ? "выключен"
+                  : metrics?.cache_hit_ratio_percent != null
+                    ? `${amount(metrics.cache_hit_ratio_percent, 1)}% попаданий за 5 минут`
+                    : "нет данных"}
+              </span>
             </div>
-            <p className="subtle text-xs">
-              {offline
-                ? "Связь с панелью потеряна"
-                : value?.stale
-                  ? "Состояние не обновилось"
-                  : `Проверено ${time(value?.observed_at)}`}
-            </p>
-          </Card>
-        ))}
-      </section>
+          </>
+        ) : (
+          <p className="metrics-unavailable" role="status">
+            {!metrics
+              ? "Получение показателей Squid…"
+              : metrics.reason === "configuration_update_required"
+                ? "Для чтения показателей требуется обновление служебной конфигурации Squid."
+                : "Не удалось прочитать показатели Squid."}
+          </p>
+        )}
+      </Card>
+      {stale && (
+        <p className="notice" role="status">
+          Показатели Squid не обновились. Время последнего чтения указано выше.
+        </p>
+      )}
       {error && (
         <p className="notice" role="alert">
           {error}
         </p>
       )}
-      <section aria-label="Статистика за 24 часа">
-        <dl className="metrics-grid">
-          {[
-            ["Запросы за 24 часа", number(statistics?.requests)],
-            ["Отказы", number(statistics?.denied)],
-            ["Наблюдаемые байты", bytes(statistics?.bytes_observed)],
-            ["IP-источники", number(statistics?.unique_sources)],
-          ].map(([label, value]) => (
-            <Card className="metric-card" key={label}>
-              <dt>{label}</dt>
-              <dd>{value}</dd>
-            </Card>
-          ))}
+      <section className="section" aria-label="Статистика за 24 часа">
+        <div className="section-head">
+          <h2>Доступ за 24 часа</h2>
+          <Button variant="ghost" onClick={() => onEvents(false)}>
+            История запросов
+          </Button>
+        </div>
+        <dl className="history-summary">
+          <div>
+            <dt>Запросы за 24 часа</dt>
+            <dd>{amount(statistics?.requests)}</dd>
+          </div>
+          <div>
+            <dt>Отказы</dt>
+            <dd>{amount(statistics?.denied)}</dd>
+          </div>
+          <div>
+            <dt>IP-источники</dt>
+            <dd>{amount(statistics?.unique_sources)}</dd>
+          </div>
         </dl>
-        {ingestion &&
-          (!ingestion.source_available ||
-            ingestion.stale ||
-            ingestion.backlog) && (
-            <p className="notice" role="status">
-              {!ingestion.observed_at
-                ? "Ожидается первое чтение журнала Squid."
-                : !ingestion.source_available
-                  ? "Журнал Squid недоступен. Показаны сохранённые данные."
-                  : ingestion.stale
-                    ? "Данные журнала устарели."
-                    : "Журнал ещё обрабатывается. Статистика неполная."}
-            </p>
-          )}
-        {statistics?.retention_limited && (
-          <p className="notice">
-            Достигнут предел сохранённых записей: статистика суток может быть
-            неполной.
+        {ingestion?.stale && ingestion.observed_at && (
+          <p className="inline-note">
+            Сбор журнала задерживается. Сводка может быть неполной.
           </p>
         )}
-        <section className="section">
-          <div className="section-head">
-            <h2>Запросы по часам</h2>
-            <span className="subtle text-xs">Последние 24 часа</span>
-          </div>
-          {statistics ? (
-            <div className="request-chart">
-              <svg
-                role="img"
-                aria-label="Запросы и отказы по часам за последние 24 часа"
-                viewBox="0 0 960 160"
-              >
-                <title>
-                  Количество запросов: {statistics.requests}, отказов:{" "}
-                  {statistics.denied}
-                </title>
-                {statistics.hourly.map((h, i) => (
-                  <g key={h.from}>
-                    <title>
-                      {new Date(h.from).toLocaleString("ru-RU")}: {h.requests}{" "}
-                      запросов, {h.denied} отказов
-                    </title>
-                    <rect
-                      x={i * 40 + 5}
-                      y={140 - (h.requests / max) * 120}
-                      width="26"
-                      height={
-                        h.requests ? Math.max(2, (h.requests / max) * 120) : 0
-                      }
-                      rx="3"
-                      fill="var(--primary)"
-                    />
-                    <rect
-                      x={i * 40 + 5}
-                      y={140 - (h.denied / max) * 120}
-                      width="26"
-                      height={(h.denied / max) * 120}
-                      rx="3"
-                      fill="var(--destructive)"
-                    />
-                  </g>
-                ))}
-              </svg>
-              <div className="chart-axis" aria-hidden="true">
-                {[0, 6, 12, 18, 23].map((i) => (
-                  <span key={i}>
-                    {new Date(statistics.hourly[i].from).toLocaleTimeString(
-                      "ru-RU",
-                      { hour: "2-digit", minute: "2-digit" },
-                    )}
-                  </span>
-                ))}
-              </div>
-              <div className="chart-legend">
-                <span>
-                  <i className="requests-key" />
-                  Запросы
-                </span>
-                <span>
-                  <i className="denied-key" />
-                  Отказы
-                </span>
-                <span className="ml-auto">
-                  Наблюдаемые записи журнала; CONNECT учитывается после
-                  закрытия.
-                </span>
-              </div>
-            </div>
-          ) : (
-            <p className="empty">
-              {error || offline
-                ? "Статистика временно недоступна"
-                : "Загрузка статистики…"}
-            </p>
-          )}
-        </section>
+        {statistics?.retention_limited && (
+          <p className="inline-note">
+            Достигнут предел сохранённых записей; сводка суток неполная.
+          </p>
+        )}
       </section>
       <section className="section">
         <div className="section-head">
-          <h2>Последние запросы</h2>
-          <Button variant="ghost" onClick={onEvents}>
-            Весь журнал
+          <h2>Последние ошибки и отказы</h2>
+          <Button variant="ghost" onClick={() => onEvents(true)}>
+            Все ошибки
           </Button>
         </div>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Время</TableHead>
-              <TableHead>Источник</TableHead>
-              <TableHead>Назначение</TableHead>
-              <TableHead>Результат</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {events.slice(0, 6).map((e) => (
-              <TableRow key={e.id}>
-                <TableCell>{time(e.timestamp)}</TableCell>
-                <TableCell className="mono">{e.source_ip}</TableCell>
-                <TableCell className="mono destination">
-                  {e.destination}
-                </TableCell>
-                <TableCell
-                  className={e.proxy_result.includes("DENIED") ? "denied" : ""}
-                >
-                  {e.proxy_result}
-                </TableCell>
+        {failures.length ? (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Время</TableHead>
+                <TableHead>Клиент / источник</TableHead>
+                <TableHead>Назначение</TableHead>
+                <TableHead>Результат</TableHead>
               </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-        {!events.length && <p className="empty">Запросов пока нет.</p>}
+            </TableHeader>
+            <TableBody>
+              {failures.map((e) => (
+                <TableRow key={e.id}>
+                  <TableCell>{time(e.timestamp)}</TableCell>
+                  <TableCell>{e.client_name || e.source_ip}</TableCell>
+                  <TableCell className="mono destination">
+                    {e.destination}
+                  </TableCell>
+                  <TableCell>{e.proxy_result}</TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        ) : (
+          <p className="overview-empty">
+            {statistics?.requests === 0
+              ? "Записей запросов пока нет."
+              : "В последних записях ошибок нет."}
+          </p>
+        )}
       </section>
     </>
   );

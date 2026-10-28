@@ -36,6 +36,11 @@
   произвольные команды/helpers/includes и universal exec не открываются.
   Единственное управляемое auth-исключение — fixed-argv proxy-auth/--state
   подрежимы того же executable с установленным DB path (ADR 0012).
+- Метрики Squid читаются только из фиксированных read-only manager reports по
+  отдельному loopback listener 3131. Публичные proxy listeners не открывают manager;
+  raw reports/URL/credentials не идут в API/логи. Граница — ADR 0013. Локальный
+  service-update применяет confirmed snapshot через обычный durable pipeline,
+  не читает и не применяет пользовательский draft.
 - Продукт управляет клиентами прокси: устройствами, адресами, сетями и группами.
   VM — только пример, не отдельная обязательная сущность интерфейса.
 - Исходный пароль администратора не сохраняется в БД, файлах, env, argv и логах.

@@ -158,3 +158,11 @@ Managed Basic helper и uncached generation ACL — подрежимы того 
 не допускают трафик. Generic successful authentication не даёт чужую политику.
 Enabled auth clients не допускаются в expert mode, чтобы пользовательский ACL
 не обходил binding. IP-only clients сохраняют прежнее поведение.
+
+### Read-only management metrics
+
+Runtime владеет отдельным `http_port 127.0.0.1:3131`; порт защищён от settings
+и expert editor. Только loopback GET фиксированных info/counters/5min/active_requests
+разрешается на этом listener. Далее listener закрыт целиком, manager запрещён
+на пользовательских listeners до любых policy/expert allows. Произвольных manager
+actions и проксирования URL через API нет. [ADR 0013](../adr/0013-read-only-squid-metrics.md).
