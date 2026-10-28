@@ -198,3 +198,7 @@ cases прошли. После финальных правок подписей/
 браузерных сценариев на real-image fixtures. Новые screenshots light/dark/mobile
 просмотрены. Изменений compiler, Squid ACL/apply и схемы SQLite на этом этапе нет;
 суточный statistics API сохранён для совместимости, но из опроса обзора удалён.
+
+Рабочая локальная панель обновлена: control/squid active, CLI check и healthz
+успешны, актуальный bundle подтверждён по TLS. Applied snapshot, draft и все1201
+событие совпали до/после; обновление не применяло draft и не меняло правила доступа.
