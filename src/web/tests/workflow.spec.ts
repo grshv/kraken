@@ -1,3 +1,4 @@
+import { choose } from "./select-option";
 import { expect, test as base, type Page } from "@playwright/test";
 import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
@@ -182,6 +183,22 @@ test("overview prioritizes applied access and grouped problems with exact drilld
   ).toHaveCount(0);
   await expect(page.getByRole("img")).toHaveCount(0);
   await expect(page.getByText("Пик памяти", { exact: true })).toBeHidden();
+  const stateTitle = page
+    .getByRole("region", { name: "Состояние прокси" })
+    .getByRole("heading", { name: "Состояние прокси", exact: true });
+  expect(await stateTitle.evaluate((el) => getComputedStyle(el).fontSize)).toBe(
+    "16px",
+  );
+  expect(
+    await page
+      .getByText("Применённые правила", { exact: true })
+      .evaluate((el) => getComputedStyle(el).fontSize),
+  ).toBe("14px");
+  expect(
+    await panel
+      .getByRole("heading", { name: "Кто использует прокси", exact: true })
+      .evaluate((el) => getComputedStyle(el).fontSize),
+  ).toBe("14px");
   await screenshot(page, "overview-operational-light.png");
   await problem.getByRole("button", { name: "Записи", exact: true }).click();
   await expect(page.getByLabel("IP источника", { exact: true })).toHaveValue(
@@ -234,9 +251,7 @@ test("all entity editors use dialogs and passwords clear on dismissal and reopen
   await dialog
     .getByLabel("IP / CIDR", { exact: true })
     .fill("198.51.100.42/32");
-  await dialog
-    .getByLabel("Режим доступа", { exact: true })
-    .selectOption("all_web");
+  await choose(dialog.getByLabel("Режим доступа", { exact: true }), "all_web");
   await dialog.getByRole("button", { name: /^Сохранить/ }).click();
   await expect(dialog).toBeHidden();
   await expect(
@@ -339,9 +354,10 @@ test("settings keep deployment ports out of the editor and load expert configura
     page.getByLabel("TLS-порт внутри контейнера", { exact: true }),
   ).toHaveCount(0);
   await page.getByRole("tab", { name: "squid.conf", exact: true }).click();
-  await page
-    .getByLabel("Режим конфигурации", { exact: true })
-    .selectOption("expert");
+  await choose(
+    page.getByLabel("Режим конфигурации", { exact: true }),
+    "expert",
+  );
   const editor = page.getByLabel("Экспертная конфигурация", { exact: true });
   await expect(editor).not.toHaveValue("");
   await expect(editor).toHaveValue(/http_access deny all/);
@@ -356,9 +372,9 @@ test("settings keep deployment ports out of the editor and load expert configura
       ),
     )
     .toBeTruthy();
-  await expect(page.locator("details[open] pre")).toContainText(
-    "http_access deny all",
-  );
+  await expect(
+    page.locator('[data-slot="collapsible"][data-state="open"] pre'),
+  ).toContainText("http_access deny all");
   await screenshot(page, "workflow-expert.png");
 });
 
@@ -703,7 +719,7 @@ test("event filters query the full stored history and reset pagination", async (
   await page
     .getByLabel("Домен / назначение", { exact: true })
     .fill("repo-0.example.test");
-  await page.getByLabel("Метод", { exact: true }).selectOption("GET");
+  await choose(page.getByLabel("Метод", { exact: true }), "GET");
   await page.getByLabel("IP источника", { exact: true }).fill("192.0.2.42");
   await page
     .getByRole("button", { name: "Применить фильтры", exact: true })
@@ -742,4 +758,136 @@ test("event filters query the full stored history and reset pagination", async (
       () => document.documentElement.scrollWidth <= innerWidth,
     ),
   ).toBeTruthy();
+});
+
+test("day week month are real periods and all screens share typography", async ({
+  page,
+  appliance,
+}) => {
+  await login(page, appliance);
+  const now = Date.now() / 1000;
+  appliance.docker(
+    [
+      "exec",
+      "-i",
+      "--user",
+      "13:13",
+      appliance.name,
+      "tee",
+      "-a",
+      "/data/logs/access.log",
+    ],
+    [2, 14]
+      .map(
+        (days) =>
+          `${(now - days * 86400).toFixed(3)} 12 192.0.2.88 TCP_DENIED/403 42 GET http://period-${days}.test/ - HIER_NONE/- -\n`,
+      )
+      .join(""),
+  );
+  await expect
+    .poll(
+      async () =>
+        (
+          await (
+            await page.request.get(
+              appliance.origin + "/api/v1/activity?minutes=43200",
+            )
+          ).json()
+        ).activity.sources[0]?.requests,
+    )
+    .toBe(2);
+  const period = page.getByRole("combobox", {
+    name: "Период активности",
+    exact: true,
+  });
+  await period.click();
+  await expect(
+    page.getByRole("option", { name: "За месяц", exact: true }),
+  ).toBeVisible();
+  await screenshot(page, "standard-select-open.png");
+  await page.keyboard.press("Escape");
+  await expect(period).toBeFocused();
+  await choose(period, "1440");
+  await expect(
+    page.getByText("За выбранный период отказы и ошибки не записаны."),
+  ).toBeVisible();
+  await choose(period, "10080");
+  await expect(
+    page.getByRole("cell", { name: "period-2.test", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("cell", { name: "period-14.test", exact: true }),
+  ).toHaveCount(0);
+  await choose(period, "43200");
+  await expect(
+    page.getByRole("cell", { name: "period-14.test", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("row").filter({ hasText: "period-14.test" }),
+  ).toContainText(
+    new Date((now - 14 * 86400) * 1000).toLocaleDateString("ru-RU", {
+      day: "numeric",
+      month: "short",
+    }),
+  );
+  await screenshot(page, "standard-overview.png");
+  for (const section of [
+    "Обзор",
+    "Клиенты",
+    "События",
+    "Настройки",
+    "Изменения",
+  ]) {
+    if (section !== "Обзор") await navigate(page, section);
+    const styles = await page.evaluate(() => {
+      const nodes = Array.from(
+        document.querySelectorAll<HTMLElement>("body *"),
+      ).filter(
+        (el) =>
+          el.getBoundingClientRect().width > 0 &&
+          el.getBoundingClientRect().height > 0 &&
+          (el.matches("input,textarea,button") ||
+            Array.from(el.childNodes).some(
+              (n) => n.nodeType === Node.TEXT_NODE && n.textContent?.trim(),
+            )),
+      );
+      return {
+        sizes: [...new Set(nodes.map((el) => getComputedStyle(el).fontSize))],
+        families: [
+          ...new Set(nodes.map((el) => getComputedStyle(el).fontFamily)),
+        ],
+      };
+    });
+    expect(
+      styles.sizes.every((size) => ["14px", "16px"].includes(size)),
+    ).toBeTruthy();
+    expect(
+      styles.families.every(
+        (family) => family.includes("Inter") && !family.includes("monospace"),
+      ),
+    ).toBeTruthy();
+  }
+  await navigate(page, "Обзор");
+  const group = page.locator('[data-slot="sidebar-group-label"]').first();
+  const item = page.locator('[data-slot="sidebar-menu-button"]').first();
+  expect(await group.evaluate((el) => getComputedStyle(el).fontSize)).toBe(
+    await item.evaluate((el) => getComputedStyle(el).fontSize),
+  );
+  await page
+    .getByRole("button", { name: "Открыть или скрыть меню", exact: true })
+    .click();
+  await expect
+    .poll(async () =>
+      page.evaluate(() => {
+        const a = document
+          .querySelector('[data-slot="sidebar-trigger"] svg')!
+          .getBoundingClientRect();
+        const b = document
+          .querySelector('[data-slot="sidebar-menu-button"] svg')!
+          .getBoundingClientRect();
+        return Math.abs(a.left + a.width / 2 - b.left - b.width / 2);
+      }),
+    )
+    .toBeLessThanOrEqual(1);
+  await screenshot(page, "standard-sidebar-collapsed.png");
 });

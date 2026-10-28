@@ -3,6 +3,16 @@
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
+  --font-sans: "Inter", sans-serif;
+  --font-mono: "Inter", sans-serif;
+  --text-xs: var(--type-body);
+  --text-sm: var(--type-body);
+  --text-base: var(--type-body);
+  --text-lg: var(--type-section);
+  --text-xl: var(--type-section);
+  --text-2xl: var(--type-page);
+  --text-3xl: var(--type-page);
+
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);

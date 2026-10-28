@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"net/http"
+	"strconv"
 	"time"
 )
 
@@ -20,13 +21,14 @@ func (s *Server) statistics(w http.ResponseWriter, r *http.Request, v session) {
 func (s *Server) activity(w http.ResponseWriter, r *http.Request, v session) {
 	minutes := 60
 	if raw := r.URL.Query().Get("minutes"); raw != "" {
-		if raw == "15" {
-			minutes = 15
-		} else if raw != "60" {
-			fail(w, 400, "invalid_window", "Допустимые периоды: 15 или 60 минут")
+		value, err := strconv.Atoi(raw)
+		if err != nil || (value != 15 && value != 60 && value != 1440 && value != 10080 && value != 43200) {
+			fail(w, 400, "invalid_window", "Выберите 15 минут, час, день, неделю или месяц")
 			return
 		}
+		minutes = value
 	}
+
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
 	result, err := s.Store.RecentActivity(ctx, time.Now(), minutes)

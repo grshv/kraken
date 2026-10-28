@@ -75,3 +75,23 @@ func TestRecentActivityLimitsAndStorageErrors(t *testing.T) {
 		t.Fatal("storage failure hidden")
 	}
 }
+
+func TestActivityDayWeekMonthWindows(t *testing.T) {
+	s := eventStore(t)
+	now := time.Now()
+	rows := []events.Event{}
+	for i, days := range []int{0, 2, 14, 31} {
+		v := sample(fmt.Sprint(i))
+		v.Timestamp = now.Add(-time.Duration(days)*24*time.Hour - time.Minute).Format(time.RFC3339Nano)
+		rows = append(rows, v)
+	}
+	if err := s.SaveEvents(rows, events.Checkpoint{}); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []struct{ minutes, want int }{{1440, 1}, {10080, 2}, {43200, 3}} {
+		got, err := s.RecentActivity(context.Background(), now, c.minutes)
+		if err != nil || len(got.Sources) != 1 || got.Sources[0].Requests != c.want {
+			t.Fatal(c, got, err)
+		}
+	}
+}

@@ -1,3 +1,4 @@
+import { Disclosure } from "./components/Disclosure";
 import type { Destination } from "./model";
 
 export function DestinationList({ items }: { items: Destination[] }) {
@@ -13,10 +14,9 @@ export function DestinationList({ items }: { items: Destination[] }) {
     <div className="domain-list">
       <ul>{items.slice(0, 5).map(domain)}</ul>
       {items.length > 5 && (
-        <details>
-          <summary>Ещё {items.length - 5}</summary>
+        <Disclosure title={<> Ещё {items.length - 5} </>}>
           <ul>{items.slice(5).map(domain)}</ul>
-        </details>
+        </Disclosure>
       )}
     </div>
   );

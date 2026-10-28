@@ -1,3 +1,4 @@
+import { choose } from "./select-option";
 import { test, expect, type Page } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import { randomBytes } from "node:crypto";
@@ -66,7 +67,7 @@ test.describe.serial("panel e2e flow", () => {
         .click();
     await page.getByLabel("Название", { exact: true }).fill("build-fixture");
     await page.getByLabel("IP / CIDR").fill("192.0.2.42/32");
-    await page.getByLabel("Режим доступа").selectOption("allowlist");
+    await choose(page.getByLabel("Режим доступа"), "allowlist");
     await page.getByLabel("Разрешённые домены").fill("packages.example.test");
     await page.getByRole("button", { name: "Сохранить черновик" }).click();
     await expect(
@@ -136,9 +137,10 @@ test.describe.serial("panel e2e flow", () => {
   test("expert mode apply, responsive screenshots, logout", async () => {
     await navigate(page, "Настройки");
     await page.getByRole("tab", { name: "squid.conf" }).click();
-    await page
-      .getByLabel("Режим конфигурации", { exact: true })
-      .selectOption("expert");
+    await choose(
+      page.getByLabel("Режим конфигурации", { exact: true }),
+      "expert",
+    );
     await page.getByRole("button", { name: "Взять правила из форм" }).click();
     await expect(
       page.getByLabel("Экспертная конфигурация", { exact: true }),
@@ -268,7 +270,7 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
   await panel
     .getByRole("button", { name: "Последние записи", exact: true })
     .click();
-  await page.getByLabel("Фильтр клиента").selectOption(client.id);
+  await choose(page.getByLabel("Фильтр клиента"), client.id);
   await expect(
     panel.getByRole("cell", { name: "diag-58.test", exact: true }),
   ).toBeVisible();
@@ -310,7 +312,7 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
   await navigate(page, "Аудит");
   const audit = page.getByRole("region", { name: "Журнал аудита" });
   await page.getByLabel("Участник аудита").fill(fixture.username);
-  await page.getByLabel("Действие аудита").selectOption("create_revision");
+  await choose(page.getByLabel("Действие аудита"), "create_revision");
   await audit.getByRole("button", { name: "Применить фильтры" }).click();
   await expect(
     audit
@@ -372,10 +374,9 @@ test("accounts: create viewer, enforce read-only access, revoke on block", async
   await users.getByRole("button", { name: "Добавить пользователя" }).click();
   await page.getByLabel("Логин учётной записи").fill("review-viewer");
   await page.getByLabel("Пароль учётной записи").fill(viewerPassword);
-  await expect(
-    page.getByLabel("Роль пользователя").locator("option"),
-  ).toHaveCount(2);
-  await page.getByLabel("Роль пользователя").selectOption("viewer");
+  await page.getByLabel("Роль пользователя").click();
+  await expect(page.getByRole("option")).toHaveCount(2);
+  await page.locator('[role="option"][data-value="viewer"]').click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Сохранить", exact: true })

@@ -1,8 +1,12 @@
+import { Label } from "@/components/ui/label";
+import { Alert } from "@/components/ui/alert";
+import { Panel } from "./components/Panel";
 import { RefreshCw } from "lucide-react";
 import { EntityDialog } from "./components/EntityDialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
+import { SelectField } from "./components/SelectField";
+import { SelectItem } from "@/components/ui/select";
 import { Table } from "@/components/ui/table";
 import { TableHeader } from "@/components/ui/table";
 import { TableBody } from "@/components/ui/table";
@@ -138,7 +142,7 @@ export function AccountsPanel({
     }
   }
   return (
-    <section
+    <Panel
       className="section accounts"
       aria-label={kind === "users" ? "Пользователи панели" : "Логины прокси"}
     >
@@ -160,9 +164,9 @@ export function AccountsPanel({
         </div>
       </div>
       {error && !open && (
-        <p className="error" role="alert">
+        <Alert variant="destructive" className="error" role="alert">
           {error}
-        </p>
+        </Alert>
       )}
       <EntityDialog
         open={open}
@@ -186,7 +190,7 @@ export function AccountsPanel({
           editing ? "Редактирование учётной записи" : "Новая учётная запись"
         }
       >
-        <label>
+        <Label>
           Логин
           <Input
             aria-label="Логин учётной записи"
@@ -201,24 +205,24 @@ export function AccountsPanel({
             spellCheck={false}
             autoFocus
           />
-        </label>
+        </Label>
         {kind === "users" && (
-          <label>
+          <Label>
             Роль
-            <NativeSelect
+            <SelectField
               aria-label="Роль пользователя"
               value={role}
-              onChange={(e) => setRole(e.target.value as PanelRole)}
+              onValueChange={(value) => setRole(value as PanelRole)}
             >
               {Object.entries(roleNames).map(([value, name]) => (
-                <option key={value} value={value}>
+                <SelectItem key={value} value={value}>
                   {name}
-                </option>
+                </SelectItem>
               ))}
-            </NativeSelect>
-          </label>
+            </SelectField>
+          </Label>
         )}
-        <label>
+        <Label>
           {editing ? "Новый пароль" : "Пароль"}
           <Input
             aria-label="Пароль учётной записи"
@@ -235,7 +239,7 @@ export function AccountsPanel({
                 : "Не менее 12 символов"
             }
           />
-        </label>
+        </Label>
       </EntityDialog>
       <div className="table-wrap">
         <Table>
@@ -297,6 +301,6 @@ export function AccountsPanel({
             : "Логины прокси ещё не добавлены."}
         </p>
       )}
-    </section>
+    </Panel>
   );
 }

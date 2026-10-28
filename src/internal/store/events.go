@@ -14,7 +14,7 @@ import (
 	"squid-control.local/squid/internal/events"
 )
 
-const EventRetentionDays = 7
+const EventRetentionDays = 30
 const EventLimit = 50000
 
 func (s *Store) EventCheckpoint() (events.Checkpoint, error) {

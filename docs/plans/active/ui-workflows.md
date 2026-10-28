@@ -202,3 +202,26 @@ cases прошли. После финальных правок подписей/
 Рабочая локальная панель обновлена: control/squid active, CLI check и healthz
 успешны, актуальный bundle подтверждён по TLS. Applied snapshot, draft и все1201
 событие совпали до/после; обновление не применяло draft и не меняло правила доступа.
+
+## Общая система компонентов и периоды
+
+По уточнению владельца весь UI использует общие shadcn primitives. Системный
+NativeSelect заменён на Select/Radix с portal на всех экранах; также подключены
+Checkbox, Collapsible, Label, Alert и Card. Действия, таблицы, вкладки, диалоги,
+sidebar и mobile sheet сохраняют существующие shadcn компоненты. Общие wrappers
+только собирают primitives, не реализуют собственный dropdown/focus/keyboard.
+Типографика: Inter и два размера 14/16px; моноширный font/package удалён.
+Название группы меню больше не использует11px. В свёрнутом меню trigger и icons
+расположены по одной оси.
+
+Периоды активности: 15 минут, час, сутки, неделя и последние30 суток. Retention
+событий увеличен до30дней по времени сбора; cap50000 и предупреждение неполноты
+сохраняются. Уже удалённые события не восстанавливаются. Новые фильтры меняют
+реальный диапазон серверной агрегации, не только подпись в Select.
+
+Подтверждено: make check (race/vet/docs/frontend), final image и все20 browser
+scenarios прошли. Включены real apply/rollback, роли, Select/Checkbox/Dialog,
+CardHeader hierarchy, day/week/month, typography14/16 и collapsed icon geometry.
+Screenshots финальных light/dark/mobile и открытого Select просмотрены.
+Иерархия обзора уточнена: CardHeader/CardTitle у каждого внешнего блока, вложенные
+подписи14px; размер карточек не подменяет отсутствие заголовка.

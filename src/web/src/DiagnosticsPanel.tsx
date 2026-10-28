@@ -1,6 +1,11 @@
+import { Label } from "@/components/ui/label";
+import { Alert } from "@/components/ui/alert";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Panel } from "./components/Panel";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { NativeSelect } from "@/components/ui/native-select";
+import { SelectField } from "./components/SelectField";
+import { SelectItem } from "@/components/ui/select";
 import { Table } from "@/components/ui/table";
 import { TableHeader } from "@/components/ui/table";
 import { TableBody } from "@/components/ui/table";
@@ -212,7 +217,7 @@ export function DiagnosticsPanel({
   }
   const ingestion = data?.ingestion;
   return (
-    <section
+    <Panel
       className="section diagnostics"
       aria-label={kind === "events" ? "История запросов" : "Журнал аудита"}
     >
@@ -252,25 +257,25 @@ export function DiagnosticsPanel({
             setRefresh((n) => n + 1);
           }}
         >
-          <label>
+          <Label>
             Клиент
-            <NativeSelect
+            <SelectField
               aria-label="Фильтр клиента"
               value={client}
-              onChange={(e) => {
+              onValueChange={(value) => {
                 reset();
-                setClient(e.target.value);
+                setClient(value);
               }}
             >
-              <option value="">Все источники</option>
+              <SelectItem value=":empty:">Все источники</SelectItem>
               {clients.map((c, i) => (
-                <option key={`${c.id}-${i}`} value={c.id}>
+                <SelectItem key={`${c.id}-${i}`} value={c.id}>
                   {c.name}
-                </option>
+                </SelectItem>
               ))}
-            </NativeSelect>
-          </label>
-          <label>
+            </SelectField>
+          </Label>
+          <Label>
             IP источника
             <Input
               value={eventInput.source_ip}
@@ -280,8 +285,8 @@ export function DiagnosticsPanel({
                 setEventInput({ ...eventInput, source_ip: e.target.value })
               }
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Домен / назначение
             <Input
               value={eventInput.destination}
@@ -291,17 +296,17 @@ export function DiagnosticsPanel({
                 setEventInput({ ...eventInput, destination: e.target.value })
               }
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Метод
-            <NativeSelect
+            <SelectField
               aria-label="Метод"
               value={eventInput.method}
-              onChange={(e) =>
-                setEventInput({ ...eventInput, method: e.target.value })
+              onValueChange={(value) =>
+                setEventInput({ ...eventInput, method: value })
               }
             >
-              <option value="">Все методы</option>
+              <SelectItem value=":empty:">Все методы</SelectItem>
               {[
                 "GET",
                 "HEAD",
@@ -312,11 +317,13 @@ export function DiagnosticsPanel({
                 "OPTIONS",
                 "PATCH",
               ].map((v) => (
-                <option key={v}>{v}</option>
+                <SelectItem key={v} value={v}>
+                  {v}
+                </SelectItem>
               ))}
-            </NativeSelect>
-          </label>
-          <label>
+            </SelectField>
+          </Label>
+          <Label>
             Результат прокси
             <Input
               value={eventInput.result}
@@ -326,8 +333,8 @@ export function DiagnosticsPanel({
                 setEventInput({ ...eventInput, result: e.target.value })
               }
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             С
             <Input
               type="datetime-local"
@@ -337,8 +344,8 @@ export function DiagnosticsPanel({
                 setEventInput({ ...eventInput, from: e.target.value })
               }
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             До
             <Input
               type="datetime-local"
@@ -348,19 +355,20 @@ export function DiagnosticsPanel({
                 setEventInput({ ...eventInput, to: e.target.value })
               }
             />
-          </label>
+          </Label>
           <div className="event-filter-actions">
-            <label className="checkbox">
-              <Input
-                type="checkbox"
+            <Label className="checkbox">
+              <Checkbox
+                aria-label="Только отказы"
+
                 checked={failures}
-                onChange={(e) => {
+                onCheckedChange={(checked) => {
                   reset();
-                  setFailures(e.target.checked);
+                  setFailures(checked === true);
                 }}
               />
               Только отказы
-            </label>
+            </Label>
             <Button type="submit" disabled={loading}>
               Применить фильтры
             </Button>
@@ -388,7 +396,7 @@ export function DiagnosticsPanel({
             setFilters({ actor, action });
           }}
         >
-          <label>
+          <Label>
             Участник
             <Input
               aria-label="Участник аудита"
@@ -397,22 +405,22 @@ export function DiagnosticsPanel({
               onChange={(e) => setActor(e.target.value)}
               placeholder="Точное имя или IP"
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Действие
-            <NativeSelect
+            <SelectField
               aria-label="Действие аудита"
               value={action}
-              onChange={(e) => setAction(e.target.value)}
+              onValueChange={(value) => setAction(value)}
             >
-              <option value="">Все действия</option>
+              <SelectItem value=":empty:">Все действия</SelectItem>
               {Object.entries(actions).map(([value, label]) => (
-                <option key={value} value={value}>
+                <SelectItem key={value} value={value}>
                   {label}
-                </option>
+                </SelectItem>
               ))}
-            </NativeSelect>
-          </label>
+            </SelectField>
+          </Label>
           <Button type="submit" variant="outline">
             Применить фильтры
           </Button>
@@ -421,9 +429,9 @@ export function DiagnosticsPanel({
       <div className="diagnostic-state" aria-live="polite">
         {clientError && <p>{clientError}</p>}
         {error ? (
-          <p className="error" role="alert">
+          <Alert variant="destructive" className="error" role="alert">
             {error}. Показанные записи могут быть устаревшими.
-          </p>
+          </Alert>
         ) : (
           <span>
             {loading ? "Обновляем…" : `Обновлено ${receivedAt || "—"}`}
@@ -525,20 +533,20 @@ export function DiagnosticsPanel({
               : "Обновление каждые 10 секунд"}
         </span>
         <div className="actions">
-          <NativeSelect
+          <SelectField
             aria-label="Записей на странице"
             value={limit}
-            onChange={(e) => {
+            onValueChange={(value) => {
               reset();
-              setLimit(e.target.value);
+              setLimit(value);
             }}
           >
             {[25, 50, 100, 200].map((n) => (
-              <option key={n} value={n}>
+              <SelectItem key={n} value={String(n)}>
                 {n} на странице
-              </option>
+              </SelectItem>
             ))}
-          </NativeSelect>
+          </SelectField>
           <Button variant="ghost" onClick={() => setPaused((v) => !v)}>
             {paused ? "Продолжить" : "Пауза"}
           </Button>
@@ -568,6 +576,6 @@ export function DiagnosticsPanel({
           </Button>
         </div>
       </div>
-    </section>
+    </Panel>
   );
 }

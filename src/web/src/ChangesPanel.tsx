@@ -1,3 +1,6 @@
+import { Alert } from "@/components/ui/alert";
+import { Disclosure } from "./components/Disclosure";
+import { Panel } from "./components/Panel";
 import { useEffect, useState } from "react";
 import { EntityDialog } from "./components/EntityDialog";
 import { Button } from "@/components/ui/button";
@@ -56,7 +59,7 @@ export function ChangesPanel({
     ["pending", "validating", "reloading"].includes(operation.status);
   return (
     <>
-      <section className="section changes-review" aria-busy={busy}>
+      <Panel className="section changes-review" aria-busy={busy}>
         <div className="section-head">
           <div>
             <h2>
@@ -151,18 +154,20 @@ export function ChangesPanel({
               </div>
             )}
             {blocked && (
-              <p className="error">
+              <Alert variant="destructive" className="error">
                 Применение заблокировано: требуется восстановление рабочего
                 состояния Squid.
-              </p>
+              </Alert>
             )}
           </>
         )}
         {preview && (
-          <details className="full-config">
-            <summary>Полный итоговый squid.conf</summary>
+          <Disclosure
+            className="full-config"
+            title={<> Полный итоговый squid.conf </>}
+          >
             <pre>{preview.generated_config}</pre>
-          </details>
+          </Disclosure>
         )}
         {operation && operation.status !== "validated" && (
           <div className="operation" role="status">
@@ -176,7 +181,7 @@ export function ChangesPanel({
             )}
           </div>
         )}
-      </section>
+      </Panel>
       <EntityDialog
         open={confirm}
         onOpenChange={setConfirm}
@@ -202,7 +207,7 @@ export function ChangesPanel({
           Уже открытые CONNECT-туннели могут работать до закрытия соединения.
         </p>
       </EntityDialog>
-      <section className="section">
+      <Panel className="section">
         <div className="section-head">
           <h2>История ревизий</h2>
         </div>
@@ -245,7 +250,7 @@ export function ChangesPanel({
           </TableBody>
         </Table>
         {!history.length && <p className="empty">Ревизий пока нет.</p>}
-      </section>
+      </Panel>
     </>
   );
 }

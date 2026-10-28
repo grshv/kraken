@@ -83,8 +83,13 @@ func TestActivityReadsConfirmedPolicyAndDoesNotExposeCheckpoint(t *testing.T) {
 			t.Fatal("internal data exposed")
 		}
 	}
-	if w := request(h, "GET", "/activity?minutes=1440", nil, cookie, "", ""); w.Code != 400 {
+	if w := request(h, "GET", "/activity?minutes=7", nil, cookie, "", ""); w.Code != 400 {
 		t.Fatal(w.Code)
+	}
+	for _, window := range []string{"15", "60", "1440", "10080", "43200"} {
+		if w := request(h, "GET", "/activity?minutes="+window, nil, cookie, "", ""); w.Code != 200 {
+			t.Fatal(window, w.Code)
+		}
 	}
 	if w := request(h, "GET", "/activity", nil, nil, "", ""); w.Code != 401 {
 		t.Fatal(w.Code)

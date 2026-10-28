@@ -1,3 +1,7 @@
+import { Label } from "@/components/ui/label";
+import { Alert } from "@/components/ui/alert";
+import { Disclosure } from "./components/Disclosure";
+import { Panel } from "./components/Panel";
 import { useOperationRecovery, operationPending } from "./useOperationRecovery";
 import { DestinationList } from "./DestinationList";
 import { ChangesPanel } from "./ChangesPanel";
@@ -18,7 +22,8 @@ import "./theme.css";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { NativeSelect } from "@/components/ui/native-select";
+import { SelectField } from "./components/SelectField";
+import { SelectItem } from "@/components/ui/select";
 import { Table } from "@/components/ui/table";
 import { TableHeader } from "@/components/ui/table";
 import { TableBody } from "@/components/ui/table";
@@ -493,11 +498,11 @@ function App() {
   if (fatal)
     return (
       <main className="login-wrap">
-        <section className="login">
+        <Panel className="login">
           <h1>Панель недоступна</h1>
           <p role="alert">{fatal}</p>
           <Button onClick={() => location.reload()}>Повторить</Button>
-        </section>
+        </Panel>
       </main>
     );
   if (!session)
@@ -509,10 +514,10 @@ function App() {
   if (!session.authenticated)
     return (
       <main className="login-wrap">
-        <section className="login">
+        <Panel className="login">
           <h1>Панель управления</h1>
           <form onSubmit={login}>
-            <label>
+            <Label>
               Имя пользователя
               <Input
                 name="username"
@@ -520,8 +525,8 @@ function App() {
                 required
                 autoFocus
               />
-            </label>
-            <label>
+            </Label>
+            <Label>
               Пароль
               <Input
                 name="password"
@@ -529,20 +534,20 @@ function App() {
                 autoComplete="current-password"
                 required
               />
-            </label>
+            </Label>
             {connectionError && (
-              <p className="error" role="alert">
+              <Alert variant="destructive" className="error" role="alert">
                 Нет связи с панелью. Повторяем подключение…
-              </p>
+              </Alert>
             )}
             {error && (
-              <p className="error" role="alert">
+              <Alert variant="destructive" className="error" role="alert">
                 {error}
-              </p>
+              </Alert>
             )}
             <Button disabled={busy}>{busy ? "Вход…" : "Войти в панель"}</Button>
           </form>
-        </section>
+        </Panel>
       </main>
     );
   const snap = draft?.snapshot;
@@ -580,32 +585,32 @@ function App() {
           )}
         </div>
         {connectionError && (
-          <div className="error" role="alert">
+          <Alert variant="destructive" className="error" role="alert">
             Нет связи с панелью. Повторяем подключение…
-          </div>
+          </Alert>
         )}
         {error && !showForm && (
-          <div className="error" role="alert">
+          <Alert variant="destructive" className="error" role="alert">
             <span>{error}</span>
             <Button variant="ghost" onClick={() => setError("")}>
               Закрыть
             </Button>
-          </div>
+          </Alert>
         )}
         {status?.runtime.state === "degraded" && (
-          <p className="error" role="alert">
+          <Alert variant="destructive" className="error" role="alert">
             Применение заблокировано: требуется восстановление состояния.
-          </p>
+          </Alert>
         )}
         {canConfigure &&
           page !== "Изменения" &&
           status?.has_unapplied_changes && (
-            <div className="pending-banner">
+            <Alert className="pending-banner">
               <span>Есть неприменённые изменения</span>
               <Button variant="ghost" disabled={busy} onClick={freeze}>
                 Посмотреть изменения
               </Button>
-            </div>
+            </Alert>
           )}
         {page === "Обзор" && (
           <OverviewPanel
@@ -625,7 +630,7 @@ function App() {
           />
         )}
         {page === "Клиенты" && canConfigure && (
-          <section className="section">
+          <Panel className="section">
             <div className="section-head">
               <h2>Правила доступа</h2>
               <Button
@@ -638,9 +643,9 @@ function App() {
               </Button>
             </div>
             {snap?.configuration_mode === "expert" && (
-              <p className="notice">
+              <Alert className="notice">
                 Экспертный режим: визуальные правила клиентов не действуют.
-              </p>
+              </Alert>
             )}
             <div className="table-wrap">
               <Table>
@@ -735,7 +740,7 @@ function App() {
                 Добавьте клиента, чтобы разрешить ему доступ.
               </p>
             )}
-          </section>
+          </Panel>
         )}
         {page === "Настройки" && draft && canConfigure && (
           <SettingsPanel
@@ -814,7 +819,7 @@ function App() {
         submitLabel="Сохранить черновик"
       >
         <div className="form-grid">
-          <label>
+          <Label>
             Название
             <Input
               aria-label="Название"
@@ -824,20 +829,21 @@ function App() {
               maxLength={128}
               autoFocus
             />
-          </label>
-          <label>
+          </Label>
+          <Label>
             Тип клиента
-            <NativeSelect
+            <SelectField
+              aria-label="Тип клиента"
               value={kind}
-              onChange={(e) => setKind(e.target.value as typeof kind)}
+              onValueChange={(value) => setKind(value as typeof kind)}
             >
-              <option value="host">Устройство</option>
-              <option value="network">Сеть</option>
-              <option value="group">Группа адресов</option>
-            </NativeSelect>
-          </label>
+              <SelectItem value="host">Устройство</SelectItem>
+              <SelectItem value="network">Сеть</SelectItem>
+              <SelectItem value="group">Группа адресов</SelectItem>
+            </SelectField>
+          </Label>
         </div>
-        <label>
+        <Label>
           IP / CIDR
           <Textarea
             aria-label="IP / CIDR"
@@ -847,20 +853,22 @@ function App() {
             rows={2}
             placeholder="192.0.2.11 или 192.0.2.0/24"
           />
-        </label>
-        <label>
+        </Label>
+        <Label>
           Режим доступа
-          <NativeSelect
+          <SelectField
             aria-label="Режим доступа"
             value={mode}
-            onChange={(e) => setMode(e.target.value as typeof mode)}
+            onValueChange={(value) => setMode(value as typeof mode)}
           >
-            <option value="allowlist">Только разрешённые ресурсы</option>
-            <option value="all_web">Весь внешний HTTP/HTTPS</option>
-          </NativeSelect>
-        </label>
+            <SelectItem value="allowlist">
+              Только разрешённые ресурсы
+            </SelectItem>
+            <SelectItem value="all_web">Весь внешний HTTP/HTTPS</SelectItem>
+          </SelectField>
+        </Label>
         {mode === "allowlist" && (
-          <label>
+          <Label>
             Разрешённые домены
             <Textarea
               aria-label="Разрешённые домены"
@@ -872,22 +880,22 @@ function App() {
             <small>
               По одному на строку. Точка в начале включает поддомены.
             </small>
-          </label>
+          </Label>
         )}
         <div className="form-grid">
-          <label>
+          <Label>
             Подключение к прокси
-            <NativeSelect
+            <SelectField
               aria-label="Подключение к прокси"
               value={transport}
-              onChange={(e) => {
-                setTransport(e.target.value);
+              onValueChange={(value) => {
+                setTransport(value);
               }}
             >
-              <option value="http" disabled={!!proxyUsername}>
+              <SelectItem value="http" disabled={!!proxyUsername}>
                 HTTP
-              </option>
-              <option
+              </SelectItem>
+              <SelectItem
                 value="tls"
                 disabled={
                   !status?.capabilities.includes("tls_proxy_configured")
@@ -897,44 +905,43 @@ function App() {
                 {status?.capabilities.includes("tls_proxy_configured")
                   ? ""
                   : " — сертификат не настроен"}
-              </option>
-            </NativeSelect>
-          </label>
-          <label>
+              </SelectItem>
+            </SelectField>
+          </Label>
+          <Label>
             Логин прокси
-            <NativeSelect
+            <SelectField
               aria-label="Логин прокси"
               value={proxyUsername}
-              onChange={(e) => {
-                setProxyUsername(e.target.value);
-                if (e.target.value) setTransport("tls");
+              onValueChange={(value) => {
+                setProxyUsername(value);
+                if (value) setTransport("tls");
               }}
               disabled={!status?.capabilities.includes("tls_proxy_configured")}
             >
-              <option value="">Без пароля, по IP</option>
+              <SelectItem value=":empty:">Без пароля, по IP</SelectItem>
               {proxyAccounts.map((a) => (
-                <option
+                <SelectItem
                   key={a.username}
                   value={a.username}
                   disabled={!a.enabled}
                 >
                   {a.username}
                   {a.enabled ? "" : " — заблокирован"}
-                </option>
+                </SelectItem>
               ))}
               {proxyUsername &&
                 !proxyAccounts.some((a) => a.username === proxyUsername) && (
-                  <option value={proxyUsername}>{proxyUsername}</option>
+                  <SelectItem value={proxyUsername}>{proxyUsername}</SelectItem>
                 )}
-            </NativeSelect>
+            </SelectField>
             {!status?.capabilities.includes("tls_proxy_configured") && (
               <small>Для логина нужен TLS-сертификат прокси.</small>
             )}
-          </label>
+          </Label>
         </div>
-        <details>
-          <summary>Описание</summary>
-          <label>
+        <Disclosure title={<> Описание </>}>
+          <Label>
             <span className="sr-only">Описание</span>
             <Input
               aria-label="Описание"
@@ -942,8 +949,8 @@ function App() {
               onChange={(e) => setDescription(e.target.value)}
               maxLength={1024}
             />
-          </label>
-        </details>
+          </Label>
+        </Disclosure>
       </EntityDialog>
       <Dialog
         open={pendingNavigation !== null}

@@ -1,5 +1,10 @@
+import { CardHeader, CardTitle } from "@/components/ui/card";
+import { Alert } from "@/components/ui/alert";
+import { Disclosure } from "./components/Disclosure";
+import { Panel } from "./components/Panel";
 import { Button } from "@/components/ui/button";
-import { NativeSelect } from "@/components/ui/native-select";
+import { SelectField } from "./components/SelectField";
+import { SelectItem } from "@/components/ui/select";
 import {
   Table,
   TableHeader,
@@ -37,8 +42,16 @@ function bytes(value: number | null | undefined) {
   }
   return `${number(n, i ? 1 : 0)} ${units[i]}`;
 }
-function time(value: string | null | undefined) {
-  return value ? new Date(value).toLocaleTimeString("ru-RU") : "—";
+function time(value: string | null | undefined, includeDate = false) {
+  if (!value) return "—";
+  return includeDate
+    ? new Date(value).toLocaleString("ru-RU", {
+        day: "numeric",
+        month: "short",
+        hour: "2-digit",
+        minute: "2-digit",
+      })
+    : new Date(value).toLocaleTimeString("ru-RU");
 }
 function age(value: number | null | undefined) {
   if (value == null) return "—";
@@ -98,22 +111,27 @@ export function OverviewPanel({
   const period = { from: data?.from, to: data?.to };
   return (
     <>
-      <section
+      <Panel
         className="section operational-state"
         aria-label="Состояние прокси"
       >
-        <div className="operational-status">
+        <CardHeader className="operational-card-header">
           <div className="actions">
-            <strong>Squid {metrics?.squid_version ?? ""}</strong>
+            <CardTitle>
+              <h2>Состояние прокси</h2>
+            </CardTitle>
             <StatusBadge
               value={stale ? "unknown" : status?.squid.state || "unknown"}
             />
           </div>
+          <span className="subtle">Обновлено {time(metrics?.observed_at)}</span>
+        </CardHeader>
+        <div className="operational-status">
+          <strong>Squid {metrics?.squid_version ?? ""}</strong>
           <span>В работе {age(metrics?.uptime_seconds)}</span>
           <span>
             Запросов сейчас <strong>{number(metrics?.active_requests)}</strong>
           </span>
-          <span className="subtle">Обновлено {time(metrics?.observed_at)}</span>
         </div>
         <div className="applied-access">
           <div>
@@ -146,32 +164,41 @@ export function OverviewPanel({
             правила.
           </p>
         ) : null}
-      </section>
+      </Panel>
       {error && (
-        <p className="notice" role="alert">
+        <Alert className="notice" role="alert">
           {error}
-        </p>
+        </Alert>
       )}
-      <section
+      <Panel
         className="section operational-activity"
         aria-label="Диагностика доступа"
       >
-        <div className="section-head">
-          <h2>Отказы и ошибки</h2>
+        <CardHeader className="section-head operational-card-header">
+          <CardTitle>
+            <h2>Диагностика доступа</h2>
+          </CardTitle>
           <div className="actions">
-            <NativeSelect
+            <SelectField
               aria-label="Период активности"
               value={minutes}
-              onChange={(e) => onMinutes(e.target.value)}
+              onValueChange={(value) => onMinutes(value)}
             >
-              <option value="15">За 15 минут</option>
-              <option value="60">За час</option>
-            </NativeSelect>
+              <SelectItem value="15">За 15 минут</SelectItem>
+              <SelectItem value="60">За час</SelectItem>
+              <SelectItem value="1440">За день</SelectItem>
+              <SelectItem value="10080">За неделю</SelectItem>
+              <SelectItem value="43200">За месяц</SelectItem>
+            </SelectField>
             <Button variant="ghost" onClick={() => onEvents(true, period)}>
               Журнал
             </Button>
           </div>
+        </CardHeader>
+        <div className="activity-group-title">
+          <h3>Отказы и ошибки</h3>
         </div>
+
         {!data ? (
           <p className="overview-empty">Загрузка обращений…</p>
         ) : !data.issues.length ? (
@@ -213,7 +240,9 @@ export function OverviewPanel({
                     </small>
                   </TableCell>
                   <TableCell>{number(item.count)}</TableCell>
-                  <TableCell>{time(item.last_seen)}</TableCell>
+                  <TableCell>
+                    {time(item.last_seen, Number(minutes) >= 1440)}
+                  </TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
@@ -240,7 +269,7 @@ export function OverviewPanel({
           </p>
         )}
         <div className="section-head activity-subhead">
-          <h2>Кто использует прокси</h2>
+          <h3>Кто использует прокси</h3>
           <span className="subtle">Завершённые обращения за тот же период</span>
         </div>
         {!data ? (
@@ -284,7 +313,9 @@ export function OverviewPanel({
                     {number(item.errors)}
                   </TableCell>
                   <TableCell>{bytes(item.bytes_observed)}</TableCell>
-                  <TableCell>{time(item.last_seen)}</TableCell>
+                  <TableCell>
+                    {time(item.last_seen, Number(minutes) >= 1440)}
+                  </TableCell>
                   <TableCell>
                     <Button
                       variant="ghost"
@@ -317,9 +348,11 @@ export function OverviewPanel({
               : ""}
           </p>
         )}
-      </section>
-      <details className="squid-technical">
-        <summary>Технические показатели Squid</summary>
+      </Panel>
+      <Disclosure
+        className="squid-technical"
+        title={<> Технические показатели Squid </>}
+      >
         <dl className="technical-values">
           <div>
             <dt>CPU, среднее за 5 минут</dt>
@@ -356,7 +389,7 @@ export function OverviewPanel({
             </dd>
           </div>
         </dl>
-      </details>
+      </Disclosure>
     </>
   );
 }

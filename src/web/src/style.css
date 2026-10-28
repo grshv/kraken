@@ -1,8 +1,10 @@
 @import "@fontsource/inter/400.css";
 @import "@fontsource/inter/500.css";
 @import "@fontsource/inter/600.css";
-@import "@fontsource/ibm-plex-mono/400.css";
 :root {
+  --type-body: 14px;
+  --type-section: 14px;
+  --type-page: 16px;
   font-family: "Inter", sans-serif;
   font-synthesis: none;
 }
@@ -36,21 +38,21 @@ strong {
   font-weight: 600;
 }
 h3 {
-  font-size: 14px;
+  font-size: var(--type-body);
 }
 small,
 .subtle {
   color: var(--muted-foreground);
 }
 small {
-  font-size: 12px;
+  font-size: var(--type-body);
   line-height: 1.5;
 }
 .mono,
 code,
 pre {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 12px;
+  font-family: "Inter", sans-serif;
+  font-size: var(--type-body);
   font-variant-numeric: tabular-nums;
 }
 .actions {
@@ -68,8 +70,6 @@ pre {
   gap: 16px;
 }
 .section {
-  background: var(--card);
-  border: 1px solid var(--border);
   margin-bottom: 24px;
   overflow: hidden;
 }
@@ -78,13 +78,13 @@ pre {
 }
 .section-head p {
   margin-top: 4px;
-  font-size: 12px;
+  font-size: var(--type-body);
   color: var(--muted-foreground);
 }
 .section-footer {
   border-top: 1px solid var(--border);
   padding: 16px 24px;
-  font-size: 12px;
+  font-size: var(--type-body);
   color: var(--muted-foreground);
 }
 .table-wrap {
@@ -113,7 +113,7 @@ pre {
   padding: 40px 24px;
   color: var(--muted-foreground);
   text-align: center;
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 .client-state {
   display: inline-flex;
@@ -138,7 +138,7 @@ pre {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  font-size: 12px;
+  font-size: var(--type-body);
   white-space: nowrap;
 }
 .pill i {
@@ -153,7 +153,7 @@ pre {
 
 .status-time {
   margin-left: auto;
-  font-size: 12px;
+  font-size: var(--type-body);
   color: var(--muted-foreground);
 }
 
@@ -164,7 +164,7 @@ pre {
   border-radius: 8px;
   padding: 12px 16px;
   margin-bottom: 20px;
-  font-size: 13px;
+  font-size: var(--type-body);
   overflow-wrap: anywhere;
 }
 .pending-banner {
@@ -197,14 +197,14 @@ pre {
 .inline-note {
   margin: 0 24px 20px;
   max-width: 80ch;
-  font-size: 12px;
+  font-size: var(--type-body);
   color: var(--muted-foreground);
 }
 label {
   display: grid;
   align-content: start;
   gap: 6px;
-  font-size: 13px;
+  font-size: var(--type-body);
   font-weight: 500;
 }
 label small {
@@ -219,7 +219,7 @@ textarea {
   gap: 8px;
   font-weight: 400;
 }
-.checkbox input {
+.checkbox [data-slot="checkbox"] {
   width: 16px;
   height: 16px;
   min-height: 16px;
@@ -257,8 +257,8 @@ textarea {
   margin: 22px 0 14px;
 }
 .config-editor {
-  font-family: "IBM Plex Mono", monospace;
-  font-size: 12px;
+  font-family: "Inter", sans-serif;
+  font-size: var(--type-body);
   min-height: 320px;
   background: var(--background);
 }
@@ -274,28 +274,28 @@ textarea {
 .account-form > .actions {
   grid-column: 1/-1;
 }
-details {
+.disclosure {
   margin: 0 24px 20px;
-  font-size: 13px;
+  font-size: var(--type-body);
 }
-summary {
+.disclosure-trigger {
   cursor: pointer;
   color: var(--muted-foreground);
   font-weight: 500;
   padding: 10px 0;
 }
-summary:hover {
+.disclosure-trigger:hover {
   color: var(--primary);
 }
-summary:focus-visible {
+.disclosure-trigger:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 3px;
 }
-details small {
+.disclosure small {
   display: block;
   overflow-wrap: anywhere;
 }
-details > pre,
+.disclosure-content > pre,
 pre.config-diff {
   padding: 18px 20px;
   background: var(--background);
@@ -324,7 +324,7 @@ pre.config-diff {
 .change-summary {
   margin: 0;
   padding: 0 24px 20px 40px;
-  font-size: 13px;
+  font-size: var(--type-body);
   list-style: disc;
 }
 .change-summary li + li {
@@ -341,7 +341,7 @@ pre.config-diff {
 .findings {
   margin: 0;
   padding-left: 20px;
-  font-size: 12px;
+  font-size: var(--type-body);
 }
 .diagnostic-filters {
   display: flex;
@@ -363,7 +363,7 @@ pre.config-diff {
   align-items: center;
   gap: 12px;
   padding: 0 24px 16px;
-  font-size: 12px;
+  font-size: var(--type-body);
   color: var(--muted-foreground);
 }
 .diagnostic-state .error {
@@ -379,7 +379,7 @@ pre.config-diff {
   padding: 14px 24px;
   border-top: 1px solid var(--border);
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--type-body);
 }
 .login-wrap {
   min-height: 100dvh;
@@ -392,7 +392,7 @@ pre.config-diff {
   width: 100%;
 }
 .login h1 {
-  font-size: 24px;
+  font-size: var(--type-page);
   margin-bottom: 28px;
 }
 .login form {
@@ -450,7 +450,7 @@ pre.config-diff {
   .section > .notice,
   .section > .error,
   .inline-note,
-  details {
+  .disclosure {
     margin-inline: 16px;
   }
   .login {
@@ -459,7 +459,7 @@ pre.config-diff {
 }
 /* Layout around shadcn primitives; shared component states live in components/ui. */
 body {
-  font-size: 14px;
+  font-size: var(--type-body);
   color: var(--foreground);
   background: var(--background);
 }
@@ -469,12 +469,12 @@ body {
   padding: 32px;
 }
 h1 {
-  font-size: 24px;
-  letter-spacing: -0.035em;
+  font-size: var(--type-page);
+  letter-spacing: normal;
 }
 h2 {
-  font-size: 16px;
-  letter-spacing: -0.02em;
+  font-size: var(--type-section);
+  letter-spacing: normal;
 }
 
 [data-slot="sidebar-menu-button"] {
@@ -486,12 +486,12 @@ h2 {
   font-weight: 500;
 }
 [data-slot="sidebar-group-label"] {
-  font-size: 11px;
+  font-size: var(--type-body);
   font-weight: 500;
   margin-bottom: 4px;
   color: var(--muted-foreground);
 }
-[data-slot="native-select-wrapper"] {
+[data-slot="select-field"] {
   width: 100%;
 }
 [data-slot="button"] {
@@ -500,7 +500,7 @@ h2 {
 [data-slot="table-head"] {
   padding-inline: 20px;
   background: var(--secondary);
-  font-size: 12px;
+  font-size: var(--type-body);
   font-weight: 500;
 }
 [data-slot="table-cell"] {
@@ -513,20 +513,15 @@ h2 {
   text-align: left;
 }
 [data-slot="input"],
-[data-slot="native-select"],
+[data-slot="select-trigger"],
 [data-slot="textarea"] {
   background: var(--card);
   font-weight: 400;
 }
-.checkbox input {
+.checkbox [data-slot="checkbox"] {
   width: 16px;
   height: 16px;
   min-height: 16px;
-}
-.section {
-  border-color: var(--border);
-  border-radius: 10px;
-  box-shadow: 0 1px 2px #0f172a04;
 }
 .page-title {
   margin-bottom: 24px;
@@ -600,7 +595,7 @@ h2 {
   gap: 8px;
   font-weight: 400;
 }
-.setting-toggle input {
+.setting-toggle [data-slot="checkbox"] {
   width: 16px;
   height: 16px;
   min-height: 16px;
@@ -635,8 +630,12 @@ h2 {
   height: 64px;
 }
 [data-collapsible="icon"] .sidebar-brand-row {
-  padding-inline: 8px;
-  justify-content: center;
+  padding-inline: 12px;
+  justify-content: flex-start;
+}
+[data-collapsible="icon"] [data-slot="sidebar-trigger"] {
+  width: 32px;
+  height: 32px;
 }
 .sidebar-footer {
   padding: 16px 20px;
@@ -658,9 +657,9 @@ h2 {
 }
 .runtime-update {
   padding: 0 24px 20px;
-  font-size: 13px;
+  font-size: var(--type-body);
 }
-.entity-dialog details {
+.entity-dialog .disclosure {
   margin: 0;
 }
 .entity-dialog [data-slot="dialog-header"] {
@@ -687,7 +686,7 @@ h2 {
 }
 
 .panel-title {
-  font-size: 14px;
+  font-size: var(--type-body);
   font-weight: 400;
   color: var(--sidebar-foreground);
 }
@@ -695,14 +694,14 @@ h2 {
 .overview-empty {
   padding: 8px 24px 24px;
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 @media (max-width: 767px) {
   .overview-empty {
     padding-inline: 16px;
   }
   [data-slot="input"],
-  [data-slot="native-select"] {
+  [data-slot="select-trigger"] {
     min-height: 44px;
   }
   .diagnostic-filters > .checkbox {
@@ -713,7 +712,7 @@ h2 {
 .review-source {
   margin: 6px 0 0;
   color: var(--muted-foreground);
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 .diff-toolbar {
   display: flex;
@@ -721,7 +720,7 @@ h2 {
   padding: 10px 24px;
   border-top: 1px solid var(--border);
   background: var(--muted);
-  font-size: 13px;
+  font-size: var(--type-body);
   font-variant-numeric: tabular-nums;
 }
 .diff-added {
@@ -775,11 +774,11 @@ h2 {
 }
 .domain-list small {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--type-body);
 }
-.domain-list summary {
+.domain-list .disclosure-trigger {
   color: var(--primary);
-  font-size: 12px;
+  font-size: var(--type-body);
   cursor: pointer;
   padding: 4px 0;
 }
@@ -829,11 +828,11 @@ h2 {
     flex-wrap: wrap;
   }
 }
-.domain-list details {
+.domain-list .disclosure {
   margin: 0;
 }
 
-.diagnostic-pagination .actions > [data-slot="native-select-wrapper"] {
+.diagnostic-pagination .actions > [data-slot="select-field"] {
   width: 145px;
   flex: 0 0 145px;
 }
@@ -847,7 +846,7 @@ h2 {
   align-items: center;
   gap: 14px 28px;
   padding: 16px 24px;
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 .operational-status > .subtle {
   margin-left: auto;
@@ -859,7 +858,7 @@ h2 {
   gap: 16px;
   border-top: 1px solid var(--border);
   padding: 14px 24px;
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 .applied-access p {
   margin: 4px 0 0;
@@ -871,18 +870,18 @@ h2 {
 .operational-activity td {
   padding-block: 10px;
 }
-.operational-activity [data-slot="native-select-wrapper"] {
+.operational-activity [data-slot="select-field"] {
   width: 150px;
 }
 .activity-subhead {
   border-top: 1px solid var(--border);
 }
 .activity-subhead > span {
-  font-size: 12px;
+  font-size: var(--type-body);
 }
 .squid-technical {
   margin: 0;
-  font-size: 13px;
+  font-size: var(--type-body);
 }
 .technical-values {
   display: flex;
@@ -892,7 +891,7 @@ h2 {
 }
 .technical-values dt {
   color: var(--muted-foreground);
-  font-size: 12px;
+  font-size: var(--type-body);
 }
 .technical-values dd {
   margin: 4px 0 0;
@@ -917,5 +916,58 @@ h2 {
   .operational-activity .section-head > .actions {
     width: 100%;
     justify-content: space-between;
+  }
+}
+
+.app-panel {
+  padding: 0;
+  gap: 0;
+}
+.app-panel.login {
+  padding: 32px;
+}
+.disclosure-trigger {
+  height: auto;
+  min-height: 36px;
+  padding: 8px 0;
+  white-space: normal;
+  text-align: left;
+}
+.disclosure[data-state="open"] > .disclosure-trigger > svg {
+  transform: rotate(180deg);
+}
+
+.operational-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+}
+.operational-card-header h2 {
+  font-size: var(--type-page);
+  line-height: 1.5;
+}
+.operational-card-header > .subtle {
+  font-size: var(--type-body);
+}
+.applied-access strong {
+  font-weight: 500;
+}
+.activity-group-title {
+  padding: 14px 24px;
+}
+.activity-group-title h3,
+.activity-subhead h3 {
+  font-size: var(--type-body);
+}
+@media (max-width: 700px) {
+  .operational-card-header {
+    padding: 14px 16px;
+    flex-wrap: wrap;
+  }
+  .activity-group-title {
+    padding-inline: 16px;
   }
 }

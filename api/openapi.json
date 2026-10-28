@@ -618,7 +618,7 @@
             }
           }
         ],
-        "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Seven days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic. Available to admin and viewer."
+        "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Thirty days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic. Available to admin and viewer."
       }
     },
     "/certificates": {
@@ -1208,7 +1208,7 @@
             "description": "Statistics unavailable; never fake zero counters on storage error"
           }
         },
-        "description": "Admin/viewer read-only operational view over retained completed access-log events in [from,to). minutes=15 or 60 (default). Sources grouped by IP and proxy username; issues additionally by sanitized destination and exact Squid result. Denied means DENIED; errors count other >=400/FAIL/ABORTED results. At most 10 rows per group, sorted by frequency; totals expose omissions. No inference of client availability, matched ACL or live tunnel contents. Applied policy counts come from confirmed runtime manifest, never draft. Ingestion exposes public quality fields only. 503 on storage error.",
+        "description": "Admin/viewer read-only operational view over retained completed access-log events in [from,to). minutes=15, 60 (default), 1440 (day), 10080 (week) or 43200 (rolling 30 days). Sources grouped by IP and proxy username; issues additionally by sanitized destination and exact Squid result. Denied means DENIED; errors count other >=400/FAIL/ABORTED results. At most 10 rows per group, sorted by frequency; totals expose omissions. No inference of client availability, matched ACL or live tunnel contents. Applied policy counts come from confirmed runtime manifest, never draft. Ingestion exposes public quality fields only. 503 on storage error.",
         "parameters": [
           {
             "name": "minutes",
@@ -1217,7 +1217,10 @@
               "type": "integer",
               "enum": [
                 15,
-                60
+                60,
+                1440,
+                10080,
+                43200
               ],
               "default": 60
             }

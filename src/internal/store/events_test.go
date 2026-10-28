@@ -207,3 +207,22 @@ func TestEventFiltersPrecedePaginationAndBindCursor(t *testing.T) {
 		t.Fatal("exclusive upper time boundary", p, e)
 	}
 }
+
+func TestThirtyDayRetentionKeepsMonthHistory(t *testing.T) {
+	s := eventStore(t)
+	if err := s.SaveEvents([]events.Event{sample("keep"), sample("expire")}, events.Checkpoint{}); err != nil {
+		t.Fatal(err)
+	}
+	for id, days := range map[string]int{"keep": 29, "expire": 31} {
+		if _, err := s.DB.Exec("UPDATE proxy_events SET ingested_at=? WHERE event_id=?", time.Now().Add(-time.Duration(days)*24*time.Hour).Unix(), id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SaveEvents(nil, events.Checkpoint{}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.EventPage(EventQuery{Limit: 20})
+	if err != nil || len(got.Items) != 1 || got.Items[0].ID != "keep" {
+		t.Fatal(got, err)
+	}
+}
