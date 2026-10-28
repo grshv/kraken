@@ -144,3 +144,7 @@ idle manager polling и открытом CONNECT; наружный manager403; n
 Ограничения: rates отражают интервал Squid до5мин и могут отсутствовать сразу
 после запуска; peak RSS не current RSS; telemetry содержит origin traffic, а не
 скрытые HTTP-запросы внутри HTTPS. Это не обещание видеть расшифрованный трафик.
+
+Локальное обновление этого этапа также завершено: service-update succeeded,
+confirmed policy до/после совпадает в journal, live canary подтверждён. Панель и
+актуальный bundle отвечают200, public manager403; volume/пароль сохранены.

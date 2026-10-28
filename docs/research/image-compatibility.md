@@ -210,3 +210,10 @@ DOM coordinates и screenshots. Обзор без пустого графика:
 компактная history сводка и последние ошибки с рабочим drilldown.
 `make check`, `make image`, полный real-image smoke и 17 browser cases прошли.
 Подробные измерения и ограничения: [metrics research](squid-live-metrics.md).
+
+Локальная сохранённая установка обновлена этим image. CLI `service-update`
+завершился succeeded; previous/candidate snapshots журнала совпадают, candidate
+имеет compiler6 и terminal outcome. Оба Pebble services active, CLI check успешен,
+/healthz и новый live UI bundle дают200 с проверкой доверия к panel cert.
+Manager через опубликованный proxy listener вернул403. Draft не применялся,
+пароли/учётные записи и named volume сохранены.
