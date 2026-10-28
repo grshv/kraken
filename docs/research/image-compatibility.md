@@ -185,4 +185,7 @@ editor. Старые «О журнале»/вводные пояснения у�
 `make check`, `make image`, полный native smoke и 15 browser cases прошли.
 Проверены обе темы и desktop/mobile screenshots. Точная матрица и пределы:
 [UI workflows](../plans/active/ui-workflows.md). Это не проверка нового APT клиента
-или новой платформы; работающая локальная установка обновляется после этих проверок.
+или новой платформы. После проверок локальная Compose-установка обновлена:
+оба Pebble services active, `check` успешен, /healthz и новый embedded bundle
+возвращают 200 с проверкой доверия к panel certificate. Сохранён прежний named
+volume; password-reset/bootstrap и изменение политики доступа не выполнялись.
