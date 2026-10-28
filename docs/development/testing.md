@@ -186,3 +186,32 @@ revision/operation/audit/journal consistency и parse failure. Native case сн�
 его полное содержимое до/после; проверяет публичный manager403, HTTP origin delta,
 idle polling без origin delta и реальный held CONNECT. Источники/форматы —
 [live research](../research/squid-live-metrics.md), граница — ADR0013.
+
+## Наполнение локальной истории реальными запросами
+
+`python3 src/tools/demo_traffic.py` из корня создаёт HTTP/HTTPS origins и клиентов
+в отдельной внутренней Docker-сети. Нужны Go, Python, OpenSSL и запущенный локальный
+Compose `squid-control-squid-control-1` с volume `squid-control_control-data`.
+Сценарий предназначен для ручного наполнения демонстрационной установки;
+во время прогона не редактируйте и не применяйте конфигурацию параллельно.
+Expert mode не поддерживается, близкая к retention cap история отклоняется.
+
+Dev-only helper из `src/tools/demo-traffic/` временно добавляет demo-клиентов
+в confirmed snapshot через штатные revision/audit/runtime apply и затем
+восстанавливает исходный snapshot тем же путём. Черновик и пароли не меняются.
+Временные marked записи `/etc/hosts` обеспечивают адреса fixture без изменения
+системного DNS/VPN. После завершения удаляются записи hosts, контейнеры и сеть;
+реальные события и операции применения намеренно остаются в SQLite.
+При ошибке восстановления helper и `/data/runtime/.demo-traffic-original.json`
+сохраняются для повторного `restore`; сообщение содержит путь helper.
+
+Проверяются HTTP GET/HEAD, доверенный HTTPS CONNECT, 200/206/302/304/404/503,
+отказы domain/source ACL и запрещённый metadata address. Временный origin CA
+используется только клиентами fixture и не устанавливается в панель или Squid.
+Это синтетический трафик через настоящий Squid, не прямые вставки событий в БД
+и не подтверждение реальной работы APT. Сценарий ждёт сохранения событий
+коллектором и сравнивает исходную политику и черновик после прогона.
+
+28.10.2026 проверено на локальном Linux/arm64 контейнере: один полный прогон
+сохранил 421 событие, включая 11 завершённых HTTPS-туннелей. Проверены возврат
+исходной политики, неизменность черновика, удаление fixtures и `squid-control check`.
