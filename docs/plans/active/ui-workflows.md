@@ -225,3 +225,7 @@ CardHeader hierarchy, day/week/month, typography14/16 и collapsed icon geometry
 Screenshots финальных light/dark/mobile и открытого Select просмотрены.
 Иерархия обзора уточнена: CardHeader/CardTitle у каждого внешнего блока, вложенные
 подписи14px; размер карточек не подменяет отсутствие заголовка.
+
+Локальное обновление завершено: control и squid active, CLI check/healthz успешны,
+финальный bundle с Select и всеми периодами подтверждён по TLS. Applied snapshot,
+draft и1201 сохранённое событие не изменились; draft не применялся.
