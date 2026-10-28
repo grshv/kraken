@@ -35,7 +35,7 @@ Squid не перезапускать для восстановления UI. Е
 Сверить effective proxy settings приложения: sudo, systemd, контейнеры и APT
 могут не наследовать shell env. Проверить source IP, enabled client, allowlist,
 redirect/CDN домены, TLS profile, proxy DNS и время на VM.
-Различать proxy denied (обычно 403), proxy auth (407, если auth появится),
+Различать proxy denied (обычно 403), proxy auth (407),
 TLS handshake failure, upstream HTTP errors и APT signature/hash errors.
 В tunnel режиме upstream HTTP status не виден в Squid log.
 Не отключать apt-secure и TLS verification ради устранения симптома.
@@ -126,8 +126,9 @@ TLS настоящим клиентом. Заранее оставить воз�
 Сохранить форму → просмотреть diff → проверить настоящим `squid -k parse` →
 применить. История позволяет выбрать ранее применённую ревизию, посмотреть diff
 и отдельно подтвердить откат. Откат не переписывает черновик; неприменённые
-изменения остаются видны. Смена внутреннего порта не меняет Docker publish:
-публикацию на host нужно согласовать отдельно. Служебный 127.0.0.1:3130 не публиковать.
+изменения остаются видны. Внутренние listeners не редактируются через web/API.
+Host publish настраивается при установке через Compose. Служебные loopback-порты
+3130/3131 не публиковать.
 
 В expert mode визуальные клиентские политики не действуют; общие настройки
 остаются исходными значениями. Helpers/includes/cache_dir и служебные paths

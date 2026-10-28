@@ -82,7 +82,8 @@ storage failure и простые процедуры эксплуатации. �
 Rotation/truncation, migrations, история/cursor/retention уже реализованы и
 проверены в срезах ниже. Дополнительные users/roles и proxy auth реализованы и
 проверены на указанной сборке, подробности — в последнем срезе ниже.
-Certificate UI, агрегаты/расширенный поиск, произвольные helpers, SSO и HA исключены. Отсутствие проверки не превращается
+Certificate UI, отдельная подсистема долгосрочной аналитики, произвольные helpers,
+SSO и HA исключены. Текущие фильтры и агрегаты retained history реализованы. Отсутствие проверки не превращается
 в Supported: конкретные гарантии доступа по-прежнему требуют своих tests.
 Один контейнер — единая точка обновления/отказа, это известное ограничение.
 
@@ -104,7 +105,7 @@ Squid; helper/storage provisioning добавляется только по от
 сохранённый runtime bundle продолжает работать до нового apply. Проверены
 `make check`, image build, реальные HTTP/CONNECT/TLS proxy и browser suite.
 Существующий локальный volume успешно поднят без bootstrap/reset.
-[Критерии и результат](../plans/active/tunnel-only.md).
+[Критерии и результат](../plans/completed/tunnel-only.md).
 
 ## Исправления повторного ревью, 27.10.2026
 
@@ -113,7 +114,7 @@ Squid; helper/storage provisioning добавляется только по от
 контейнера, ограничение host exposure задаёт Compose. Real-image smoke прошёл,
 включая pending-journal restart с возвратом прежних ACL и реальными запросами;
 Playwright — 4 сценария, включая повторную авторизацию после GET/mutation expiry.
-[Полные критерии, результаты и ограничения](../plans/active/review-reliability.md).
+[Полные критерии, результаты и ограничения](../plans/completed/review-reliability.md).
 Тестовые контейнеры/volumes отдельные; существующая установка не обновлялась.
 
 ## История и аудит, 27.10.2026
@@ -125,7 +126,7 @@ retry, source stale/unavailable, rotation/truncation, реальные Squid з�
 отдельный restart control с сохранением истории, audit CLI reset и 5 browser
 сценариев. make check и image build прошли; screenshots desktop/mobile проверены.
 Compiler v4 и правила трафика не изменены; существующая установка не обновлялась.
-[Критерии и оставшиеся ограничения](../plans/active/diagnostics-history.md).
+[Критерии и оставшиеся ограничения](../plans/completed/diagnostics-history.md).
 
 ## Локальные пользователи, proxy passwords и shadcn/ui, 27.10.2026
 
@@ -184,7 +185,7 @@ editor. Старые «О журнале»/вводные пояснения у�
 
 `make check`, `make image`, полный native smoke и 15 browser cases прошли.
 Проверены обе темы и desktop/mobile screenshots. Точная матрица и пределы:
-[UI workflows](../plans/active/ui-workflows.md). Это не проверка нового APT клиента
+[UI workflows](../plans/completed/ui-workflows.md). Это не проверка нового APT клиента
 или новой платформы. После проверок локальная Compose-установка обновлена:
 оба Pebble services active, `check` успешен, /healthz и новый embedded bundle
 возвращают 200 с проверкой доверия к panel certificate. Сохранён прежний named

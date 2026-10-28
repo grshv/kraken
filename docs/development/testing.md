@@ -118,7 +118,7 @@ overflow. Self-signed доверие отключено только в этом
 
 ## Регрессии повторного ревью
 
-Сценарии и результаты: [review reliability](../plans/active/review-reliability.md).
+Сценарии и результаты: [review reliability](../plans/completed/review-reliability.md).
 HTTP suite проверяет stateless anonymous CSRF, целостность/expiry/смену ключа,
 вход после потока anonymous GET и отсутствие deadlock при полном DB pool.
 Migration suite инъецирует ошибку перед version insert после переноса данных:
@@ -130,7 +130,7 @@ expiry, обновление CSRF holder и вход после неверног
 
 ## История диагностики
 
-[Критерии](../plans/active/diagnostics-history.md). Reader tests проверяют bounded
+[Критерии](../plans/completed/diagnostics-history.md). Reader tests проверяют bounded
 batch/record, частичные строки, oversized/malformed/invalid UTF-8, rename rotation,
 truncation/anchor rewrite и возвращение временно исчезнувшего файла без replay.
 Store tests проверяют общую транзакцию событий/checkpoint с injected failure,
@@ -176,7 +176,7 @@ navigation confirm и восстановление polling без повторн
 Go tests покрывают bounded статистику/временные границы/DB errors, no-op/default
 normalization, runtime-only delta и guards listeners в draft/revision operations.
 Native smoke проверяет не только HTTP422, но и сохранение actual traffic/canary.
-[Критерии, найденные расхождения и результат](../plans/active/ui-workflows.md).
+[Критерии, найденные расхождения и результат](../plans/completed/ui-workflows.md).
 
 Runtime metrics tests проверяют bounded reports, числа/nullable значения,
 manager self/idle/CONNECT, original timestamp при stale, old config update-required.

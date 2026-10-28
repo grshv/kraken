@@ -36,5 +36,5 @@ Eviction анонимных DB sessions вытеснял бы CSRF holders др�
 
 ## Проверка
 
-[Критерии и результаты](../plans/active/review-reliability.md). Ошибки миграции и
+[Критерии и результаты](../plans/completed/review-reliability.md). Ошибки миграции и
 recovery проверяются на временных БД/каталогах, сетевые тесты — в отдельных контейнерах.

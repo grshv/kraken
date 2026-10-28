@@ -24,14 +24,15 @@
 | [agent-workflow](development/agent-workflow.md) | Как агент получает задачу и передаёт результат | Меняются команды и процесс |
 | [testing](development/testing.md) | Проверки, фикстуры, CI, критерии релиза | Меняются риски и тестовые средства |
 | [repository-files](development/repository-files.md) | Что необходимо сейчас и позже, без лишних файлов | Появляются инструменты |
-| [ui-workflows](plans/active/ui-workflows.md) | Исправление пользовательских потоков по фактическим замечаниям владельца | Меняются критерии и результаты UI-проверки |
 | [roadmap](plans/roadmap.md) | Текущий объём: необходимые проверки, простые процедуры и функции по потребности | Меняются приоритеты |
-| [diagnostics-history](plans/active/diagnostics-history.md) | История событий, фильтры, курсоры, retention и аудит | Меняется диагностика |
-| [review-reliability](plans/active/review-reliability.md) | Повторное ревью: sessions, миграции, recovery и повторный вход | Меняются проверки надёжности |
-| [review-followup](plans/active/review-followup.md) | Незакрытые Level-Low находки кодового ревью | Закрывается очередной задачей |
 | [image-compatibility](plans/image-compatibility.md) | Обязательное исследование образа | Проверен digest |
 | [research](research/2026-10-27.md) | Актуальные первичные источники | Новое исследование |
 | [ADR](adr/README.md) | Реестр архитектурных решений и предложений | Меняется существенное решение |
+
+Завершённые срезы находятся в [plans/completed](plans/completed/): первый запуск,
+клиенты/настройки/recovery, сквозной HTTPS, кодовое ревью, история и
+[UI-потоки](plans/completed/ui-workflows.md). Это архив критериев и результатов;
+текущие задачи ведутся только в roadmap.
 
 Шаблоны: [задача](templates/task.md), [план исполнения](templates/execution-plan.md),
 [ADR](templates/adr.md), [передача контекста](templates/handoff.md).
