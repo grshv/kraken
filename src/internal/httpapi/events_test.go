@@ -55,7 +55,7 @@ func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {
 	if w := request(h, "GET", "/events?client_id=00000000-0000-4000-8000-000000000099&failures_only=true", nil, cookie, "", ""); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	for _, route := range []string{"/events?cursor=broken", "/events?limit=201", "/events?failures_only=maybe", "/audit?cursor=broken"} {
+	for _, route := range []string{"/events?source_ip=invalid", "/events?from=bad", "/events?from=2026-10-28T12:00:00Z&to=2026-10-28T11:00:00Z", "/events?cursor=broken", "/events?limit=201", "/events?failures_only=maybe", "/audit?cursor=broken"} {
 		if w := request(h, "GET", route, nil, cookie, "", ""); w.Code != 400 {
 			t.Fatalf("invalid query %s: %d", route, w.Code)
 		}

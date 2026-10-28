@@ -303,3 +303,64 @@ func TestRollbackCompatibilityMatchesCompilerAndImage(t *testing.T) {
 		}
 	}
 }
+
+func TestConfigDiffAlignsUnchangedLinesAndHidesFingerprint(t *testing.T) {
+	before := "# squid-control compiler=6 revision=old\n" + strings.Repeat("unchanged\n", 40) + "reply_header_add X-Squid-Control-Revision old all\n# BEGIN user policy\n# END user policy\n"
+	after := strings.ReplaceAll(before, "old", "new")
+	after = strings.Replace(after, "# END user policy", "acl client_0 src 192.168.2.20/32\nacl destinations_0 dstdomain -n debian.org\nhttp_access allow client_0 destinations_0\n# END user policy", 1)
+	added, removed := 0, 0
+	for _, line := range configDiff(before, after) {
+		if line.Kind == "added" {
+			added++
+		}
+		if line.Kind == "removed" {
+			removed++
+		}
+		if strings.Contains(line.Text, "revision=") {
+			t.Fatal("generated fingerprint leaked into diff")
+		}
+	}
+	if added != 3 || removed != 0 {
+		t.Fatalf("expected three additions, got +%d -%d", added, removed)
+	}
+	if got := configDiff(before, strings.ReplaceAll(before, "old", "new")); len(got) != 0 {
+		t.Fatalf("fingerprint-only changes: %v", got)
+	}
+}
+func TestConfigDiffSeparateHunksAndRepeatedLines(t *testing.T) {
+	before := "first\nkeep\nrepeat\nrepeat\n" + strings.Repeat("middle\n", 12) + "last\n"
+	after := strings.Replace(before, "first", "changed", 1)
+	after = strings.TrimSuffix(after, "last\n") + "newlast\n"
+	hunks, added, removed := 0, 0, 0
+	for _, line := range configDiff(before, after) {
+		if strings.HasPrefix(line.Text, "@@") {
+			hunks++
+		}
+		if line.Kind == "added" {
+			added++
+		}
+		if line.Kind == "removed" {
+			removed++
+		}
+	}
+	if hunks != 2 || added != 2 || removed != 2 {
+		t.Fatalf("hunks=%d +%d -%d", hunks, added, removed)
+	}
+}
+func TestConfigDiffBoundsLargeDissimilarInput(t *testing.T) {
+	got := configDiff(strings.Repeat("old\n", 3000), strings.Repeat("new\n", 3000))
+	if len(got) != 1 || got[0].Kind != "context" || !strings.Contains(got[0].Text, "слишком большое") {
+		t.Fatal(got)
+	}
+}
+
+func TestConfigDiffEmptyInputHunkCoordinates(t *testing.T) {
+	for _, c := range []struct{ before, after, header string }{
+		{"", "new\n", "@@ -0,0 +1,1 @@"}, {"old\n", "", "@@ -1,1 +0,0 @@"},
+	} {
+		got := configDiff(c.before, c.after)
+		if len(got) != 2 || got[0].Text != c.header {
+			t.Fatal(got)
+		}
+	}
+}

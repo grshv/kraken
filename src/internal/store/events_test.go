@@ -163,3 +163,47 @@ func TestHistoryAndCheckpointSurviveReopen(t *testing.T) {
 		t.Fatal("history lost")
 	}
 }
+
+func TestEventFiltersPrecedePaginationAndBindCursor(t *testing.T) {
+	s := eventStore(t)
+	rows := []events.Event{}
+	for i := 0; i < 5; i++ {
+		v := sample(fmt.Sprint(i))
+		v.Timestamp = "2026-10-28T10:30:00Z"
+		if i < 3 {
+			v.Destination = "repo.example.test:443"
+			v.Method = "CONNECT"
+			v.ProxyResult = "TCP_TUNNEL/200"
+		}
+		rows = append(rows, v)
+	}
+	if e := s.SaveEvents(rows, events.Checkpoint{}); e != nil {
+		t.Fatal(e)
+	}
+	q := EventQuery{Limit: 1, SourceIP: "192.0.2.1", Destination: "EXAMPLE", Method: "CONNECT", Result: "TCP_TUNNEL/200", From: "2026-10-28T13:00:00+03:00", To: "2026-10-28T14:00:00+03:00"}
+	p, e := s.EventPage(q)
+	if e != nil || len(p.Items) != 1 || p.Items[0].ID != "2" || p.NextCursor == nil {
+		t.Fatalf("%+v %v", p, e)
+	}
+	q.Cursor = *p.NextCursor
+	next, e := s.EventPage(q)
+	if e != nil || next.Items[0].ID != "1" {
+		t.Fatalf("%+v %v", next, e)
+	}
+	q.Destination = "other"
+	if _, e = s.EventPage(q); e != ErrCursor {
+		t.Fatal("cross-filter cursor accepted", e)
+	}
+	q.Cursor = ""
+	q.Destination = "%"
+	p, e = s.EventPage(q)
+	if e != nil || len(p.Items) != 0 {
+		t.Fatal("wildcard treated as SQL pattern", p, e)
+	}
+	q.Destination = "example"
+	q.To = "2026-10-28T10:30:00Z"
+	p, e = s.EventPage(q)
+	if e != nil || len(p.Items) != 0 {
+		t.Fatal("exclusive upper time boundary", p, e)
+	}
+}

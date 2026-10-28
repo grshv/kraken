@@ -560,6 +560,62 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "source_ip",
+            "in": "query",
+            "description": "Exact source IPv4/IPv6 address.",
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            }
+          },
+          {
+            "name": "destination",
+            "in": "query",
+            "description": "Case-insensitive literal substring of stored sanitized destination; no wildcards.",
+            "schema": {
+              "type": "string",
+              "maxLength": 253
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "description": "Exact method, e.g. GET, HEAD or CONNECT.",
+            "schema": {
+              "type": "string",
+              "maxLength": 24
+            }
+          },
+          {
+            "name": "result",
+            "in": "query",
+            "description": "Exact Squid result, e.g. TCP_DENIED/403.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "description": "Inclusive event timestamp, RFC3339 with timezone.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "format": "date-time"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "description": "Exclusive event timestamp, RFC3339 with timezone; later than from.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64,
+              "format": "date-time"
+            }
           }
         ],
         "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Seven days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic. Available to admin and viewer."
@@ -1594,7 +1650,7 @@
             "items": {
               "$ref": "#/components/schemas/DiffLine"
             },
-            "description": "Raw Squid configuration diff; UI can show it as an optional technical view. Empty when neither effective user settings nor managed runtime configuration changed."
+            "description": "Bounded unified line diff with three context lines and hunk headers. Generated fingerprint values are normalized; compiler and directive changes remain visible. At most 400 lines; explicit omission message for excessive comparisons. Full unmodified text is in generated_config."
           },
           "user_changes": {
             "type": "boolean",
@@ -2516,7 +2572,7 @@
             "items": {
               "$ref": "#/components/schemas/DiffLine"
             },
-            "description": "Raw Squid configuration diff; UI can show it as an optional technical view. Empty when neither effective user settings nor managed runtime configuration changed."
+            "description": "Bounded unified line diff with three context lines and hunk headers. Generated fingerprint values are normalized; compiler and directive changes remain visible. At most 400 lines; explicit omission message for excessive comparisons. Full unmodified text is in generated_config."
           },
           "user_changes": {
             "type": "boolean",

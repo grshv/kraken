@@ -100,7 +100,31 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 400, "invalid_filter", "Некорректный клиент")
 		return
 	}
-	p, e := s.Store.EventPage(store.EventQuery{ClientID: q.Get("client_id"), Failures: raw == "true", Cursor: q.Get("cursor"), Limit: limit})
+	filter := store.EventQuery{ClientID: q.Get("client_id"), Failures: raw == "true", Cursor: q.Get("cursor"), Limit: limit,
+		SourceIP: q.Get("source_ip"), Destination: strings.TrimSpace(q.Get("destination")), Method: q.Get("method"), Result: q.Get("result"), From: q.Get("from"), To: q.Get("to")}
+	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64
+	if filter.SourceIP != "" {
+		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
+			invalid = true
+		}
+	}
+	for _, value := range []string{filter.From, filter.To} {
+		if value != "" {
+			if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
+				invalid = true
+			}
+		}
+	}
+	if filter.From != "" && filter.To != "" {
+		from, _ := time.Parse(time.RFC3339Nano, filter.From)
+		to, _ := time.Parse(time.RFC3339Nano, filter.To)
+		invalid = invalid || !from.Before(to)
+	}
+	if invalid {
+		fail(w, 400, "invalid_filter", "Проверьте IP, длину фильтров и диапазон времени")
+		return
+	}
+	p, e := s.Store.EventPage(filter)
 	if e != nil {
 		queryFailure(w, e)
 		return

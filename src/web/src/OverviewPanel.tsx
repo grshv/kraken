@@ -70,6 +70,14 @@ export function OverviewPanel({
 }) {
   const stale = offline || metrics?.stale === true;
   const samples = metrics?.available || metrics?.stale;
+  const deniedPercent =
+    statistics && statistics.requests > 0
+      ? (statistics.denied / statistics.requests) * 100
+      : null;
+  const maxHourly = Math.max(
+    1,
+    ...(statistics?.hourly.map((h) => h.requests) ?? []),
+  );
   return (
     <>
       <Card
@@ -121,19 +129,19 @@ export function OverviewPanel({
               </div>
               <div>
                 <dt title="Среднее за интервал Squid до 5 минут">
-                  К ресурсам, запросов/с
+                  Запросы к ресурсам / с
                 </dt>
                 <dd>{amount(metrics?.origin_requests_per_second, 2)}</dd>
               </div>
               <div>
                 <dt title="Среднее за интервал Squid до 5 минут">
-                  Получение от ресурсов
+                  Загрузка от ресурсов
                 </dt>
                 <dd>{rate(metrics?.origin_bytes_in_per_second)}</dd>
               </div>
               <div>
                 <dt title="Среднее за интервал Squid до 5 минут">
-                  Отправка ресурсам
+                  Отправка к ресурсам
                 </dt>
                 <dd>{rate(metrics?.origin_bytes_out_per_second)}</dd>
               </div>
@@ -144,7 +152,7 @@ export function OverviewPanel({
                 <dd>{amount(metrics?.origin_requests_total)}</dd>
               </div>
               <div>
-                <dt>Ошибок обращения</dt>
+                <dt>Ошибки связи с ресурсами</dt>
                 <dd>{amount(metrics?.origin_errors_total)}</dd>
               </div>
               <div>
@@ -205,13 +213,82 @@ export function OverviewPanel({
           </div>
           <div>
             <dt>Отказы</dt>
-            <dd>{amount(statistics?.denied)}</dd>
+            <dd>
+              <button
+                className={`metric-link ${statistics?.denied ? "has-denials" : ""}`}
+                onClick={() => onEvents(true)}
+              >
+                {amount(statistics?.denied)}
+                {deniedPercent != null && (
+                  <small> · {amount(deniedPercent, 1)}%</small>
+                )}
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>Передано по журналу</dt>
+            <dd>{bytes(statistics?.bytes_observed)}</dd>
           </div>
           <div>
             <dt>IP-источники</dt>
             <dd>{amount(statistics?.unique_sources)}</dd>
           </div>
         </dl>
+        {statistics && statistics.requests > 0 && (
+          <div className="traffic-timeline">
+            <div className="timeline-heading">
+              <h3>Завершённые запросы по часам</h3>
+              <span>Отказы выделены красным</span>
+            </div>
+            <div
+              className="hourly-bars"
+              role="img"
+              aria-label="Запросы и отказы за последние 24 часа"
+            >
+              {statistics.hourly.map((hour) => (
+                <div
+                  key={hour.from}
+                  className="hourly-column"
+                  title={`${new Date(hour.from).toLocaleString("ru-RU")}: ${hour.requests} запросов, ${hour.denied} отказов`}
+                >
+                  <div
+                    className="hourly-total"
+                    style={{ height: `${(hour.requests / maxHourly) * 100}%` }}
+                  >
+                    <div
+                      className="hourly-denied"
+                      style={{
+                        height: `${hour.requests ? (hour.denied / hour.requests) * 100 : 0}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="timeline-labels">
+              <span>
+                {new Date(statistics.from).toLocaleString("ru-RU", {
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+              <span>
+                {new Date(statistics.to).toLocaleString("ru-RU", {
+                  day: "numeric",
+                  month: "short",
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })}
+              </span>
+            </div>
+            <p className="timeline-note">
+              По завершённым обращениям; CONNECT записывается после закрытия
+              туннеля.
+            </p>
+          </div>
+        )}
         {ingestion?.stale && ingestion.observed_at && (
           <p className="inline-note">
             Сбор журнала задерживается. Сводка может быть неполной.
@@ -244,11 +321,25 @@ export function OverviewPanel({
               {failures.map((e) => (
                 <TableRow key={e.id}>
                   <TableCell>{time(e.timestamp)}</TableCell>
-                  <TableCell>{e.client_name || e.source_ip}</TableCell>
+                  <TableCell>
+                    {e.client_name && <strong>{e.client_name}</strong>}
+                    <div className="mono">{e.source_ip}</div>
+                  </TableCell>
                   <TableCell className="mono destination">
                     {e.destination}
                   </TableCell>
-                  <TableCell>{e.proxy_result}</TableCell>
+                  <TableCell>
+                    <span>
+                      {e.proxy_result.includes("DENIED")
+                        ? "Доступ отклонён"
+                        : e.proxy_http_status === 404
+                          ? "Ресурс не найден"
+                          : e.proxy_http_status === 503
+                            ? "Ресурс недоступен"
+                            : "Ошибка обращения"}
+                    </span>
+                    <small className="row-description">{e.proxy_result}</small>
+                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>

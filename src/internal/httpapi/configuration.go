@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/netip"
 	"sort"
@@ -79,40 +80,132 @@ type DiffLine struct {
 	Text string `json:"text"`
 }
 
-// Linear bounded diff: exact common prefix/suffix, changed blocks, no quadratic allocation.
+// Compare directives, excluding only the generated fingerprint. The compiler
+// version remains visible. The full unmodified configuration is returned separately.
+func diffConfigLines(config string) []string {
+	if config == "" {
+		return []string{}
+	}
+	out := []string{}
+	for _, line := range strings.Split(strings.TrimSuffix(config, "\n"), "\n") {
+		if strings.HasPrefix(line, "reply_header_add X-Squid-Control-Revision ") {
+			line = "reply_header_add X-Squid-Control-Revision <generated> all"
+		}
+		if strings.HasPrefix(line, "# squid-control compiler=") {
+			if i := strings.Index(line, " revision="); i >= 0 {
+				line = line[:i]
+			}
+		}
+		out = append(out, line)
+	}
+	return out
+}
+
+// Exact line LCS with bounded memory/work, followed by unified three-line
+// context hunks. Never represent unchanged middle lines as deleted/added.
 func configDiff(before, after string) []DiffLine {
-	if before == after {
+	a, b := diffConfigLines(before), diffConfigLines(after)
+	prefix := 0
+	for prefix < len(a) && prefix < len(b) && a[prefix] == b[prefix] {
+		prefix++
+	}
+	suffix := 0
+	for suffix < len(a)-prefix && suffix < len(b)-prefix && a[len(a)-suffix-1] == b[len(b)-suffix-1] {
+		suffix++
+	}
+	n, m := len(a)-prefix-suffix, len(b)-prefix-suffix
+	if n == 0 && m == 0 {
 		return []DiffLine{}
 	}
-	a, b := strings.Split(before, "\n"), strings.Split(after, "\n")
-	start := 0
-	for start < len(a) && start < len(b) && a[start] == b[start] {
-		start++
+	// At most 8 MB of LCS storage. Large dissimilar inputs get an explicit
+	// omission instead of an inaccurate replacement block or unbounded allocation.
+	if (n + 1) > 4000000/(m+1) {
+		return []DiffLine{{"context", "Сравнение слишком большое. Откройте полный squid.conf."}}
 	}
-	end := 0
-	for end < len(a)-start && end < len(b)-start && a[len(a)-1-end] == b[len(b)-1-end] {
-		end++
-	}
-	out := []DiffLine{}
-	appendLine := func(kind, text string) {
-		if len(out) < 400 {
-			out = append(out, DiffLine{kind, text})
+	width := m + 1
+	lengths := make([]uint16, (n+1)*width)
+	for i := n - 1; i >= 0; i-- {
+		for j := m - 1; j >= 0; j-- {
+			if a[prefix+i] == b[prefix+j] {
+				lengths[i*width+j] = 1 + lengths[(i+1)*width+j+1]
+			} else {
+				lengths[i*width+j] = max(lengths[(i+1)*width+j], lengths[i*width+j+1])
+			}
 		}
 	}
-	if start > 0 {
-		appendLine("context", a[start-1])
+	edits := make([]DiffLine, 0, len(a)+len(b))
+	for _, line := range a[:prefix] {
+		edits = append(edits, DiffLine{"context", line})
 	}
-	for _, line := range a[start : len(a)-end] {
-		appendLine("removed", line)
+	i, j := 0, 0
+	for i < n || j < m {
+		if i < n && j < m && a[prefix+i] == b[prefix+j] {
+			edits = append(edits, DiffLine{"context", a[prefix+i]})
+			i++
+			j++
+		} else if i < n && (j == m || lengths[(i+1)*width+j] >= lengths[i*width+j+1]) {
+			edits = append(edits, DiffLine{"removed", a[prefix+i]})
+			i++
+		} else {
+			edits = append(edits, DiffLine{"added", b[prefix+j]})
+			j++
+		}
 	}
-	for _, line := range b[start : len(b)-end] {
-		appendLine("added", line)
+	for _, line := range a[len(a)-suffix:] {
+		edits = append(edits, DiffLine{"context", line})
 	}
-	if len(a)+len(b)-2*start-2*end > 398 {
-		out = append(out, DiffLine{"context", "… diff truncated; view complete generated configuration"})
-	}
-	if end > 0 {
-		appendLine("context", a[len(a)-end])
+	out := []DiffLine{}
+	oldLine, newLine := 1, 1
+	for pos := 0; pos < len(edits); {
+		next := pos
+		for next < len(edits) && edits[next].Kind == "context" {
+			next++
+		}
+		if next == len(edits) {
+			break
+		}
+		start := max(pos, next-3)
+		for ; pos < start; pos++ {
+			oldLine++
+			newLine++
+		}
+		end := next + 1
+		for end < len(edits) {
+			following := end
+			for following < len(edits) && edits[following].Kind == "context" {
+				following++
+			}
+			if following-end > 6 || following == len(edits) {
+				end = min(end+3, len(edits))
+				break
+			}
+			end = following + 1
+		}
+		if len(out)+end-start+1 > 400 {
+			out = append(out, DiffLine{"context", "… сравнение сокращено; откройте полный squid.conf"})
+			break
+		}
+		oldCount, newCount := 0, 0
+		for _, line := range edits[start:end] {
+			if line.Kind != "added" {
+				oldCount++
+			}
+			if line.Kind != "removed" {
+				newCount++
+			}
+		}
+		oldStart, newStart := oldLine, newLine
+		if oldCount == 0 {
+			oldStart--
+		}
+		if newCount == 0 {
+			newStart--
+		}
+		out = append(out, DiffLine{"context", fmt.Sprintf("@@ -%d,%d +%d,%d @@", oldStart, oldCount, newStart, newCount)})
+		out = append(out, edits[start:end]...)
+		oldLine += oldCount
+		newLine += newCount
+		pos = end
 	}
 	return out
 }

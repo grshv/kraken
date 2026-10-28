@@ -74,8 +74,14 @@ test.describe.serial("panel e2e flow", () => {
     ).toBeVisible();
     await page.getByRole("button", { name: "Посмотреть изменения" }).click();
     await page.getByRole("button", { name: "Проверить", exact: true }).click();
-    await expect(page.getByText("Эта ревизия прошла проверку")).toBeVisible();
+    await expect(
+      page.getByText("Проверка Squid пройдена. Можно применить."),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Применить", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Подтвердить применение", exact: true })
+      .click();
     await expect(
       page.locator(".operation").getByText("Применено", { exact: true }),
     ).toBeVisible();
@@ -100,8 +106,14 @@ test.describe.serial("panel e2e flow", () => {
       page.getByText("Изменены настройки Squid", { exact: true }),
     ).toBeVisible();
     await page.getByRole("button", { name: "Проверить", exact: true }).click();
-    await expect(page.getByText("Эта ревизия прошла проверку")).toBeVisible();
+    await expect(
+      page.getByText("Проверка Squid пройдена. Можно применить."),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Применить", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Подтвердить применение", exact: true })
+      .click();
     await expect(
       page.locator(".operation").getByText("Применено", { exact: true }),
     ).toBeVisible();
@@ -111,6 +123,10 @@ test.describe.serial("panel e2e flow", () => {
       .click();
     await page
       .getByRole("button", { name: "Откатить к этой ревизии", exact: true })
+      .click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Подтвердить откат", exact: true })
       .click();
     await expect(
       page.locator(".operation").getByText("Применено", { exact: true }),
@@ -135,8 +151,14 @@ test.describe.serial("panel e2e flow", () => {
       .first()
       .click();
     await page.getByRole("button", { name: "Проверить", exact: true }).click();
-    await expect(page.getByText("Эта ревизия прошла проверку")).toBeVisible();
+    await expect(
+      page.getByText("Проверка Squid пройдена. Можно применить."),
+    ).toBeVisible();
     await page.getByRole("button", { name: "Применить", exact: true }).click();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Подтвердить применение", exact: true })
+      .click();
     await expect(
       page.locator(".operation").getByText("Применено", { exact: true }),
     ).toBeVisible();

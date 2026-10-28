@@ -62,10 +62,11 @@ type Page[T any] struct {
 	ObservedAt string  `json:"observed_at"`
 }
 type EventQuery struct {
-	ClientID string
-	Failures bool
-	Cursor   string
-	Limit    int
+	SourceIP, Destination, Method, Result, From, To string
+	ClientID                                        string
+	Failures                                        bool
+	Cursor                                          string
+	Limit                                           int
 }
 type AuditQuery struct {
 	Actor, Action, Cursor string
@@ -116,7 +117,11 @@ func (s *Store) EventPage(q EventQuery) (Page[events.Event], error) {
 	if q.Limit < 1 || q.Limit > 200 {
 		return p, errors.New("invalid limit")
 	}
-	c, e := pageStart(q.Cursor, fmt.Sprintf("events\x00%s\x00%t", q.ClientID, q.Failures))
+	filter := q
+	filter.Cursor = ""
+	filter.Limit = 0
+	encoded, _ := json.Marshal(filter)
+	c, e := pageStart(q.Cursor, "events\x00"+string(encoded))
 	if e != nil {
 		return p, e
 	}
@@ -128,6 +133,26 @@ func (s *Store) EventPage(q EventQuery) (Page[events.Event], error) {
 	}
 	if q.Failures {
 		clause += " AND failed=1"
+	}
+	for _, field := range []struct{ column, value string }{
+		{"source_ip", q.SourceIP}, {"method", q.Method}, {"proxy_result", q.Result},
+	} {
+		if field.value != "" {
+			clause += " AND json_extract(body,'$." + field.column + "')=?"
+			args = append(args, field.value)
+		}
+	}
+	if q.Destination != "" {
+		clause += " AND instr(lower(json_extract(body,'$.destination')),lower(?))>0"
+		args = append(args, q.Destination)
+	}
+	if q.From != "" {
+		clause += " AND julianday(json_extract(body,'$.timestamp'))>=julianday(?)"
+		args = append(args, q.From)
+	}
+	if q.To != "" {
+		clause += " AND julianday(json_extract(body,'$.timestamp'))<julianday(?)"
+		args = append(args, q.To)
 	}
 	args = append(args, q.Limit+1)
 	rows, e := s.DB.Query("SELECT seq,body FROM proxy_events WHERE "+clause+" ORDER BY seq DESC LIMIT ?", args...)

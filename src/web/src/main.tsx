@@ -1,4 +1,5 @@
 import { useOperationRecovery, operationPending } from "./useOperationRecovery";
+import { DestinationList } from "./DestinationList";
 import { ChangesPanel } from "./ChangesPanel";
 import { OverviewPanel } from "./OverviewPanel";
 import { useOverview } from "./useOverview";
@@ -80,6 +81,8 @@ function App() {
     [validated, setValidated] = useState("");
   const [history, setHistory] = useState<RevisionSummary[]>([]);
   const [rollbackTarget, setRollbackTarget] = useState(false);
+  const [reviewedRevision, setReviewedRevision] =
+    useState<RevisionSummary | null>(null);
   const [kind, setKind] = useState<"host" | "network" | "group">("host");
   const [editing, setEditing] = useState<string | null>(null),
     [showForm, setShowForm] = useState(false);
@@ -381,6 +384,7 @@ function App() {
     await work(async () => {
       setPreview(await api<Preview>("/configuration/preview"));
       setRollbackTarget(false);
+      setReviewedRevision(null);
       setValidated("");
       setOperation(null);
     });
@@ -459,6 +463,7 @@ function App() {
         await load();
         setPreview(await api<Preview>("/configuration/preview"));
         setRollbackTarget(false);
+        setReviewedRevision(null);
         setValidated("");
       }
       if (["rejected", "degraded", "rolled_back"].includes(op.status))
@@ -478,6 +483,7 @@ function App() {
         setPreview(await api<Preview>("/configuration/preview"));
         setValidated("");
         setRollbackTarget(false);
+        setReviewedRevision(null);
       }
       if (["rejected", "degraded", "rolled_back"].includes(next.status))
         setError(next.findings.join(" "));
@@ -670,9 +676,13 @@ function App() {
                           {c.source_networks.join(", ")}
                         </TableCell>
                         <TableCell>
-                          {policy?.mode === "all_web"
-                            ? "Весь web"
-                            : `${policy?.destinations.length || 0} доменов`}
+                          {policy?.mode === "all_web" ? (
+                            "Весь web"
+                          ) : (
+                            <DestinationList
+                              items={policy?.destinations ?? []}
+                            />
+                          )}
                         </TableCell>
                         <TableCell>
                           <span
@@ -750,6 +760,7 @@ function App() {
             busy={busy || operationPending(operation)}
             validated={!!validated}
             rollback={rollbackTarget}
+            reviewedRevision={reviewedRevision}
             canApply={canApply}
             blocked={status?.runtime.state === "degraded"}
             onRefresh={refreshChanges}
@@ -759,6 +770,7 @@ function App() {
               work(async () => {
                 setPreview(await api<Preview>(`/revisions/${rev.id}/preview`));
                 setRollbackTarget(rev.can_rollback);
+                setReviewedRevision(rev);
                 setValidated("");
                 setOperation(null);
               })

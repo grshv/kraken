@@ -38,6 +38,10 @@ type Request = <T>(
   key?: string,
   signal?: AbortSignal,
 ) => Promise<T>;
+function recordCount(value: number) {
+  const form = new Intl.PluralRules("ru-RU").select(value);
+  return `${value} ${form === "one" ? "запись" : form === "few" ? "записи" : "записей"}`;
+}
 function date(value: string) {
   return new Date(value).toLocaleString("ru-RU", { timeZoneName: "short" });
 }
@@ -80,6 +84,19 @@ export function DiagnosticsPanel({
   const [actor, setActor] = useState("");
   const [action, setAction] = useState("");
   const [filters, setFilters] = useState({ actor: "", action: "" });
+  const emptyEventFilters = {
+    source_ip: "",
+    destination: "",
+    method: "",
+    result: "",
+    from: "",
+    to: "",
+  };
+  const [eventInput, setEventInput] = useState(emptyEventFilters);
+  const [eventFilters, setEventFilters] = useState(emptyEventFilters);
+  const [limit, setLimit] = useState("50");
+  const [paused, setPaused] = useState(false);
+  const [previousPages, setPreviousPages] = useState<string[]>([]);
   const [cursor, setCursor] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [error, setError] = useState("");
@@ -88,11 +105,20 @@ export function DiagnosticsPanel({
   useEffect(() => {
     const controller = new AbortController();
     let active = true;
-    const query = new URLSearchParams({ limit: "50" });
+    const query = new URLSearchParams({ limit });
     if (cursor) query.set("cursor", cursor);
     if (kind === "events") {
       if (client) query.set("client_id", client);
       query.set("failures_only", String(failures));
+      for (const [key, value] of Object.entries(eventFilters)) {
+        if (value)
+          query.set(
+            key,
+            key === "from" || key === "to"
+              ? new Date(value).toISOString()
+              : value.trim(),
+          );
+      }
     } else {
       if (filters.actor) query.set("actor", filters.actor);
       if (filters.action) query.set("action", filters.action);
@@ -120,15 +146,26 @@ export function DiagnosticsPanel({
       }
     }
     void load();
-    const timer = cursor
-      ? undefined
-      : window.setInterval(() => void load(), 10000);
+    const timer =
+      cursor || paused
+        ? undefined
+        : window.setInterval(() => void load(), 10000);
     return () => {
       active = false;
       controller.abort();
       if (timer) clearInterval(timer);
     };
-  }, [kind, client, failures, filters, cursor, refresh]);
+  }, [
+    kind,
+    client,
+    failures,
+    filters,
+    eventFilters,
+    limit,
+    paused,
+    cursor,
+    refresh,
+  ]);
   useEffect(() => {
     if (kind !== "events") return;
     const controller = new AbortController();
@@ -155,6 +192,7 @@ export function DiagnosticsPanel({
   function reset() {
     setData(null);
     setCursor("");
+    setPreviousPages([]);
   }
   const ingestion = data?.ingestion;
   return (
@@ -173,6 +211,7 @@ export function DiagnosticsPanel({
           disabled={loading}
           onClick={() => {
             setCursor("");
+            setPreviousPages([]);
             setRefresh((n) => n + 1);
           }}
         >
@@ -180,7 +219,23 @@ export function DiagnosticsPanel({
         </Button>
       </div>
       {kind === "events" ? (
-        <div className="diagnostic-filters">
+        <form
+          className="diagnostic-filters event-filters"
+          onSubmit={(e) => {
+            e.preventDefault();
+            if (
+              eventInput.from &&
+              eventInput.to &&
+              new Date(eventInput.from) >= new Date(eventInput.to)
+            ) {
+              setError("Начало периода должно быть раньше окончания");
+              return;
+            }
+            reset();
+            setEventFilters({ ...eventInput });
+            setRefresh((n) => n + 1);
+          }}
+        >
           <label>
             Клиент
             <NativeSelect
@@ -199,18 +254,113 @@ export function DiagnosticsPanel({
               ))}
             </NativeSelect>
           </label>
-          <label className="checkbox">
+          <label>
+            IP источника
             <Input
-              type="checkbox"
-              checked={failures}
-              onChange={(e) => {
-                reset();
-                setFailures(e.target.checked);
-              }}
+              value={eventInput.source_ip}
+              placeholder="192.0.2.10"
+              maxLength={45}
+              onChange={(e) =>
+                setEventInput({ ...eventInput, source_ip: e.target.value })
+              }
             />
-            Только отказы
           </label>
-        </div>
+          <label>
+            Домен / назначение
+            <Input
+              value={eventInput.destination}
+              placeholder="Часть имени"
+              maxLength={253}
+              onChange={(e) =>
+                setEventInput({ ...eventInput, destination: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            Метод
+            <NativeSelect
+              aria-label="Метод"
+              value={eventInput.method}
+              onChange={(e) =>
+                setEventInput({ ...eventInput, method: e.target.value })
+              }
+            >
+              <option value="">Все методы</option>
+              {[
+                "GET",
+                "HEAD",
+                "CONNECT",
+                "POST",
+                "PUT",
+                "DELETE",
+                "OPTIONS",
+                "PATCH",
+              ].map((v) => (
+                <option key={v}>{v}</option>
+              ))}
+            </NativeSelect>
+          </label>
+          <label>
+            Результат прокси
+            <Input
+              value={eventInput.result}
+              placeholder="TCP_DENIED/403"
+              maxLength={64}
+              onChange={(e) =>
+                setEventInput({ ...eventInput, result: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            С
+            <Input
+              type="datetime-local"
+              value={eventInput.from}
+              onChange={(e) =>
+                setEventInput({ ...eventInput, from: e.target.value })
+              }
+            />
+          </label>
+          <label>
+            До
+            <Input
+              type="datetime-local"
+              value={eventInput.to}
+              onChange={(e) =>
+                setEventInput({ ...eventInput, to: e.target.value })
+              }
+            />
+          </label>
+          <div className="event-filter-actions">
+            <label className="checkbox">
+              <Input
+                type="checkbox"
+                checked={failures}
+                onChange={(e) => {
+                  reset();
+                  setFailures(e.target.checked);
+                }}
+              />
+              Только отказы
+            </label>
+            <Button type="submit" disabled={loading}>
+              Применить фильтры
+            </Button>
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => {
+                reset();
+                setClient("");
+                setFailures(false);
+                setEventInput(emptyEventFilters);
+                setEventFilters(emptyEventFilters);
+              }}
+            >
+              Сбросить
+            </Button>
+          </div>
+        </form>
       ) : (
         <form
           className="diagnostic-filters"
@@ -349,20 +499,56 @@ export function DiagnosticsPanel({
 
       <div className="diagnostic-pagination">
         <span>
-          {cursor ? "Просмотр истории" : "Обновление каждые 10 секунд"}
+          {recordCount(data?.items.length ?? 0)} ·{" "}
+          {cursor
+            ? "Просмотр истории"
+            : paused
+              ? "Обновление приостановлено"
+              : "Обновление каждые 10 секунд"}
         </span>
-        <Button
-          variant="outline"
-          disabled={loading || !data?.next_cursor}
-          onClick={() => {
-            if (data?.next_cursor) {
-              setCursor(data.next_cursor);
+        <div className="actions">
+          <NativeSelect
+            aria-label="Записей на странице"
+            value={limit}
+            onChange={(e) => {
+              reset();
+              setLimit(e.target.value);
+            }}
+          >
+            {[25, 50, 100, 200].map((n) => (
+              <option key={n} value={n}>
+                {n} на странице
+              </option>
+            ))}
+          </NativeSelect>
+          <Button variant="ghost" onClick={() => setPaused((v) => !v)}>
+            {paused ? "Продолжить" : "Пауза"}
+          </Button>
+          <Button
+            variant="outline"
+            disabled={loading || !previousPages.length}
+            onClick={() => {
+              setCursor(previousPages.at(-1) ?? "");
+              setPreviousPages((p) => p.slice(0, -1));
               setData(null);
-            }
-          }}
-        >
-          Раньше
-        </Button>
+            }}
+          >
+            Новее
+          </Button>
+          <Button
+            variant="outline"
+            disabled={loading || !data?.next_cursor}
+            onClick={() => {
+              if (data?.next_cursor) {
+                setPreviousPages((p) => [...p, cursor]);
+                setCursor(data.next_cursor);
+                setData(null);
+              }
+            }}
+          >
+            Раньше
+          </Button>
+        </div>
       </div>
     </section>
   );

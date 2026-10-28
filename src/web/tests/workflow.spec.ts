@@ -185,7 +185,7 @@ test("overview shows real retained request statistics and no client creation act
       .locator("dt")
       .filter({ hasText: /^Отказы$/ })
       .locator("+ dd"),
-  ).toHaveText("1");
+  ).toHaveText("1 · 33,3%");
   await screenshot(page, "workflow-statistics.png");
 });
 
@@ -457,7 +457,9 @@ test("validation polling recovers without submitting the operation again", async
   });
   await page.getByRole("button", { name: "Проверить", exact: true }).click();
   await expect(
-    page.getByText("Эта ревизия прошла проверку", { exact: true }),
+    page.getByText("Проверка Squid пройдена. Можно применить.", {
+      exact: true,
+    }),
   ).toBeVisible({ timeout: 15000 });
   expect(interrupted).toBeTruthy();
   expect(posts).toHaveLength(1);
@@ -514,7 +516,7 @@ test("form controls and sidebar text share their intended baselines", async ({
     .click();
   await navigate(page, "События");
   const selectCenter = await page
-    .getByLabel("Фильтр клиента", { exact: true })
+    .getByRole("button", { name: "Применить фильтры", exact: true })
     .evaluate((el) => {
       const b = el.getBoundingClientRect();
       return b.top + b.height / 2;
@@ -565,4 +567,165 @@ test("overview reads live Squid state and exposes failures as a useful drilldown
     page.getByRole("heading", { name: "События", level: 1 }),
   ).toBeVisible();
   await expect(page.getByLabel("Только отказы", { exact: true })).toBeChecked();
+});
+
+test("client domains, focused diff and explicit apply confirmation", async ({
+  page,
+  appliance,
+}) => {
+  await login(page, appliance);
+  await navigate(page, "Клиенты");
+  await page
+    .getByRole("button", { name: "Добавить клиента", exact: true })
+    .click();
+  const dialog = page.getByRole("dialog");
+  await dialog.getByLabel("Название", { exact: true }).fill("domain-review");
+  await dialog.getByLabel("IP / CIDR").fill("192.0.2.22/32");
+  await dialog
+    .getByLabel("Разрешённые домены")
+    .fill(
+      "debian.org\n.repo.example.test\nmirror.example.test\ncdn.example.test\nsecurity.example.test\narchive.example.test",
+    );
+  await dialog
+    .getByRole("button", { name: "Сохранить черновик", exact: true })
+    .click();
+  const row = page.getByRole("row").filter({ hasText: "domain-review" });
+  await expect(row.getByText("debian.org", { exact: true })).toBeVisible();
+  await expect(
+    row.getByText("archive.example.test", { exact: true }),
+  ).toBeHidden();
+  await row.getByText("Ещё 1", { exact: true }).click();
+  await expect(
+    row.getByText("archive.example.test", { exact: true }),
+  ).toBeVisible();
+  await screenshot(page, "review-domains.png");
+  await navigate(page, "Изменения");
+  const diff = page.getByLabel("Изменения squid.conf", { exact: true });
+  await expect(diff.locator(".added")).toHaveCount(3);
+  await expect(diff.locator(".removed")).toHaveCount(0);
+  await expect(diff).not.toContainText("visible_hostname");
+  await expect(
+    page.getByRole("button", { name: "Применить", exact: true }),
+  ).toHaveCount(0);
+  await page.getByRole("button", { name: "Проверить", exact: true }).click();
+  await expect(
+    page.getByText("Проверка Squid пройдена. Можно применить."),
+  ).toBeVisible();
+  await screenshot(page, "review-diff-light.png");
+  let applies = 0;
+  page.on("request", (r) => {
+    if (
+      r.method() === "POST" &&
+      r.url().endsWith("/operations") &&
+      r.postDataJSON()?.action === "apply"
+    )
+      applies++;
+  });
+  await page.getByRole("button", { name: "Применить", exact: true }).click();
+  await expect(
+    page.getByRole("dialog", { name: "Применить конфигурацию?" }),
+  ).toBeVisible();
+  expect(applies).toBe(0);
+  await screenshot(page, "review-apply-confirmation.png");
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Отмена", exact: true })
+    .click();
+  expect(applies).toBe(0);
+  await page.getByRole("button", { name: "Применить", exact: true }).click();
+  await page
+    .getByRole("dialog")
+    .getByRole("button", { name: "Подтвердить применение", exact: true })
+    .click();
+  await expect(
+    page.locator(".operation").getByText("Применено", { exact: true }),
+  ).toBeVisible();
+  expect(applies).toBe(1);
+  await page
+    .getByRole("button", { name: "Посмотреть diff", exact: true })
+    .first()
+    .click();
+  await expect(
+    page.getByRole("button", { name: "К черновику", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Проверить", exact: true }),
+  ).toHaveCount(0);
+});
+
+test("event filters query the full stored history and reset pagination", async ({
+  page,
+  appliance,
+}) => {
+  await login(page, appliance);
+  const now = (Date.now() / 1000).toFixed(3);
+  appliance.docker(
+    [
+      "exec",
+      "-i",
+      "--user",
+      "13:13",
+      appliance.name,
+      "tee",
+      "-a",
+      "/data/logs/access.log",
+    ],
+    Array.from(
+      { length: 60 },
+      (_, i) =>
+        `${now} 12 192.0.2.42 TCP_MISS/200 42 GET http://repo-${i}.example.test/ - HIER_NONE/- -\n`,
+    ).join(""),
+  );
+  await navigate(page, "События");
+  await page
+    .getByRole("button", { name: "Последние записи", exact: true })
+    .click();
+  await expect(
+    page.getByRole("cell", { name: "repo-59.example.test", exact: true }),
+  ).toBeVisible({ timeout: 15000 });
+  await page.getByRole("button", { name: "Раньше", exact: true }).click();
+  await expect(
+    page.getByRole("button", { name: "Новее", exact: true }),
+  ).toBeEnabled();
+  await page
+    .getByLabel("Домен / назначение", { exact: true })
+    .fill("repo-0.example.test");
+  await page.getByLabel("Метод", { exact: true }).selectOption("GET");
+  await page.getByLabel("IP источника", { exact: true }).fill("192.0.2.42");
+  await page
+    .getByRole("button", { name: "Применить фильтры", exact: true })
+    .click();
+  await expect(
+    page.getByRole("cell", { name: "repo-0.example.test", exact: true }),
+  ).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: "Новее", exact: true }),
+  ).toBeDisabled();
+  await screenshot(page, "review-event-filters.png");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await screenshot(page, "review-event-filters-mobile.png");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole("button", { name: "Сбросить", exact: true }).click();
+  await expect(
+    page.getByRole("cell", { name: "repo-59.example.test", exact: true }),
+  ).toBeVisible();
+  await navigate(page, "Обзор");
+  await expect(
+    page.getByRole("img", { name: "Запросы и отказы за последние 24 часа" }),
+  ).toBeVisible();
+  await screenshot(page, "review-overview.png");
+  await page.getByRole("button", { name: "Тёмная тема", exact: true }).click();
+  await screenshot(page, "review-overview-dark.png");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await screenshot(page, "review-overview-mobile.png");
+  expect(
+    await page.evaluate(
+      () => document.documentElement.scrollWidth <= innerWidth,
+    ),
+  ).toBeTruthy();
 });
