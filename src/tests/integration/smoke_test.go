@@ -101,6 +101,7 @@ print('OK')
 `
 
 func TestSmoke(t *testing.T) {
+	t.Parallel()
 	fixtures := t.TempDir()
 	r := resources{}
 	r.track(t)

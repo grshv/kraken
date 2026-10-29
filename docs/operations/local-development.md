@@ -107,9 +107,10 @@ journal/drift; restart control запускает reconciliation. Не реда�
 
 `make check`, `make image`, `make integration` из корня. `make integration` —
 `go test -tags integration` (пакет `src/tests/integration`), фильтр через `RUN=`
-(например `make integration RUN=TestSmoke`). Тесты создают уникальные
+(например `make integration RUN=TestSmoke`), число параллельных тестов — `PARALLEL=`
+(по умолчанию 4). Тесты создают уникальные
 containers/network/volume и удаляют их в `t.Cleanup`, не трогая пользовательский
-Compose. Нужен свободный тестовый subnet 11.250.17.0/24; origins и client
+Compose. Нужны свободные тестовые subnets 11.250.0.0/16–11.253.0.0/16; origins и client
 identities синтетические. Доступ к интернету нужен для pull/build зависимостей,
 не для проверки HTTP origins. Web unit-тесты (`npm --prefix src/web run test`)
 гоняют vitest без браузера и образа; браузерных e2e нет.
