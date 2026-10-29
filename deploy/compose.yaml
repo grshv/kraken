@@ -5,6 +5,7 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile
     image: kraken:dev
+    container_name: kraken
     ports:
       - "${KRAKEN_MANAGEMENT_BIND:-127.0.0.1}:8443:8443"
       - "${KRAKEN_PROXY_BIND:-127.0.0.1}:3128:3128"

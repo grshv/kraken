@@ -627,11 +627,11 @@ function LoginView({
       <div className="login-card">
         <h1 className="login-title">Kraken</h1>
         <form onSubmit={onLogin} className="login-form">
-          <Label>
+          <Label className="grid gap-2">
             Имя пользователя
             <Input name="username" autoComplete="username" required autoFocus />
           </Label>
-          <Label>
+          <Label className="grid gap-2">
             Пароль
             <Input
               name="password"
@@ -652,7 +652,7 @@ function LoginView({
               <AlertDescription>{error}</AlertDescription>
             </Alert>
           )}
-          <Button disabled={busy}>{busy ? "Вход…" : "Войти в панель"}</Button>
+          <Button type="submit" size="lg" disabled={busy}>{busy ? "Вход…" : "Войти в панель"}</Button>
         </form>
       </div>
     </main>

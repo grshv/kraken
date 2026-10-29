@@ -292,3 +292,19 @@ func TestOperationFindsTotalConfigParseLineWhenNotExpert(t *testing.T) {
 		t.Fatalf("unexpected findings: %v", final.Findings)
 	}
 }
+func TestLoginFromWrongOriginNamesPanelAddress(t *testing.T) {
+	_, h := fixtureServer(t)
+	w := request(h, "GET", "/session", nil, nil, "", "")
+	var v map[string]any
+	json.Unmarshal(w.Body.Bytes(), &v)
+	cookie := w.Result().Cookies()[0]
+	creds := map[string]string{"username": "admin", "password": "test-password-only-123"}
+	w = request(h, "POST", "/session", creds, cookie, v["csrf_token"].(string), "https://127.0.0.1:8443")
+	if w.Code != 403 || !strings.Contains(w.Body.String(), "https://panel.test") {
+		t.Fatalf("wrong-origin login: %d %s", w.Code, w.Body.String())
+	}
+	w = request(h, "POST", "/session", creds, cookie, "stale", "https://panel.test")
+	if w.Code != 403 || strings.Contains(w.Body.String(), "https://panel.test") {
+		t.Fatalf("stale-token login: %d %s", w.Code, w.Body.String())
+	}
+}

@@ -276,6 +276,11 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		// CSRF failure on the login form usually means a stale tab; record it so
 		// security monitoring can correlate a CSRF spray across accounts.
 		s.auditAudit(r.Context(), remoteHost(r.RemoteAddr), "csrf_failed", "")
+		if r.Header.Get("Origin") != s.Origin {
+			// The public origin is not secret: it is the address the operator configured.
+			fail(w, 403, "csrf_failed", "Панель открыта не по своему адресу. Откройте "+s.Origin)
+			return
+		}
 		fail(w, 403, "csrf_failed", "Обновите страницу входа")
 		return
 	}
