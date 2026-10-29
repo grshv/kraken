@@ -1,11 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  KeyRound,
-  SlidersHorizontal,
-  History,
-  Activity,
-} from "lucide-react";
+import { KeyRound, SlidersHorizontal, History, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -23,11 +18,11 @@ import type {
   Status,
 } from "./model";
 import { navItems, type NavId } from "./shell/nav";
+import { paletteIntent } from "./shell/paletteIntent";
 import { InspectorShell, type ShellHandlers } from "./shell/InspectorShell";
 import type { ConfirmOptions } from "./shell/ConfirmDialog";
 import { useApplyFlow } from "./draft/useApplyFlow";
 import { HelpView } from "./help/HelpView";
-import { PlaceholderSection } from "./sections/PlaceholderSection";
 import { ClientsSection } from "./clients/ClientsSection";
 import { PoliciesSection } from "./policies/PoliciesSection";
 import { LogSection } from "./log/LogSection";
@@ -74,6 +69,9 @@ function App() {
   const [history, setHistory] = useState<RevisionSummary[]>([]);
   const [connectionError, setConnectionError] = useState(false);
   const [navId, setNavId] = useState<NavId>("clients");
+  const [sectionIntent, setSectionIntent] = useState<
+    "new-client" | "new-proxy-login" | "blocked-domains" | undefined
+  >(undefined);
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState<ConfirmOptions | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -364,6 +362,13 @@ function App() {
     });
   }
 
+  // One-shot palette intents (new-client etc.) are handed to the active
+  // section; the section clears this once it has handled the hint.
+  const handleIntentHandled = useCallback(
+    () => setSectionIntent(undefined),
+    [],
+  );
+
   const handlers: ShellHandlers = {
     onLogout: () => {
       void logout();
@@ -395,7 +400,11 @@ function App() {
     },
     onOpenAudit: () => setNavId("audit"),
     onAction: (id) => {
-      showToast(`Действие «${id}» появится в следующем срезе`);
+      const intent = paletteIntent(id, role);
+      if (intent && intent.kind === "nav") {
+        setNavId(intent.nav);
+        if (intent.intent) setSectionIntent(intent.intent);
+      }
     },
   };
 
@@ -466,6 +475,8 @@ function App() {
           onToast={showToast}
           onNavigate={setNavId}
           onConfirm={(o) => setConfirm(o)}
+          intent={sectionIntent}
+          onIntentHandled={handleIntentHandled}
         />
       );
     if (navId === "policies")
@@ -520,35 +531,43 @@ function App() {
         />
       );
     if (navId === "accounts")
-      return <AccountsSection
-        request={request}
-        draft={draft}
-        active={active}
-        session={session!}
-        onCommit={commitDraft}
-        onDiscard={async () => {
-          await discardDraftNow();
-          return { ok: true };
-        }}
-        onToast={showToast}
-        onNavigate={setNavId}
-        onConfirm={(o) => setConfirm(o)}
-      />;
+      return (
+        <AccountsSection
+          request={request}
+          draft={draft}
+          active={active}
+          session={session!}
+          onCommit={commitDraft}
+          onDiscard={async () => {
+            await discardDraftNow();
+            return { ok: true };
+          }}
+          onToast={showToast}
+          onNavigate={setNavId}
+          onConfirm={(o) => setConfirm(o)}
+          intent={sectionIntent}
+          onIntentHandled={handleIntentHandled}
+        />
+      );
     if (navId === "settings")
-      return <SettingsSection
-        request={request}
-        draft={draft}
-        active={active}
-        session={session!}
-        onCommit={commitDraft}
-        onDiscard={async () => {
-          await discardDraftNow();
-          return { ok: true };
-        }}
-        onToast={showToast}
-        onNavigate={setNavId}
-        onConfirm={(o) => setConfirm(o)}
-      />;
+      return (
+        <SettingsSection
+          request={request}
+          draft={draft}
+          active={active}
+          session={session!}
+          onCommit={commitDraft}
+          onDiscard={async () => {
+            await discardDraftNow();
+            return { ok: true };
+          }}
+          onToast={showToast}
+          onNavigate={setNavId}
+          onConfirm={(o) => setConfirm(o)}
+          intent={sectionIntent}
+          onIntentHandled={handleIntentHandled}
+        />
+      );
     return null;
   }
 

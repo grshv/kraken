@@ -47,7 +47,15 @@ const PERMS: [string, string, string][] = [
 // AccountsSection: panel users (admin only) and proxy logins. Admin sees both
 // groups; manager sees only "Логины прокси" (server filters the list).
 export function AccountsSection(props: SectionProps) {
-  const { request, draft, session, onToast, onNavigate } = props;
+  const {
+    request,
+    draft,
+    session,
+    onToast,
+    onNavigate,
+    intent,
+    onIntentHandled,
+  } = props;
   const [users, setUsers] = useState<User[] | null>(null);
   const [accounts, setAccounts] = useState<ProxyAccount[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -58,6 +66,13 @@ export function AccountsSection(props: SectionProps) {
   const isAdmin = session.role === "admin";
   const snap = draft?.snapshot;
   const clients = snap?.clients ?? [];
+
+  // Command palette "new-proxy-login": open the proxy login form once.
+  useEffect(() => {
+    if (intent !== "new-proxy-login") return;
+    setCreating("proxy");
+    onIntentHandled?.();
+  }, [intent, onIntentHandled]);
 
   useEffect(() => {
     let live = true;
@@ -78,8 +93,7 @@ export function AccountsSection(props: SectionProps) {
   }, [request, canManageUsers]);
 
   // Fatal surface only when a required list failed to load.
-  const fatal =
-    (canManageUsers && users === null) || accounts === null;
+  const fatal = (canManageUsers && users === null) || accounts === null;
 
   if (fatal && !creating)
     return (
@@ -173,21 +187,28 @@ export function AccountsSection(props: SectionProps) {
               {panelUsers.map((u) => (
                 <button
                   key={u.username}
-                  className={"list-item" + (selected === u.username ? " selected" : "")}
+                  className={
+                    "list-item" + (selected === u.username ? " selected" : "")
+                  }
                   style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }}
                   onClick={() => setSelected(u.username)}
                 >
                   <span className="ellipsis" style={{ fontWeight: 500 }}>
                     {u.username}
                   </span>
-                  {!u.enabled && <Badge variant="secondary">заблокирован</Badge>}
+                  {!u.enabled && (
+                    <Badge variant="secondary">заблокирован</Badge>
+                  )}
                   <span className="muted-text small">
                     {u.role === "admin" ? "Администратор" : "Менеджер"}
                   </span>
                 </button>
               ))}
               {panelUsers.length === 0 && (
-                <div className="muted-text small" style={{ padding: "8px 14px" }}>
+                <div
+                  className="muted-text small"
+                  style={{ padding: "8px 14px" }}
+                >
                   Нет пользователей
                 </div>
               )}
@@ -196,11 +217,15 @@ export function AccountsSection(props: SectionProps) {
           <div className="list-group-label">Логины прокси</div>
           {proxyRows.map((a) => {
             // Where used: draft clients that reference this proxy login.
-            const usedBy = draftRows.filter((c) => c.proxy_username === a.username);
+            const usedBy = draftRows.filter(
+              (c) => c.proxy_username === a.username,
+            );
             return (
               <button
                 key={a.username}
-                className={"list-item" + (selected === a.username ? " selected" : "")}
+                className={
+                  "list-item" + (selected === a.username ? " selected" : "")
+                }
                 style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }}
                 onClick={() => setSelected(a.username)}
               >
@@ -680,7 +705,9 @@ function ManagerScopeEditor({
                 size="icon-xs"
                 variant="ghost"
                 aria-label={`Удалить ${n}`}
-                onClick={() => onNetworks(draft.networks.filter((x) => x !== n))}
+                onClick={() =>
+                  onNetworks(draft.networks.filter((x) => x !== n))
+                }
               >
                 <X aria-hidden />
               </Button>
@@ -710,7 +737,10 @@ function ManagerScopeEditor({
           </Button>
         </div>
 
-        <div className="small muted-text" style={{ marginTop: 14, marginBottom: 6 }}>
+        <div
+          className="small muted-text"
+          style={{ marginTop: 14, marginBottom: 6 }}
+        >
           Назначенные клиенты
         </div>
         {draftClients.length === 0 ? (
@@ -782,10 +812,11 @@ function ProxyAccountDetail({
   error: string | null;
   setError: (s: string | null) => void;
 }) {
-  const usedBy = draftClients.filter((c) => c.proxy_username === account.username);
+  const usedBy = draftClients.filter(
+    (c) => c.proxy_username === account.username,
+  );
   const owner = account.owner ?? "";
-  const ownerIsSelf =
-    session.role === "manager" && owner === session.username;
+  const ownerIsSelf = session.role === "manager" && owner === session.username;
   const [pwd, setPwd] = useState("");
 
   async function patch(payload: Record<string, unknown>, ok: string) {
@@ -843,8 +874,8 @@ function ProxyAccountDetail({
               </div>
             )}
             <div className="muted-text small" style={{ marginTop: 8 }}>
-              Логин подтверждает, кто подключился. Что разрешено, решает политика
-              клиента.
+              Логин подтверждает, кто подключился. Что разрешено, решает
+              политика клиента.
             </div>
           </div>
         </div>
