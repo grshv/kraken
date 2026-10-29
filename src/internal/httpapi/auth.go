@@ -284,9 +284,6 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "invalid_input", "Некорректные данные входа")
 		return
 	}
-	if s.storageFull(w) {
-		return
-	}
 	host := remoteHost(r.RemoteAddr)
 	// Two independent throttle counters share the same backing map but use
 	// distinct key prefixes, so a distributed password-guessing attack that
@@ -441,9 +438,6 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, ses
 	}
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request, v session) {
-	if s.storageFull(w) {
-		return
-	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	if e := s.Store.DeleteSessionContext(ctx, v.Hash); e != nil {

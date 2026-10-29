@@ -403,7 +403,7 @@ func TestOpsDiskFull(t *testing.T) {
 		"exec sleep infinity"
 	docker(t, "run", "-d", "--name", proxy, "--network", net, "--network-alias", "proxy", "--ip", base+".2",
 		"-p", "127.0.0.1:"+port+":8443",
-		"--mount", "type=tmpfs,destination=/data,tmpfs-size=67108864",
+		"--mount", "type=tmpfs,destination=/data,tmpfs-size=134217728",
 		"-e", "KRAKEN_PUBLIC_ORIGIN="+origin,
 		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key",
 		"--entrypoint", "sh", testImage(), "-c", initCmd)

@@ -163,8 +163,8 @@ func TestStorageFullRejectsMutations(t *testing.T) {
 	s.freeBytes = func() (uint64, error) { return storageFullBytes - 1, nil }
 
 	// PUT/DELETE /configuration/draft, POST /revisions, POST /operations,
-	// POST /session (login), PATCH /users, PUT /users/scope,
-	// POST /proxy-accounts, PATCH /proxy-accounts, DELETE /session.
+	// PATCH /users, PUT /users/scope, POST /proxy-accounts, PATCH
+	// /proxy-accounts. Login and logout stay available.
 	mutations := []struct {
 		method, path string
 		body         any
@@ -176,7 +176,6 @@ func TestStorageFullRejectsMutations(t *testing.T) {
 		{"PATCH", "/users/admin", map[string]any{"enabled": false}, true},
 		{"PUT", "/users/admin/scope", map[string]any{"networks": []string{}, "client_ids": []string{}}, true},
 		{"POST", "/proxy-accounts", map[string]string{"username": "pa2", "password": "test-password-only-123"}, true},
-		{"DELETE", "/session", nil, true},
 	}
 	for _, m := range mutations {
 		w := request(h, m.method, m.path, m.body, cookie, csrf, "https://panel.test")
@@ -199,14 +198,14 @@ func TestStorageFullRejectsMutations(t *testing.T) {
 		t.Errorf("POST /operations: expected 507, got %d %s", rec.Code, rec.Body.String())
 	}
 
-	// POST /session (login) — needs anonymous CSRF first.
+	// Login stays available on a full disk so the operator can see the state.
 	aw := request(h, "GET", "/session", nil, nil, "", "")
 	var v map[string]any
 	json.Unmarshal(aw.Body.Bytes(), &v)
 	ac := aw.Result().Cookies()[0]
 	lw := request(h, "POST", "/session", map[string]string{"username": "admin", "password": "test-password-only-123"}, ac, v["csrf_token"].(string), "https://panel.test")
-	if lw.Code != 507 {
-		t.Errorf("POST /session (login): expected 507, got %d %s", lw.Code, lw.Body.String())
+	if lw.Code != 200 {
+		t.Errorf("POST /session (login) on full disk: expected 200, got %d %s", lw.Code, lw.Body.String())
 	}
 
 	// PATCH /proxy-accounts/pa.

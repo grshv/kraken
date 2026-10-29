@@ -71,16 +71,6 @@
               }
             }
           },
-          "507": {
-            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
           "503": {
             "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
             "headers": {
@@ -134,16 +124,6 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/Error"
-                }
-              }
-            }
-          },
-          "507": {
-            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
             "content": {
               "application/json": {
                 "schema": {
@@ -903,7 +883,11 @@
             "description": "Histogram bucket size.",
             "schema": {
               "type": "string",
-              "enum": ["1m", "15m", "1h"]
+              "enum": [
+                "1m",
+                "15m",
+                "1h"
+              ]
             }
           },
           {
@@ -3129,14 +3113,21 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["id", "name", "count"],
+              "required": [
+                "id",
+                "name",
+                "count"
+              ],
               "properties": {
                 "id": {
                   "type": "string",
                   "description": "Stable client_id; \"\" for unmatched (unknown) sources."
                 },
                 "name": {
-                  "type": ["string", "null"],
+                  "type": [
+                    "string",
+                    "null"
+                  ],
                   "description": "Client name from the active snapshot; null for unmatched sources or clients no longer in the snapshot."
                 },
                 "count": {
@@ -3151,7 +3142,10 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["method", "count"],
+              "required": [
+                "method",
+                "count"
+              ],
               "properties": {
                 "method": {
                   "type": "string"
@@ -3168,7 +3162,11 @@
             "items": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["start", "allowed", "denied"],
+              "required": [
+                "start",
+                "allowed",
+                "denied"
+              ],
               "properties": {
                 "start": {
                   "type": "string",

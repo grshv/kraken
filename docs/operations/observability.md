@@ -101,9 +101,10 @@ Raw logs ограничены rotation count и периодической ро�
 событий останавливается: `CollectEvents` возвращает nil, логирует раз в минуту,
 `/status` показывает `ingestion.state="storage_low"`; после освобождения места
 сбор продолжается с последнего checkpoint. При свободном месте ниже 64 MiB
-(`storageFullBytes`) изменяющие ручки (PUT/DELETE draft, POST revisions/operations/
-session, PATCH users/proxy-accounts, PUT scope) отвечают 507 `storage_full` до
-записи; чтения работают. Истёкший дедлайн запроса (3 c) или SQLITE_BUSY/LOCKED
+(`storageFullBytes`) изменяющие ручки (PUT/DELETE draft, POST revisions/operations,
+PATCH users/proxy-accounts, PUT scope) отвечают 507 `storage_full` до записи;
+чтения, вход и выход работают, чтобы оператор видел состояние.
+Истёкший дедлайн запроса (3 c) или SQLITE_BUSY/LOCKED
 отвечает 503 `storage_busy` с заголовком `Retry-After: 2`. Ошибка `statfs` не
 блокирует работу (считается достаточным с предупреждением в лог). Alert по
 runtime down, config drift, rollback degraded, cert expiry и log gaps.
