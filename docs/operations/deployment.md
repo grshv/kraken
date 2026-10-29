@@ -13,7 +13,9 @@
 - DNS и адреса management/client interfaces, сохранение исходных IP VM.
 - Проверенный base tag+digest+architecture и digest собственного итогового image.
 - Server TLS certificates панели/proxy и доверие к их issuer у клиентов.
-- Local persistent storage, UID/GID, права на key/config/journal и backup location.
+- Локальное постоянное хранилище для тома `/var/lib/kraken` и место для внешней копии.
+- Внутренние репозитории и закрытые адреса, которые клиентам нужно разрешить: защита
+  RFC 1918 их закрывает, нужен `allow_private_destinations` или точные исключения.
 - Firewall matrix, включая IPv6, metadata, DNS/NTP и возможный direct-egress запрет.
 
 ## Сборка и установка
@@ -21,8 +23,8 @@
 1. Multi-stage build: frontend static assets → embed в Go → copy executable и
    проверенного Pebble plan в pinned Canonical base. Node/toolchain отсутствуют
    в runtime. Изменение upstream startup path описывается и проверяется.
-2. Создать persistent volumes для SQLite, journal/LKG/revisions, managed config,
-   logs и необязательного cache. Секреты подключить вне image/Git.
+2. Создать один постоянный том для `/var/lib/kraken` (раскладка — «Файлы и права»).
+   Внешние TLS-файлы подключить вне image/Git.
 3. Права на volume и внешние ключи — по разделу «Файлы и права».
 4. Настроить management IP:443 → container:8443 для HTTPS Go и client listeners.
    Go сам завершает TLS панели; mandatory edge container нет.
