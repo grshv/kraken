@@ -26,10 +26,10 @@ TLSProfile: mode(tunnel), proxy_transport(http|tls), cert_ref
 - `all_web`: внешние HTTP/HTTPS назначения на разрешённых web-портах.
 - `allowlist`: только нормализованные домены и явно выбранные поддомены.
 - Общие защитные ограничения применяются к обоим режимам.
-- Первая версия не предлагает `*.example.org` как произвольный glob: UI хранит
-  `example.org` и отдельный флаг поддоменов, compiler переводит его в ACL.
+- `*.example.org` не хранится как glob: UI сохраняет `example.org` и отдельный
+  флаг поддоменов, compiler переводит его в ACL.
 - Запрещены CR/LF, пробелы/директивы, схемы URL, userinfo и произвольные regex.
-  В текущем срезе принимаются canonical ASCII domains; IDN normalization ещё не реализован.
+  Принимаются canonical ASCII domains; IDN вводится в punycode.
 - В allowlist raw IP назначения по умолчанию не разрешается. PTR lookup не должен
   превратить чужой IP в разрешённый домен; точное поведение проверяется fixture.
 - Пустой allowlist означает отсутствие разрешённых ресурсов, а не весь интернет.

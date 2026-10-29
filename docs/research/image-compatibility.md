@@ -58,16 +58,4 @@ snapshot и installed options. Это проверяет перечитыван�
 запрет, не доказывает каждый ACL; поведение клиентских политик проверяется отдельно.
 Probe использует отдельный listener 127.0.0.1:3130, который Docker не публикует.
 
-## Исполняемые доказательства
-
-- `make check`: Go race tests (auth/CSRF/revoke, stale draft, policy guards,
-  parse/reload/rollback/crash/drift, PHC/reset, expert guards), frontend typecheck/build,
-  vitest (логика каркаса) и docs.
-- `make image`: multi-stage image из [deploy](../../deploy/Dockerfile).
-- `make integration`: [реальные сетевые fixtures](../../src/tests/integration/smoke.py),
-  без default password, с проверкой цепочки сертификатов.
-- [Web unit-тесты](../../src/web/tests/unit): логика каркаса (пределы панелей,
-  навигация по ролям, конечный автомат применения) на vitest, без браузера.
-  E2e на ключевые потоки — отдельный срез.
-
-Остаток проверок и известные ограничения — в [status](../status.md).
+Проверки, которые подтверждают эти факты, перечислены в [testing](../development/testing.md).

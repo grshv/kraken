@@ -84,12 +84,8 @@ mutations. При недоступной DB новая mutation не начин�
 5. Semantic validation: неизменность защитных правил, неизвестная VM deny,
    отсутствие пустого allow-all, соответствие политики и ACL. Parse недостаточно.
 6. Зафиксировать journal `promoting` до замены. Атомарно заменить активный config
-   pointer/root file через rename в смонтированном **каталоге**, затем fsync dir.
-   MVP реализует single-file `active.conf`, заменяемый целиком через `rename`.
-   Спецификация выше описывает «многофайловый bundle, выбираемый одной ссылкой/
-   корневым файлом» — это целевая форма для future TLS-profile rotation с
-   собственным cert bundle, в первом рабочем срезе не реализованная. Single-file
-   достаточно, потому что каждый Apply переписывает всю конфигурацию целиком.
+   файл `active.conf` через rename в том же каталоге, затем fsync каталога.
+   Конфигурация — один файл: каждое применение переписывает её целиком.
 7. Journal `reloading`. Выполнить проверенный для image control command Squid
    без shell и без сигнала PID 1 наугад. Timeout ограничен; stdout/stderr обрезаны.
 8. Journal `verifying`. Проверить process health, наблюдаемые ошибки reload,

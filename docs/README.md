@@ -25,7 +25,6 @@
 | [testing](development/testing.md) | Какие проверки есть и что они покрывают |
 | [image-compatibility](research/image-compatibility.md) | Факты о базовом образе и матрица возможностей |
 | [squid-live-metrics](research/squid-live-metrics.md) | Источники и формат live-метрик Squid |
-| [2026-10-27](research/2026-10-27.md) | Исходное исследование с первичными источниками |
 | [ADR](adr/README.md) | Почему принято каждое существенное решение |
 
 Контракты: [OpenAPI](../api/openapi.json), [runtime contract](../api/runtime-contract.md),
