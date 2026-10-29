@@ -37,8 +37,8 @@ CONTROL_USER = '10013:10013'
 # Distinct subnets per section so the run does not collide with smoke
 # (11.250.17.0/24), network (11.251.17.0/24) or apt (11.252.17.0/24), nor
 # between its own sections.
-SUBNETS = ['11.253.17.0/24', '11.253.18.0/24', '11.253.19.0/24', '11.253.20.0/24']
-BASES = ['11.253.17', '11.253.18', '11.253.19', '11.253.20']
+SUBNETS = ['11.253.17.0/24', '11.253.18.0/24', '11.253.19.0/24', '11.253.20.0/24', '11.253.21.0/24']
+BASES = ['11.253.17', '11.253.18', '11.253.19', '11.253.20', '11.253.21']
 
 prefix = 'sc-ops-' + uuid.uuid4().hex[:8]
 containers = []
@@ -272,10 +272,11 @@ def generate_certs(fixtures):
 
 
 def ensure_next_image():
-    """Build kraken:ops-next from the same Dockerfile with a trivial label."""
-    inspect = subprocess.run(['docker', 'image', 'inspect', NEXT_IMAGE], capture_output=True)
-    if inspect.returncode == 0:
-        return
+    """Build kraken:ops-next from the current tree with a trivial label.
+
+    Always rebuilt (layer cache keeps it cheap): a stale tag from an older tree
+    would test an incompatible schema instead of this change.
+    """
     docker('build', '-f', 'deploy/Dockerfile', '--label', 'kraken.ops.variant=next', '-t', NEXT_IMAGE, '.')
 
 
@@ -638,6 +639,63 @@ def section_disk_full(fixtures_root):
     print('PASS: 4e. runtime manifest verifies and DB reads succeed after ENOSPC')
 
 
+def section_forced_kill(fixtures_root):
+    print('\n=== Section 5: forced kill and restart ===')
+    net = prefix + '-n5'; networks.append(net)
+    vol = prefix + '-v5'; volumes.append(vol)
+    fixtures = fixtures_root / 's5'
+    fixtures.mkdir(parents=True, exist_ok=True)
+    base = BASES[4]
+    docker('network', 'create', '--subnet', SUBNETS[4], net)
+    docker('volume', 'create', vol)
+    docker('run', '--rm', '--user', CONTROL_USER, '-v', vol + ':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'dev-cert')
+    password = secrets.token_urlsafe(24)
+    docker('run', '--rm', '-i', '--user', CONTROL_USER, '-v', vol + ':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'bootstrap', '--password-stdin', input=password + '\n')
+    port = free_port()
+    origin = 'https://localhost:' + port
+    proxy = prefix + '-p5'; containers.append(proxy)
+    docker('run', '-d', '--name', proxy, '--network', net, '--network-alias', 'proxy', '--ip', base + '.2',
+           '-p', '127.0.0.1:' + port + ':8443', '-v', vol + ':/data',
+           '-e', 'KRAKEN_PUBLIC_ORIGIN=' + origin,
+           '-e', 'KRAKEN_PROXY_CERT=/data/certs/proxy.crt', '-e', 'KRAKEN_PROXY_KEY=/data/certs/proxy.key', IMAGE)
+    docker('cp', proxy + ':/data/certs/panel.crt', str(fixtures / 'panel.crt'))
+    docker('cp', proxy + ':/data/certs/proxy.crt', str(fixtures / 'proxy.crt'))
+    make_origin_cert(fixtures)
+    origin_c, client = start_origin_client(net, fixtures, prefix + '-s5', base)
+
+    panel = Panel(origin, fixtures / 'panel.crt', password)
+    panel.login(password)
+    panel.wait_up()
+    d = panel.draft(); snap = d['snapshot']; profile = snap['tls_profiles'][0]['id']
+    all_id, allow_id = str(uuid.uuid4()), str(uuid.uuid4())
+    snap['policies'] = [
+        {'id': all_id, 'name': 'All web ops', 'mode': 'all_web', 'destinations': [], 'tls_profile_id': profile},
+        {'id': allow_id, 'name': 'Allowlist ops', 'mode': 'allowlist', 'destinations': [{'domain': 'allowed.test', 'include_subdomains': False}], 'tls_profile_id': profile}]
+    snap['clients'] = [
+        {'id': str(uuid.uuid4()), 'name': 'source ops', 'source_networks': [base + '.10/32'], 'enabled': True, 'policy_id': all_id},
+        {'id': str(uuid.uuid4()), 'name': 'client ops', 'source_networks': [base + '.20'], 'enabled': True, 'policy_id': allow_id}]
+    panel.apply(snap, d['version'])
+    assert wait_for(lambda: fetch(client) == 200)
+    assert fetch(client, 'http://denied.test/') == 403
+    assert fetch(origin_c, 'http://denied.test/') == 200
+    print('PASS: 5a. instance raised, policy applied, traffic passes')
+
+    applied_rev = panel.status()['applied_revision']
+
+    # docker kill -s KILL leaves /data/squid/squid.pid in place; squid-start
+    # must remove the stale file before exec so the next launch does not abort
+    # with "already running". No `docker stop` grace here: this section proves
+    # recovery from a hard kill / OOM / power loss, which the runbook documents
+    # as non-fatal since squid-start cleans the PID file automatically.
+    docker('kill', '-s', 'KILL', proxy)
+    docker('start', proxy)
+    panel.wait_up(seconds=120)
+    assert wait_for(lambda: fetch(client) == 200)
+    assert fetch(client, 'http://denied.test/') == 403
+    assert panel.status()['applied_revision'] == applied_rev, 'applied revision changed after forced restart'
+    print('PASS: 5b. after docker kill + start, squid serves the same policy from the same revision')
+
+
 def main():
     inspect = subprocess.run(['docker', 'image', 'inspect', IMAGE], capture_output=True)
     if inspect.returncode != 0:
@@ -653,6 +711,7 @@ def main():
             section_cert_replace(fixtures_root)
             section_image_update(fixtures_root)
             section_disk_full(fixtures_root)
+            section_forced_kill(fixtures_root)
         print('\nALL OPS CHECKS PASSED')
         return 0
     except Exception:

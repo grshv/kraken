@@ -71,10 +71,10 @@ LKG либо отдельное согласованное изменение м
 1. Дождаться завершения apply/rollback и остановить единственный контейнер.
    Убедиться, что он действительно остановлен; клиенты на время потеряют proxy.
    Останавливать через `docker stop` (или `docker compose stop`) с grace,
-   достаточным для штатного shutdown: Squid удаляет `/data/squid/squid.pid`,
-   панель чекпоинтит WAL. Принудительный kill оставляет stale PID-файл и
-   незачекпоинченный WAL; копия такого состояния требует ручного восстановления
-   pid-файла перед стартом.
+   достаточным для штатного shutdown: панель чекпоинтит WAL, а Squid
+   корректно завершает соединения. Принудительный kill оставляет
+   незачекпоинченный WAL; копия такого состояния восстанавливается при старте
+   (squid-start удаляет stale PID-файл, SQLite — WAL).
 2. Скопировать named volume /data с сохранением прав/UID. Не выбирать только
    control.sqlite3: сохранить весь app/ вместе с возможными WAL/SHM и runtime/
    с LKG/journal/config. logs/ можно включить в простую полную копию.
@@ -114,11 +114,10 @@ staging traffic test. Сделать backup; заранее сохранить �
 CONNECT — запланировать окно. Для обычного сбоя Go перезапускать только его
 Pebble service, без restart всего контейнера.
 Останавливать контейнер через `docker stop` (или `docker compose stop`) с grace,
-достаточным для штатного shutdown Squid и панели: Squid при штатном выходе
-удаляет `/data/squid/squid.pid`, а панель чекпоинтит WAL. Принудительный
-`docker rm -f`/`docker kill` оставляет stale PID-файл, и следующий запуск
-Squid падает с `FATAL: Squid is already running`; такой volume нужно
-починить вручную, удалив `/data/squid/squid.pid` перед стартом.
+достаточным для штатного shutdown Squid и панели: корректный выход Squid и
+чекпоинт WAL панели. Принудительный `docker rm -f`/`docker kill` оставляет
+stale PID-файл, но squid-start удаляет его перед запуском, поэтому следующий
+старт Squid не падает с `FATAL: Squid is already running`.
 Откат image не откатывает SQLite schema автоматически: использовать совместимую
 версию либо restore.
 
