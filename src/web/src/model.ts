@@ -133,6 +133,10 @@ export type Settings = {
   max_request_body_mb: number;
   log_rotations: number;
   allow_private_destinations: boolean;
+  // Domains denied for every client before user policy applies. Mirrors the Go
+  // Settings.BlockedDomains field; the Settings screen exposes them in a later
+  // slice, the Log screen appends to them via "Запретить для всех".
+  blocked_domains?: Destination[];
 };
 export type RevisionSummary = {
   id: string;
