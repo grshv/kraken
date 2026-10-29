@@ -46,10 +46,18 @@ Apply использует snapshot целой конфигурации, не ч
 pool, короткие write transactions, контролируемый checkpoint. Режим synchronous
 и конкретный driver выбрать по результатам durability tests; не ослаблять fsync
 ради красивого benchmark. Не размещать DB на NFS. На практике `store.Open`
-включает `foreign_keys(1)`, `journal_mode=WAL)`, `busy_timeout=5000)`
-через DSN-прагмы, а `synchronous=FULL` — через `PRAGMA` после открытия, чтобы
-параметр не зависел от формы пула соединений. Connection pool `SetMaxOpenConns(1)`
-сериализует writers (см. ADR 0009).
+разделён на writer pool (`_txlock=immediate`, `SetMaxOpenConns(1)`,
+`synchronous=FULL`, `journal_size_limit=64MiB`) и read-only reader pool
+(`query_only(1)`, до 4 соединений) для тяжёлых чтений (аудит, ревизии, проверки
+сессий). DSN-прагмы `foreign_keys(1)`, `journal_mode(WAL)`, `busy_timeout(5000)`
+применяются к обоим пулам; `synchronous=FULL` и `journal_size_limit` — через
+`PRAGMA` после открытия writer. Для in-memory/`file:` DSN в тестах reader равен
+writer (один пул). Reader не блокирует writer, writer не ждёт reader'а (см.
+ADR 0009). Сессия читается через reader; `last_seen_at` обновляется короткой
+write-транзакцией не чаще раза в минуту условным
+`UPDATE ... WHERE token_hash=? AND last_seen_at=?` — удалённая параллельным
+reset'ом сессия не воскрешается (recheck existence). Периодическое обслуживание:
+`PRAGMA wal_checkpoint(TRUNCATE)` раз в 10 мин, `PRAGMA optimize` суточно.
 
 Для текущей поставки достаточно остановленной согласованной копии /data и
 внешних TLS mounts. Горячий SQLite backup API не требуется;
@@ -113,9 +121,9 @@ automation не реализован и не входит в объём. Акт�
 незавершённых operations сохраняются; rotation сырого access.log не равна backup.
 
 `store.Prune` реализует retention управляющей БД: удаляет audit_events старше
-cutoff (по умолчанию 90 дней) и сверх 5000 новейших строк, а также ревизии,
-которые не ссылаются на succeeded operation и не входят в последние N (по
-умолчанию 20). Retention телеметрии (сырые события и агрегаты) выполняет
+`store.AuditRetention` (3 года) без лимита на количество строк, а также
+ревизии, которые не ссылаются на succeeded operation и не входят в последние N
+(по умолчанию 20). Retention телеметрии (сырые события и агрегаты) выполняет
 `telemetry.Store.Maintain` в том же периодическом тике `Manager.Maintain`.
 
 ## Реализованное расширение

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -11,23 +12,21 @@ import (
 	"kraken.local/kraken/internal/store"
 )
 
-// managerScope loads the manager's networks and client IDs. Admins get nil
-// (no filtering). Reading within a tx keeps the view consistent with the
-// request that triggered it.
-func (s *Server) managerScope(v session) (store.Scope, error) {
+// managerScopeContext loads the manager's networks and client IDs through the
+// reader pool. Admins get nil (no filtering). Using the reader keeps scope
+// loading off the write lock so a concurrent apply or audit scroll cannot
+// stall a configured request.
+func (s *Server) managerScopeContext(ctx context.Context, v session) (store.Scope, error) {
 	if v.Role != "manager" {
 		return store.Scope{}, nil
 	}
-	tx, e := s.Store.BeginTx()
-	if e != nil {
-		return store.Scope{}, e
-	}
-	defer tx.Rollback()
-	scope, e := s.Store.UserScope(tx, v.User)
-	if e != nil {
-		return store.Scope{}, e
-	}
-	return scope, nil
+	return s.Store.UserScopeContext(ctx, v.User)
+}
+
+// managerScope is the context.Background wrapper for callers without a request
+// context (periodic maintenance, CLI paths).
+func (s *Server) managerScope(v session) (store.Scope, error) {
+	return s.managerScopeContext(context.Background(), v)
 }
 
 // activeRevisionSnapshot returns the snapshot of the last successfully applied
@@ -45,10 +44,33 @@ func (s *Server) activeRevisionSnapshot() (policy.Snapshot, error) {
 	return d.Snapshot, nil
 }
 
+// activeRevisionSnapshotContext is the ctx-bound variant used by handlers that
+// already hold a request deadline.
+func (s *Server) activeRevisionSnapshotContext(ctx context.Context) (policy.Snapshot, error) {
+	manifest, e := s.Runtime.ReadManifest()
+	if e == nil {
+		return manifest.Snapshot, nil
+	}
+	var d Draft
+	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+		return policy.Snapshot{}, e
+	}
+	return d.Snapshot, nil
+}
+
 // draftSnapshot loads the current draft snapshot.
 func (s *Server) draftSnapshot() (policy.Snapshot, int, error) {
 	var d Draft
 	if e := s.Store.Get("draft", &d); e != nil {
+		return policy.Snapshot{}, 0, e
+	}
+	return d.Snapshot, d.Version, nil
+}
+
+// draftSnapshotContext is the ctx-bound variant used by handlers.
+func (s *Server) draftSnapshotContext(ctx context.Context) (policy.Snapshot, int, error) {
+	var d Draft
+	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
 		return policy.Snapshot{}, 0, e
 	}
 	return d.Snapshot, d.Version, nil

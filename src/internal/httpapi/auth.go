@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -102,22 +103,22 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 		return s.readAnonymousSession(c.Value)
 	}
 	v.Hash = tokenHash(c.Value)
-	// SELECT and UPDATE last_seen_at in one transaction so a parallel password
-	// reset cannot delete the row between read and touch (the previous split-tx
-	// version would silently noop the UPDATE and continue with stale state).
-	tx, e := s.Store.BeginTx()
-	if e != nil {
-		return v, e
-	}
-	defer tx.Rollback()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	now := time.Now().Unix()
+	// Read session and user through the reader pool so a session check never
+	// takes the write lock. last_seen_at is updated in a short write tx only
+	// once per minute (touch throttle); the conditional WHERE closes the reset
+	// race — a password reset that deleted the row between read and touch
+	// produces 0 affected rows, and we re-check existence so a revoked session
+	// can never be revived or reused.
 	var last int64
-	v.User, v.CSRF, v.Expires, last, e = s.Store.LookupSession(tx, v.Hash)
+	v.User, v.CSRF, v.Expires, last, e = s.Store.LookupSessionContext(ctx, v.Hash)
 	if e != nil {
 		return v, e
 	}
 	if v.User != "" {
-		account, e := s.Store.User(tx, v.User)
+		account, e := s.Store.UserContext(ctx, v.User)
 		if e != nil {
 			return v, e
 		}
@@ -129,10 +130,23 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 	if now >= v.Expires || now-last > 1800 {
 		return v, errors.New("session expired")
 	}
-	if e = s.Store.TouchSession(tx, v.Hash, now); e != nil {
-		return v, e
+	if now-last >= 60 {
+		touched, e := s.Store.TouchSessionConditional(ctx, v.Hash, last, now)
+		if e != nil {
+			return v, e
+		}
+		if !touched {
+			exists, e := s.Store.SessionExists(ctx, v.Hash)
+			if e != nil {
+				return v, e
+			}
+			if !exists {
+				return v, errors.New("session revoked")
+			}
+			// Another concurrent request touched last_seen_at first; that is fine.
+		}
 	}
-	return v, tx.Commit()
+	return v, nil
 }
 
 // credentials holds the verified password hash and previous token hash. The
@@ -143,7 +157,9 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 	}
 	token := rand.Text()
 	v := session{User: user, CSRF: rand.Text(), Hash: tokenHash(token), Expires: time.Now().Add(12 * time.Hour).Unix()}
-	tx, e := s.Store.BeginTx()
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	tx, e := s.Store.BeginTxContext(ctx)
 	if e != nil {
 		return v, e
 	}
@@ -225,13 +241,11 @@ func (s *Server) sessionView(w http.ResponseWriter, v session) {
 	}(), "permissions": permissions(v.Role)}
 	// Managers see their scope; admins do not (null/absent).
 	if v.Role == "manager" {
-		tx, e := s.Store.BeginTx()
-		if e == nil {
-			scope, se := s.Store.UserScope(tx, v.User)
-			tx.Rollback()
-			if se == nil {
-				out["scope"] = map[string]any{"networks": scope.Networks, "client_ids": scope.ClientIDs}
-			}
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		scope, se := s.Store.UserScopeContext(ctx, v.User)
+		if se == nil {
+			out["scope"] = map[string]any{"networks": scope.Networks, "client_ids": scope.ClientIDs}
 		}
 	}
 	respond(w, 200, out)
@@ -242,6 +256,9 @@ func (s *Server) sessionGet(w http.ResponseWriter, r *http.Request) {
 		v, e = s.newSession(w, "")
 	}
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "session_unavailable", "Сессии временно недоступны")
 		return
 	}
@@ -265,6 +282,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	if len(input.Password) > 1024 || len(input.Username) > 128 {
 		fail(w, 400, "invalid_input", "Некорректные данные входа")
+		return
+	}
+	if s.storageFull(w) {
 		return
 	}
 	host := remoteHost(r.RemoteAddr)
@@ -329,10 +349,15 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var encoded string
-	encoded, e = s.Store.UserPasswordHashStandalone(input.Username)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	encoded, e = s.Store.UserPasswordHashStandaloneContext(ctx, input.Username)
 	if errors.Is(e, sql.ErrNoRows) {
 		encoded = s.dummyHash
 	} else if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -347,6 +372,9 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -392,7 +420,15 @@ func (s *Server) csrf(r *http.Request, v session) bool {
 func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, session)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		v, e := s.readSession(r)
-		if e != nil || v.User == "" {
+		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
+			// Non-storage error (expired, revoked, disabled): treat as unauthenticated.
+			fail(w, 401, "unauthenticated", "Войдите в панель")
+			return
+		}
+		if v.User == "" {
 			fail(w, 401, "unauthenticated", "Войдите в панель")
 			return
 		}
@@ -405,7 +441,15 @@ func (s *Server) authenticated(next func(http.ResponseWriter, *http.Request, ses
 	}
 }
 func (s *Server) logout(w http.ResponseWriter, r *http.Request, v session) {
-	if e := s.Store.DeleteSession(v.Hash); e != nil {
+	if s.storageFull(w) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if e := s.Store.DeleteSessionContext(ctx, v.Hash); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}

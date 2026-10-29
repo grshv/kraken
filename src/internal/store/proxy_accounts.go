@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"errors"
 	"time"
 
@@ -18,7 +19,10 @@ type ProxyAccount struct {
 var ErrProxyAccountExists = errors.New("proxy account already exists")
 
 func (s *Store) ProxyAccounts() ([]ProxyAccount, error) {
-	rows, e := s.DB.Query("SELECT username,enabled,created_at,updated_at,owner FROM proxy_accounts ORDER BY username LIMIT 1024")
+	return s.ProxyAccountsContext(context.Background())
+}
+func (s *Store) ProxyAccountsContext(ctx context.Context) ([]ProxyAccount, error) {
+	rows, e := s.Read.QueryContext(ctx, "SELECT username,enabled,created_at,updated_at,owner FROM proxy_accounts ORDER BY username LIMIT 1024")
 	if e != nil {
 		return nil, e
 	}
@@ -37,7 +41,10 @@ func (s *Store) ProxyAccounts() ([]ProxyAccount, error) {
 	return out, rows.Err()
 }
 func (s *Store) CreateProxyAccount(username, hash, owner, actor string) error {
-	tx, e := s.DB.Begin()
+	return s.CreateProxyAccountContext(context.Background(), username, hash, owner, actor)
+}
+func (s *Store) CreateProxyAccountContext(ctx context.Context, username, hash, owner, actor string) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -69,7 +76,10 @@ func (s *Store) CreateProxyAccount(username, hash, owner, actor string) error {
 	return tx.Commit()
 }
 func (s *Store) ChangeProxyAccount(username string, enabled *bool, hash *string, actor string) error {
-	tx, e := s.DB.Begin()
+	return s.ChangeProxyAccountContext(context.Background(), username, enabled, hash, actor)
+}
+func (s *Store) ChangeProxyAccountContext(ctx context.Context, username string, enabled *bool, hash *string, actor string) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -98,9 +108,12 @@ func (s *Store) ChangeProxyAccount(username string, enabled *bool, hash *string,
 	return tx.Commit()
 }
 func (s *Store) ProxyAccount(username string) (ProxyAccount, error) {
+	return s.ProxyAccountContext(context.Background(), username)
+}
+func (s *Store) ProxyAccountContext(ctx context.Context, username string) (ProxyAccount, error) {
 	var v ProxyAccount
 	var created, updated int64
-	e := s.DB.QueryRow("SELECT username,enabled,created_at,updated_at,owner FROM proxy_accounts WHERE username=?", username).Scan(&v.Username, &v.Enabled, &created, &updated, &v.Owner)
+	e := s.Read.QueryRowContext(ctx, "SELECT username,enabled,created_at,updated_at,owner FROM proxy_accounts WHERE username=?", username).Scan(&v.Username, &v.Enabled, &created, &updated, &v.Owner)
 	if e != nil {
 		return v, e
 	}
@@ -113,7 +126,10 @@ func (s *Store) ProxyAccount(username string) (ProxyAccount, error) {
 // to read. Only enabled accounts are exported; the panel-side hash is secret
 // but safe to share with Squid (a verification hash, not the password).
 func (s *Store) EnabledProxyAccounts() ([]proxyauth.Account, error) {
-	rows, e := s.DB.Query("SELECT username,password_hash FROM proxy_accounts WHERE enabled=1 ORDER BY username LIMIT 1024")
+	return s.EnabledProxyAccountsContext(context.Background())
+}
+func (s *Store) EnabledProxyAccountsContext(ctx context.Context) ([]proxyauth.Account, error) {
+	rows, e := s.Read.QueryContext(ctx, "SELECT username,password_hash FROM proxy_accounts WHERE enabled=1 ORDER BY username LIMIT 1024")
 	if e != nil {
 		return nil, e
 	}

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"net/netip"
 	"sort"
 	"strings"
+	"time"
 
 	"kraken.local/kraken/internal/policy"
 )
@@ -28,11 +30,13 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 	if s.persistenceFailed.Load() {
 		result["runtime"] = map[string]any{"state": "degraded", "detail": "Operation outcome could not be persisted; recovery required", "observed_at": stamp(), "stale": false}
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	var d Draft
 	m, e := s.Runtime.ReadManifest()
 	var changed any
 	var runtimeUpdate any
-	if e == nil && s.Store.Get("draft", &d) == nil {
+	if e == nil && s.Store.GetContext(ctx, "draft", &d) == nil {
 		changed = len(semanticDiff(m.Snapshot, d.Snapshot)) > 0
 		if config, renderErr := policy.Render(m.Snapshot, s.Runtime.Options); renderErr == nil {
 			runtimeUpdate = config != m.Config
@@ -41,11 +45,17 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 	result["has_unapplied_changes"] = changed
 	result["runtime_update_available"] = runtimeUpdate
 	result["instance"] = s.instanceStatus(r.Context())
+	result["ingestion"] = s.ingestion()
 	respond(w, 200, result)
 }
 func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session) {
-	rows, e := s.Store.ListRevisions()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	rows, e := s.Store.ListRevisionsContext(ctx)
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "История недоступна")
 		return
 	}
@@ -63,8 +73,13 @@ func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session
 	respond(w, 200, map[string]any{"items": items})
 }
 func (s *Server) expertTemplate(w http.ResponseWriter, r *http.Request, v session) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	var d Draft
-	if e := s.Store.Get("draft", &d); e != nil {
+	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Черновик недоступен")
 		return
 	}
@@ -318,8 +333,13 @@ func semanticDiff(a, b policy.Snapshot) []string {
 
 // configurationPreview renders the saved draft without creating a durable revision.
 func (s *Server) configurationPreview(w http.ResponseWriter, r *http.Request, v session) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	var draft Draft
-	if e := s.Store.Get("draft", &draft); e != nil {
+	if e := s.Store.GetContext(ctx, "draft", &draft); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Черновик недоступен")
 		return
 	}

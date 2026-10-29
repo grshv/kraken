@@ -125,7 +125,7 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		defer st.DB.Close()
+		defer st.Close()
 		operationCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		defer cancel()
 		op, e := httpapi.ApplyServiceUpdate(operationCtx, st, m, baseImage)
@@ -158,7 +158,7 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		defer st.DB.Close()
+		defer st.Close()
 		if cmd == "bootstrap" {
 			e = httpapi.Bootstrap(st, *username, password)
 		} else {
@@ -209,7 +209,7 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		defer st.DB.Close()
+		defer st.Close()
 		telDir := env("KRAKEN_TELEMETRY_DIR", filepath.Join(filepath.Dir(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")), "telemetry"))
 		retentionDays, _ := strconv.Atoi(env("KRAKEN_EVENTS_RETENTION_DAYS", "90"))
 		budgetMB, _ := strconv.Atoi(env("KRAKEN_EVENTS_BUDGET_MB", "5120"))
@@ -242,15 +242,19 @@ func run() error {
 		go func() {
 			timer := time.NewTicker(time.Minute)
 			defer timer.Stop()
+			checkpoint := time.NewTicker(10 * time.Minute)
+			defer checkpoint.Stop()
+			optimize := time.NewTicker(24 * time.Hour)
+			defer optimize.Stop()
 			for {
 				select {
 				case <-maintenanceCtx.Done():
 					return
 				case <-timer.C:
 					prune := func() error {
-						// 90 days of audit events, last 20 unreferenced revisions.
-						// Matches docs/architecture/data-model.md retention.
-						if e := st.Prune(time.Now().Add(-90*24*time.Hour), 20); e != nil {
+						// Audit retention is age-based (store.AuditRetention, 3y);
+						// keep the last 20 unreferenced revisions.
+						if e := st.Prune(time.Now().Add(-store.AuditRetention), 20); e != nil {
 							return e
 						}
 						// Drop manager-client assignments for clients removed
@@ -262,6 +266,14 @@ func run() error {
 					}
 					if e := tel.Maintain(maintenanceCtx); e != nil {
 						slog.Warn("telemetry maintenance failed", "error", e)
+					}
+				case <-checkpoint.C:
+					if e := st.Checkpoint(); e != nil {
+						slog.Warn("wal checkpoint failed", "error", e)
+					}
+				case <-optimize.C:
+					if e := st.Optimize(); e != nil {
+						slog.Warn("optimize failed", "error", e)
 					}
 				}
 			}
@@ -475,7 +487,7 @@ func runUser(args []string) error {
 	if e != nil {
 		return e
 	}
-	defer st.DB.Close()
+	defer st.Close()
 	switch sub {
 	case "list":
 		rows, e := admin.ListUsers(st)
@@ -564,7 +576,7 @@ func runSessions(args []string) error {
 	if e != nil {
 		return e
 	}
-	defer st.DB.Close()
+	defer st.Close()
 	n, e := admin.RevokeSessions(st, *user, "cli")
 	if e != nil {
 		return failStore(e)
@@ -594,8 +606,8 @@ func runStatus(m *local.Manager) error {
 	fmt.Printf("Squid: %s\n", squid)
 	if st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")); e == nil {
 		var n int
-		_ = st.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
-		st.DB.Close()
+		_ = st.Read.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+		st.Close()
 		fmt.Printf("Пользователей: %d\n", n)
 	} else {
 		fmt.Printf("Пользователей: (база недоступна)\n")
@@ -616,7 +628,7 @@ func runBackup() error {
 	if e != nil {
 		return e
 	}
-	defer st.DB.Close()
+	defer st.Close()
 	target := *out
 	if target == "" {
 		target = filepath.Join(dataDir, "backups", "kraken-"+time.Now().UTC().Format("20060102-150405")+".tar")

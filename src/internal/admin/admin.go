@@ -23,7 +23,7 @@ type UserRow struct {
 
 // ListUsers returns every user with the number of currently stored sessions.
 func ListUsers(st *store.Store) ([]UserRow, error) {
-	rows, e := st.DB.Query(`SELECT username, role, enabled,
+	rows, e := st.Read.Query(`SELECT username, role, enabled,
 		(SELECT COUNT(*) FROM sessions WHERE sessions.username=users.username)
 		FROM users ORDER BY username`)
 	if e != nil {

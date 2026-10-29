@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 )
@@ -42,6 +43,43 @@ func (s *Store) UserScope(tx *sql.Tx, username string) (Scope, error) {
 		return Scope{}, e
 	}
 	clients, e := tx.Query("SELECT client_id FROM manager_clients WHERE username=? ORDER BY client_id", username)
+	if e != nil {
+		return Scope{}, e
+	}
+	defer clients.Close()
+	for clients.Next() {
+		var id string
+		if e = clients.Scan(&id); e != nil {
+			return Scope{}, e
+		}
+		out.ClientIDs = append(out.ClientIDs, id)
+	}
+	if e = clients.Err(); e != nil {
+		return Scope{}, e
+	}
+	return out, nil
+}
+
+// UserScopeContext is the reader-pool variant used by request handlers so
+// loading a manager's scope never takes the write lock.
+func (s *Store) UserScopeContext(ctx context.Context, username string) (Scope, error) {
+	nets, e := s.Read.QueryContext(ctx, "SELECT cidr FROM manager_networks WHERE username=? ORDER BY cidr", username)
+	if e != nil {
+		return Scope{}, e
+	}
+	defer nets.Close()
+	out := Scope{Networks: []string{}, ClientIDs: []string{}}
+	for nets.Next() {
+		var cidr string
+		if e = nets.Scan(&cidr); e != nil {
+			return Scope{}, e
+		}
+		out.Networks = append(out.Networks, cidr)
+	}
+	if e = nets.Err(); e != nil {
+		return Scope{}, e
+	}
+	clients, e := s.Read.QueryContext(ctx, "SELECT client_id FROM manager_clients WHERE username=? ORDER BY client_id", username)
 	if e != nil {
 		return Scope{}, e
 	}
@@ -127,8 +165,19 @@ func (s *Store) User(tx *sql.Tx, username string) (User, error) {
 	e := tx.QueryRow("SELECT role,enabled FROM users WHERE username=?", username).Scan(&v.Role, &v.Enabled)
 	return v, e
 }
+
+// UserContext loads one user through the reader pool (readSession checks the
+// role/enabled state without taking the write lock).
+func (s *Store) UserContext(ctx context.Context, username string) (User, error) {
+	v := User{Username: username}
+	e := s.Read.QueryRowContext(ctx, "SELECT role,enabled FROM users WHERE username=?", username).Scan(&v.Role, &v.Enabled)
+	return v, e
+}
 func (s *Store) Users() ([]User, error) {
-	rows, e := s.DB.Query("SELECT username,role,enabled FROM users ORDER BY username")
+	return s.UsersContext(context.Background())
+}
+func (s *Store) UsersContext(ctx context.Context) ([]User, error) {
+	rows, e := s.Read.QueryContext(ctx, "SELECT username,role,enabled FROM users ORDER BY username")
 	if e != nil {
 		return nil, e
 	}
@@ -144,11 +193,14 @@ func (s *Store) Users() ([]User, error) {
 	return items, rows.Err()
 }
 func (s *Store) CreateUser(username, hash, role, actor string) (User, error) {
+	return s.CreateUserContext(context.Background(), username, hash, role, actor)
+}
+func (s *Store) CreateUserContext(ctx context.Context, username, hash, role, actor string) (User, error) {
 	v := User{Username: username, Role: role, Enabled: true}
 	if !ValidRole(role) {
 		return v, errors.New("invalid role")
 	}
-	tx, e := s.DB.Begin()
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return v, e
 	}
@@ -169,7 +221,10 @@ func (s *Store) CreateUser(username, hash, role, actor string) (User, error) {
 	return v, tx.Commit()
 }
 func (s *Store) ChangeUser(username string, role *string, enabled *bool, hash *string, actor string) (User, error) {
-	tx, e := s.DB.Begin()
+	return s.ChangeUserContext(context.Background(), username, role, enabled, hash, actor)
+}
+func (s *Store) ChangeUserContext(ctx context.Context, username string, role *string, enabled *bool, hash *string, actor string) (User, error) {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return User{}, e
 	}

@@ -163,9 +163,9 @@ func eventFailed(v events.Event) bool {
 
 // clientKnown reports whether a client ID exists in the draft or the active
 // revision; the inspector does not fabricate stats for unknown IDs.
-func (s *Server) clientKnown(id string) bool {
+func (s *Server) clientKnown(ctx context.Context, id string) bool {
 	var d Draft
-	if s.Store.Get("draft", &d) == nil {
+	if s.Store.GetContext(ctx, "draft", &d) == nil {
 		for _, c := range d.Snapshot.Clients {
 			if c.ID == id {
 				return true
@@ -184,9 +184,9 @@ func (s *Server) clientKnown(id string) bool {
 
 // policySnapshot resolves a policy from the draft first, then the active
 // revision. Returns the snapshot that owns the policy so its clients are used.
-func (s *Server) policySnapshot(id string) (policy.Snapshot, bool) {
+func (s *Server) policySnapshot(ctx context.Context, id string) (policy.Snapshot, bool) {
 	var d Draft
-	if s.Store.Get("draft", &d) == nil {
+	if s.Store.GetContext(ctx, "draft", &d) == nil {
 		for _, p := range d.Snapshot.Policies {
 			if p.ID == id {
 				return d.Snapshot, true
@@ -222,12 +222,12 @@ func (s *Server) inspectorClientStats(w http.ResponseWriter, r *http.Request, v 
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
-	if !s.clientKnown(id) || (ts != nil && !inScope(scope, id)) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if !s.clientKnown(ctx, id) || (ts != nil && !inScope(scope, id)) {
 		fail(w, 404, "not_found", "Клиент не найден")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
 	now := s.now().UTC()
 	from := now.Add(-24 * time.Hour)
 	buckets, e := s.Telemetry.Series(ctx, from, now, 15*time.Minute, id, ts)
@@ -272,7 +272,9 @@ func (s *Server) inspectorClientStats(w http.ResponseWriter, r *http.Request, v 
 
 func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v session) {
 	id := r.PathValue("id")
-	snap, found := s.policySnapshot(id)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	snap, found := s.policySnapshot(ctx, id)
 	if !found {
 		fail(w, 404, "not_found", "Политика не найдена")
 		return
@@ -311,8 +313,6 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 			break
 		}
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
-	defer cancel()
 	now := s.now().UTC()
 	from24 := now.Add(-24 * time.Hour)
 	from7 := now.Add(-7 * 24 * time.Hour)
@@ -437,7 +437,10 @@ func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v 
 		return
 	}
 	var d Draft
-	if e := s.Store.Get("draft", &d); e != nil {
+	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Черновик недоступен")
 		return
 	}

@@ -1,10 +1,12 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"net/http"
 	"net/netip"
+	"time"
 
 	"kraken.local/kraken/internal/store"
 )
@@ -48,8 +50,13 @@ func (s *Server) authorized(permission string, next func(http.ResponseWriter, *h
 	})
 }
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request, v session) {
-	items, e := s.Store.Users()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	items, e := s.Store.UsersContext(ctx)
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Учётные записи недоступны")
 		return
 	}
@@ -80,6 +87,9 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 422, "invalid_user", "Проверьте имя и роль пользователя")
 		return
 	}
+	if s.storageFull(w) {
+		return
+	}
 	release, ok := s.passwordWorkSlot(w)
 	if !ok {
 		return
@@ -90,8 +100,13 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 422, "invalid_password", "Пароль должен содержать от 12 до 1024 байт")
 		return
 	}
-	item, e := s.Store.CreateUser(input.Username, h, input.Role, v.User)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	item, e := s.Store.CreateUserContext(ctx, input.Username, h, input.Role, v.User)
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		userError(w, e)
 		return
 	}
@@ -114,6 +129,9 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 422, "invalid_user", "Неизвестная роль")
 		return
 	}
+	if s.storageFull(w) {
+		return
+	}
 	var h *string
 	if input.Password != nil {
 		release, ok := s.passwordWorkSlot(w)
@@ -128,8 +146,13 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, v session) {
 		}
 		h = &encoded
 	}
-	item, e := s.Store.ChangeUser(r.PathValue("username"), input.Role, input.Enabled, h, v.User)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	item, e := s.Store.ChangeUserContext(ctx, r.PathValue("username"), input.Role, input.Enabled, h, v.User)
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		userError(w, e)
 		return
 	}
@@ -139,18 +162,17 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, v session) {
 // getScope returns the manager scope for one user. Admin-only.
 func (s *Server) getScope(w http.ResponseWriter, r *http.Request, v session) {
 	username := r.PathValue("username")
-	tx, e := s.Store.BeginTx()
-	if e != nil {
-		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-		return
-	}
-	defer tx.Rollback()
-	user, e := s.Store.User(tx, username)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	user, e := s.Store.UserContext(ctx, username)
 	if errors.Is(e, sql.ErrNoRows) {
 		fail(w, 404, "not_found", "Пользователь не найден")
 		return
 	}
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -158,8 +180,11 @@ func (s *Server) getScope(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 422, "not_manager", "Область есть только у менеджера")
 		return
 	}
-	scope, e := s.Store.UserScope(tx, username)
+	scope, e := s.Store.UserScopeContext(ctx, username)
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -189,8 +214,16 @@ func (s *Server) updateScope(w http.ResponseWriter, r *http.Request, v session) 
 		}
 		normalized = append(normalized, prefix.Masked().String())
 	}
-	tx, e := s.Store.BeginTx()
+	if s.storageFull(w) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	tx, e := s.Store.BeginTxContext(ctx)
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -201,6 +234,9 @@ func (s *Server) updateScope(w http.ResponseWriter, r *http.Request, v session) 
 		return
 	}
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -210,14 +246,23 @@ func (s *Server) updateScope(w http.ResponseWriter, r *http.Request, v session) 
 	}
 	scope := store.Scope{Networks: normalized, ClientIDs: input.ClientIDs}
 	if e := s.Store.ReplaceScope(tx, username, scope); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
 	if e := s.Store.AuditTx(tx, v.User, "update_scope", username); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
 	if e := tx.Commit(); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}

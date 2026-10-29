@@ -1,7 +1,9 @@
 package store
 
 import (
+	"context"
 	"database/sql"
+	"errors"
 	"time"
 )
 
@@ -15,6 +17,12 @@ import (
 // failure.
 func (s *Store) BeginTx() (*sql.Tx, error) { return s.DB.Begin() }
 
+// BeginTxContext starts a write transaction bound to ctx so a handler deadline
+// interrupts lock acquisition instead of waiting out busy_timeout.
+func (s *Store) BeginTxContext(ctx context.Context) (*sql.Tx, error) {
+	return s.DB.BeginTx(ctx, nil)
+}
+
 // LookupSession loads (username, csrf, expires_at, last_seen_at) for the
 // given token hash within tx. Returns sql.ErrNoRows if not found.
 func (s *Store) LookupSession(tx *sql.Tx, tokenHash string) (username, csrf string, expires, lastSeen int64, err error) {
@@ -22,19 +30,54 @@ func (s *Store) LookupSession(tx *sql.Tx, tokenHash string) (username, csrf stri
 	return
 }
 
-// TouchSession updates last_seen_at in place within tx. Used by readSession
-// for the visit timestamp update so a parallel password reset cannot delete
-// the row between read and touch.
+// LookupSessionContext is the reader-pool variant used by readSession so a
+// session check never takes the write lock.
+func (s *Store) LookupSessionContext(ctx context.Context, tokenHash string) (username, csrf string, expires, lastSeen int64, err error) {
+	err = s.Read.QueryRowContext(ctx, "SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", tokenHash).Scan(&username, &csrf, &expires, &lastSeen)
+	return
+}
+
+// TouchSession updates last_seen_at in place within tx. Used by write paths
+// that already hold a transaction.
 func (s *Store) TouchSession(tx *sql.Tx, tokenHash string, now int64) error {
 	_, e := tx.Exec("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, tokenHash)
 	return e
+}
+
+// TouchSessionConditional updates last_seen_at to now only if the row still
+// has the expected last_seen_at, returning whether the update applied. A
+// parallel password reset or disable deletes the row (0 rows affected); the
+// caller then re-checks existence to tell revocation from a concurrent touch
+// so a deleted session can never be revived or reused.
+func (s *Store) TouchSessionConditional(ctx context.Context, tokenHash string, expectedLastSeen, now int64) (bool, error) {
+	res, e := s.DB.ExecContext(ctx, "UPDATE sessions SET last_seen_at=? WHERE token_hash=? AND last_seen_at=?", now, tokenHash, expectedLastSeen)
+	if e != nil {
+		return false, e
+	}
+	n, e := res.RowsAffected()
+	return n == 1, e
+}
+
+// SessionExists reports whether a session row survives for the token hash.
+// Used after a conditional touch noop to distinguish revocation from a
+// concurrent touch.
+func (s *Store) SessionExists(ctx context.Context, tokenHash string) (bool, error) {
+	var one int
+	e := s.Read.QueryRowContext(ctx, "SELECT 1 FROM sessions WHERE token_hash=?", tokenHash).Scan(&one)
+	if errors.Is(e, sql.ErrNoRows) {
+		return false, nil
+	}
+	return e == nil, e
 }
 
 // DeleteSession removes one row by token hash. Used by logout and by
 // newSession when rotating an anonymous CSRF holder into an authenticated
 // session.
 func (s *Store) DeleteSession(tokenHash string) error {
-	_, e := s.DB.Exec("DELETE FROM sessions WHERE token_hash=?", tokenHash)
+	return s.DeleteSessionContext(context.Background(), tokenHash)
+}
+func (s *Store) DeleteSessionContext(ctx context.Context, tokenHash string) error {
+	_, e := s.DB.ExecContext(ctx, "DELETE FROM sessions WHERE token_hash=?", tokenHash)
 	return e
 }
 
@@ -84,8 +127,14 @@ func (s *Store) UserPasswordHash(tx *sql.Tx, username string) (string, error) {
 // UserPasswordHashStandalone is the outside-transaction variant used by
 // login() before it has opened a tx.
 func (s *Store) UserPasswordHashStandalone(username string) (string, error) {
+	return s.UserPasswordHashStandaloneContext(context.Background(), username)
+}
+
+// UserPasswordHashStandaloneContext reads the verifier through the reader pool
+// so a login probe never blocks apply or event ingestion.
+func (s *Store) UserPasswordHashStandaloneContext(ctx context.Context, username string) (string, error) {
 	var h string
-	e := s.DB.QueryRow("SELECT password_hash FROM users WHERE username=?", username).Scan(&h)
+	e := s.Read.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE username=?", username).Scan(&h)
 	return h, e
 }
 

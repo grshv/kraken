@@ -21,6 +21,7 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"kraken.local/kraken/internal/policy"
@@ -92,6 +93,99 @@ type Server struct {
 	// when the underlying file has not changed since install.
 	certCache   map[string]certCacheEntry
 	certCacheMu sync.Mutex
+	// freeBytes reports free bytes on the data volume; defaults to statfs of
+	// the control-DB directory. Tests override it to drive storage_full /
+	// storage_low behaviour without touching a real filesystem.
+	freeBytes func() (uint64, error)
+	// ingestionState tracks the CollectEvents loop state for /status.
+	ingestionMu         sync.Mutex
+	ingestionState      string
+	ingestionObservedAt string
+	lastStorageLowLog   time.Time
+}
+
+// Disk-watermark thresholds for the control volume. Below storageFullBytes
+// mutating endpoints return 507 storage_full before any write; below
+// storageLowBytes event collection pauses so telemetry cannot fill the disk
+// or block the control DB.
+const (
+	storageFullBytes = 64 << 20  // 64 MiB
+	storageLowBytes  = 512 << 20 // 512 MiB
+)
+
+// storageFull reports whether the data volume is too full for a mutation and,
+// when it is, writes a 507 storage_full envelope. A statfs failure is treated
+// as "sufficient" with a warning so a transiently unavailable stat does not
+// take the panel offline.
+func (s *Server) storageFull(w http.ResponseWriter) bool {
+	if s.freeBytes == nil {
+		return false
+	}
+	free, e := s.freeBytes()
+	if e != nil {
+		slog.Warn("disk free check failed; assuming sufficient", "error", e)
+		return false
+	}
+	if free < storageFullBytes {
+		fail(w, 507, "storage_full", "Недостаточно места на диске для изменения")
+		return true
+	}
+	return false
+}
+
+// isStorageBusy reports whether e is a context deadline or SQLite busy/locked
+// condition that should surface as 503 storage_busy rather than a generic 503.
+func isStorageBusy(e error) bool {
+	if e == nil {
+		return false
+	}
+	if errors.Is(e, context.DeadlineExceeded) || errors.Is(e, context.Canceled) {
+		return true
+	}
+	msg := e.Error()
+	return strings.Contains(msg, "SQLITE_BUSY") || strings.Contains(msg, "SQLITE_LOCKED") || strings.Contains(msg, "busy") || strings.Contains(msg, "locked")
+}
+
+// failStorageBusy writes a 503 storage_busy envelope with Retry-After when e
+// is a deadline/busy condition. Returns whether it handled the error.
+func (s *Server) failStorageBusy(w http.ResponseWriter, e error) bool {
+	if !isStorageBusy(e) {
+		return false
+	}
+	w.Header().Set("Retry-After", "2")
+	fail(w, 503, "storage_busy", "Хранилище занято, повторите запрос")
+	return true
+}
+
+// setIngestion records the CollectEvents loop state and observation time.
+func (s *Server) setIngestion(state string) {
+	s.ingestionMu.Lock()
+	s.ingestionState = state
+	s.ingestionObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	s.ingestionMu.Unlock()
+}
+
+// ingestion returns the /status ingestion object.
+func (s *Server) ingestion() map[string]any {
+	s.ingestionMu.Lock()
+	defer s.ingestionMu.Unlock()
+	state := s.ingestionState
+	if state == "" {
+		state = "ok"
+	}
+	return map[string]any{"state": state, "observed_at": s.ingestionObservedAt}
+}
+
+// maybeLogStorageLow emits a single warning per minute while collection is
+// paused on a low disk, so logs are not flooded on every 2-second tick.
+func (s *Server) maybeLogStorageLow() {
+	s.ingestionMu.Lock()
+	defer s.ingestionMu.Unlock()
+	now := time.Now()
+	if now.Sub(s.lastStorageLowLog) >= time.Minute {
+		s.lastStorageLowLog = now
+		slog.Warn("event collection paused: disk low")
+	}
 }
 
 // certCacheEntry holds the parsed result of one PEM file plus the mtime/size
@@ -113,6 +207,17 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 		return nil, e
 	}
 	s := &Server{Store: st, Telemetry: tel, Runtime: rt, Origin: origin, Static: static, Image: image, now: time.Now, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, anonymousKey: []byte(rand.Text()), certCache: map[string]certCacheEntry{}}
+	s.freeBytes = func() (uint64, error) {
+		dir := st.DataDir()
+		if dir == "" {
+			return ^uint64(0), nil // in-memory test store: assume sufficient
+		}
+		var stat syscall.Statfs_t
+		if e := syscall.Statfs(dir, &stat); e != nil {
+			return 0, e
+		}
+		return uint64(stat.Bavail) * uint64(stat.Bsize), nil
+	}
 	var d Draft
 	e = st.Get("draft", &d)
 	if errors.Is(e, sql.ErrNoRows) {
@@ -280,14 +385,22 @@ func (r *statusRecorder) WriteHeader(code int) {
 	r.ResponseWriter.WriteHeader(code)
 }
 func (s *Server) getDraft(w http.ResponseWriter, r *http.Request, v session) {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	var d Draft
-	if e := s.Store.Get("draft", &d); e != nil {
+	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		scope, e := s.managerScopeContext(ctx, v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -300,8 +413,13 @@ func (s *Server) getDraft(w http.ResponseWriter, r *http.Request, v session) {
 func (s *Server) getActiveConfiguration(w http.ResponseWriter, r *http.Request, v session) {
 	snap := s.activeConfigurationSnapshot()
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+		defer cancel()
+		scope, e := s.managerScopeContext(ctx, v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -317,10 +435,18 @@ func (s *Server) discardDraft(w http.ResponseWriter, r *http.Request, v session)
 	if !decode(w, r, &input) {
 		return
 	}
+	if s.storageFull(w) {
+		return
+	}
 	s.draftMu.Lock()
 	defer s.draftMu.Unlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	var current Draft
-	if e := s.Store.Get("draft", &current); e != nil {
+	if e := s.Store.GetContext(ctx, "draft", &current); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Черновик недоступен")
 		return
 	}
@@ -329,8 +455,11 @@ func (s *Server) discardDraft(w http.ResponseWriter, r *http.Request, v session)
 	// the createRevision/apply gate. A foreign change blocks discard without
 	// touching the draft.
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		scope, e := s.managerScopeContext(ctx, v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -341,9 +470,12 @@ func (s *Server) discardDraft(w http.ResponseWriter, r *http.Request, v session)
 	}
 	entities := changedEntityIDs(current.Snapshot, active)
 	d := Draft{Version: input.Expected + 1, Snapshot: active, Updated: stamp()}
-	if e := s.Store.DiscardDraft(d, v.User, input.Expected, entities); e != nil {
+	if e := s.Store.DiscardDraftContext(ctx, d, v.User, input.Expected, entities); e != nil {
 		if errors.Is(e, store.ErrConflict) {
 			fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")
+			return
+		}
+		if s.failStorageBusy(w, e) {
 			return
 		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
@@ -351,7 +483,7 @@ func (s *Server) discardDraft(w http.ResponseWriter, r *http.Request, v session)
 	}
 	out := d
 	if v.Role == "manager" {
-		scope, _ := s.managerScope(v)
+		scope, _ := s.managerScopeContext(ctx, v)
 		out.Snapshot = managerDraftView(d.Snapshot, scope)
 		out.Snapshot.Expert = ""
 	}
@@ -363,6 +495,9 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 		Snapshot policy.Snapshot `json:"snapshot"`
 	}
 	if !decode(w, r, &input) {
+		return
+	}
+	if s.storageFull(w) {
 		return
 	}
 	for i, c := range input.Snapshot.Clients {
@@ -379,18 +514,26 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 		fail(w, 503, "runtime_unavailable", "Действующая конфигурация недоступна")
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	// Manager: merge their visible slice onto the current full draft, then
 	// enforce scope invariants. Admin: validate the input directly.
 	finalSnapshot := input.Snapshot
 	var newIDs []string
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		scope, e := s.managerScopeContext(ctx, v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
 		var current Draft
-		if e := s.Store.Get("draft", &current); e != nil {
+		if e := s.Store.GetContext(ctx, "draft", &current); e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -432,21 +575,24 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 	d := Draft{Version: input.Expected + 1, Snapshot: finalSnapshot, Updated: stamp()}
 	entities := changedEntityIDs(finalSnapshot, manifest.Snapshot)
 	if v.Role == "manager" {
-		e = s.Store.ChangeDraftWithAssignments(d, v.User, "update_draft", input.Expected, v.User, newIDs, entities)
+		e = s.Store.ChangeDraftWithAssignmentsContext(ctx, d, v.User, "update_draft", input.Expected, v.User, newIDs, entities)
 	} else {
-		e = s.Store.ChangeDraft(d, v.User, "update_draft", input.Expected, entities)
+		e = s.Store.ChangeDraftContext(ctx, d, v.User, "update_draft", input.Expected, entities)
 	}
 	if errors.Is(e, store.ErrConflict) {
 		fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")
 		return
 	}
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
 	out := d
 	if v.Role == "manager" {
-		scope, _ := s.managerScope(v)
+		scope, _ := s.managerScopeContext(ctx, v)
 		out.Snapshot = managerDraftView(d.Snapshot, scope)
 		out.Snapshot.Expert = ""
 	}
@@ -459,10 +605,18 @@ func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v sessio
 	if !decode(w, r, &input) {
 		return
 	}
+	if s.storageFull(w) {
+		return
+	}
 	s.draftMu.Lock()
 	defer s.draftMu.Unlock()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	var d Draft
-	if e := s.Store.Get("draft", &d); e != nil {
+	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -472,12 +626,15 @@ func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v sessio
 	}
 	// Manager may create a revision only if every changed object is in scope.
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		scope, e := s.managerScopeContext(ctx, v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
-		active, _ := s.activeRevisionSnapshot()
+		active, _ := s.activeRevisionSnapshotContext(ctx)
 		if draftChangesOutOfScope(d.Snapshot, active, scope) {
 			fail(w, 403, "draft_out_of_scope", "Черновик содержит изменения вне вашей области")
 			return
@@ -485,32 +642,48 @@ func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v sessio
 	}
 	rev := Revision{ID: store.ID(), DraftVersion: d.Version, Hash: policy.Hash(d.Snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: d.Snapshot}
 	b, _ := json.Marshal(rev)
-	if e := s.Store.InsertRevision(rev.ID, string(b), v.User, "create_revision"); e != nil {
+	if e := s.Store.InsertRevisionContext(ctx, rev.ID, string(b), v.User, "create_revision"); e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
 	respond(w, 201, rev)
 }
 func (s *Server) revision(w http.ResponseWriter, id string) (Revision, bool) {
+	return s.revisionContext(w, context.Background(), id)
+}
+
+// revisionContext loads one revision through the reader, surfacing busy/deadline
+// conditions as 503 storage_busy and missing rows as 404.
+func (s *Server) revisionContext(w http.ResponseWriter, ctx context.Context, id string) (Revision, bool) {
 	var rev Revision
-	e := s.Store.Get("revision:"+id, &rev)
+	e := s.Store.GetContext(ctx, "revision:"+id, &rev)
 	if errors.Is(e, sql.ErrNoRows) {
 		fail(w, 404, "not_found", "Ревизия не найдена")
 		return rev, false
 	}
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return rev, false
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return rev, false
 	}
 	return rev, true
 }
 func (s *Server) getRevision(w http.ResponseWriter, r *http.Request, v session) {
-	if rev, ok := s.revision(w, r.PathValue("id")); ok {
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if rev, ok := s.revisionContext(w, ctx, r.PathValue("id")); ok {
 		respond(w, 200, rev)
 	}
 }
 func (s *Server) preview(w http.ResponseWriter, r *http.Request, v session) {
-	rev, ok := s.revision(w, r.PathValue("id"))
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	rev, ok := s.revisionContext(w, ctx, r.PathValue("id"))
 	if !ok {
 		return
 	}
@@ -524,15 +697,21 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request, v session) {
 	respond(w, 200, result)
 }
 func (s *Server) saveOperation(op Operation) error {
+	return s.saveOperationContext(context.Background(), op)
+}
+func (s *Server) saveOperationContext(ctx context.Context, op Operation) error {
 	b, e := json.Marshal(op)
 	if e != nil {
 		return e
 	}
-	return s.Store.UpdateOperation(op.ID, string(b))
+	return s.Store.UpdateOperationContext(ctx, op.ID, string(b))
 }
 func (s *Server) loadOperation(id string) (Operation, error) {
+	return s.loadOperationContext(context.Background(), id)
+}
+func (s *Server) loadOperationContext(ctx context.Context, id string) (Operation, error) {
 	var op Operation
-	raw, e := s.Store.LoadOperation(id)
+	raw, e := s.Store.LoadOperationContext(ctx, id)
 	if e != nil {
 		return op, e
 	}
@@ -540,12 +719,17 @@ func (s *Server) loadOperation(id string) (Operation, error) {
 	return op, e
 }
 func (s *Server) getOperation(w http.ResponseWriter, r *http.Request, v session) {
-	op, e := s.loadOperation(r.PathValue("id"))
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	op, e := s.loadOperationContext(ctx, r.PathValue("id"))
 	if errors.Is(e, sql.ErrNoRows) {
 		fail(w, 404, "not_found", "Операция не найдена")
 		return
 	}
 	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -579,11 +763,16 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		fail(w, 403, "forbidden", "Недостаточно прав")
 		return
 	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
 	b, _ := json.Marshal(input)
 	hash := sha256.Sum256(b)
 	requestHash := hex.EncodeToString(hash[:])
-	oldID, oldHash, found, queryErr := s.Store.FindOperationByIdempotencyKey(key)
+	oldID, oldHash, found, queryErr := s.Store.FindOperationByIdempotencyKeyContext(ctx, key)
 	if queryErr != nil {
+		if s.failStorageBusy(w, queryErr) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -598,8 +787,11 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 			fail(w, 409, "idempotency_conflict", "Ключ уже использован другим запросом")
 			return
 		}
-		op, loadErr := s.loadOperation(oldID)
+		op, loadErr := s.loadOperationContext(ctx, oldID)
 		if loadErr != nil {
+			if s.failStorageBusy(w, loadErr) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -614,8 +806,11 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		// A previous request may have inserted the operation between our SELECT and
 		// this lock; re-check idempotency so a legitimate replay of the same key
 		// returns the in-progress operation instead of a busy 409.
-		retryID, retryHash, retryFound, retryErr := s.Store.FindOperationByIdempotencyKey(key)
+		retryID, retryHash, retryFound, retryErr := s.Store.FindOperationByIdempotencyKeyContext(ctx, key)
 		if retryErr != nil {
+			if s.failStorageBusy(w, retryErr) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -624,8 +819,11 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 				fail(w, 409, "idempotency_conflict", "Ключ уже использован другим запросом")
 				return
 			}
-			op, loadErr := s.loadOperation(retryID)
+			op, loadErr := s.loadOperationContext(ctx, retryID)
 			if loadErr != nil {
+				if s.failStorageBusy(w, loadErr) {
+					return
+				}
 				fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 				return
 			}
@@ -641,7 +839,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 			s.opsMu.Unlock()
 		}
 	}()
-	rev, ok := s.revision(w, input.Revision)
+	rev, ok := s.revisionContext(w, ctx, input.Revision)
 	if !ok {
 		return
 	}
@@ -667,7 +865,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		return
 	}
 	if input.Action == "apply" {
-		validation, e := s.loadOperation(input.Validation)
+		validation, e := s.loadOperationContext(ctx, input.Validation)
 		if e != nil || validation.Action != "validate" || validation.Revision != rev.ID || validation.Status != "validated" {
 			fail(w, 422, "validation_required", "Сначала проверьте эту ревизию")
 			return
@@ -675,12 +873,15 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		// Manager apply: every changed client must be his, and a changed policy
 		// must not be referenced by a foreign client (in draft or active).
 		if v.Role == "manager" {
-			scope, e := s.managerScope(v)
+			scope, e := s.managerScopeContext(ctx, v)
 			if e != nil {
+				if s.failStorageBusy(w, e) {
+					return
+				}
 				fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 				return
 			}
-			active, _ := s.activeRevisionSnapshot()
+			active, _ := s.activeRevisionSnapshotContext(ctx)
 			if draftChangesOutOfScope(rev.Snapshot, active, scope) {
 				fail(w, 403, "draft_out_of_scope", "Черновик содержит изменения вне вашей области")
 				return
@@ -688,15 +889,25 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		}
 	}
 	if input.Action == "rollback" {
-		n, e := s.Store.CountSucceededByRevision(rev.ID)
-		if e != nil || n == 0 {
+		n, e := s.Store.CountSucceededByRevisionContext(ctx, rev.ID)
+		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		if n == 0 {
 			fail(w, 422, "not_applied_revision", "Для отката нужна ранее успешно применённая ревизия")
 			return
 		}
 	}
+	if s.storageFull(w) {
+		return
+	}
 	op := Operation{ID: store.ID(), Action: input.Action, Revision: rev.ID, Status: "pending", Findings: []string{}, Created: stamp(), Updated: stamp()}
 	raw, _ := json.Marshal(op)
-	if e := s.Store.InsertOperation(op.ID, string(raw), key, requestHash, v.User, input.Action); e != nil {
+	if e := s.Store.InsertOperationContext(ctx, op.ID, string(raw), key, requestHash, v.User, input.Action); e != nil {
 		fail(w, 409, "operation_conflict", "Не удалось принять операцию")
 		return
 	}
@@ -710,7 +921,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		var runErr error
 		if input.Action == "validate" {
 			op.Status = "validating"
-			if runErr = s.saveOperation(op); runErr == nil {
+			if runErr = s.saveOperationContext(ctx, op); runErr == nil {
 				runErr = s.Runtime.Validate(ctx, rev.Snapshot)
 			}
 			if runErr == nil {
@@ -720,7 +931,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 			}
 		} else {
 			op.Status = "reloading"
-			if runErr = s.saveOperation(op); runErr == nil {
+			if runErr = s.saveOperationContext(ctx, op); runErr == nil {
 				op.Status, runErr = s.Runtime.Apply(ctx, op.ID, rev.ID, expected, rev.Snapshot)
 			} else {
 				op.Status = "rejected"
@@ -746,7 +957,7 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 			}
 		}
 		op.Updated = stamp()
-		if e := s.saveOperation(op); e != nil {
+		if e := s.saveOperationContext(ctx, op); e != nil {
 			s.persistenceFailed.Store(true)
 			slog.Error("cannot persist operation outcome", "operation_id", op.ID, "error", e)
 		}

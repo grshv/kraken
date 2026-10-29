@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/rand"
 	"database/sql"
 	"encoding/json"
@@ -16,7 +17,33 @@ import (
 
 var ErrConflict = errors.New("revision conflict")
 
-type Store struct{ DB *sql.DB }
+// AuditRetention is the control-DB audit retention window. Prune deletes
+// audit_events older than this; there is no row-count cap.
+var AuditRetention = 3 * 365 * 24 * time.Hour
+
+// journalSizeLimit caps the WAL sidecar growth for the control DB.
+const journalSizeLimit = 64 << 20 // 64 MiB
+
+// Store splits the control DB into a single-writer pool (DB, _txlock=immediate,
+// synchronous=FULL) and a read-only pool (Read, query_only, up to 4 conns) so
+// heavy reads (audit, revisions) never block logins, apply or event ingestion.
+// For in-memory/file: DSNs the reader equals the writer (one shared pool).
+type Store struct {
+	DB   *sql.DB
+	Read *sql.DB
+}
+
+// Close releases both pools. Tests and CLI should call this instead of DB.Close
+// so the reader pool does not leak.
+func (s *Store) Close() error {
+	err := s.DB.Close()
+	if s.Read != nil && s.Read != s.DB {
+		if e := s.Read.Close(); e != nil && err == nil {
+			err = e
+		}
+	}
+	return err
+}
 
 func ID() string {
 	b := make([]byte, 16)
@@ -52,31 +79,81 @@ func Open(path string) (*Store, error) {
 	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return nil, e
 	}
-	// Foreign keys are per-connection in SQLite; pass via DSN so the constraint
-	// is durable regardless of the connection pool shape (today MaxOpenConns=1,
-	// but a future driver tuning cannot silently disable FK enforcement).
-	dsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)", path)
-	if strings.HasPrefix(path, ":") || strings.HasPrefix(path, "file:") {
+	inMemory := strings.HasPrefix(path, ":") || strings.HasPrefix(path, "file:")
+	// Foreign keys and busy_timeout are per-connection in SQLite; pass them via
+	// DSN so the constraint is durable regardless of the connection pool shape.
+	// The writer takes _txlock=immediate so a held read from the reader pool
+	// cannot make a begin defer and surface as SQLITE_BUSY to the handler.
+	wdsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_txlock=immediate", path)
+	if inMemory {
 		// In-memory / already-qualified DSNs (mostly tests): keep it simple.
-		dsn = path
+		wdsn = path
 	}
-	db, e := sql.Open("sqlite", dsn)
+	db, e := sql.Open("sqlite", wdsn)
 	if e != nil {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	fail := func(e error) (*Store, error) { db.Close(); return nil, e }
-	// PRAGMA synchronous is not a URL parameter in modernc; run it explicitly.
+	var read *sql.DB
+	cleanup := func() {
+		db.Close()
+		if read != nil && read != db {
+			read.Close()
+		}
+	}
+	// modernc accepts synchronous via _pragma, but set it explicitly to match
+	// the established pattern and keep the writer durable regardless of driver
+	// tuning. journal_size_limit bounds the WAL sidecar.
 	if _, e = db.Exec("PRAGMA synchronous=FULL"); e != nil {
-		return fail(e)
+		cleanup()
+		return nil, e
+	}
+	if _, e = db.Exec(fmt.Sprintf("PRAGMA journal_size_limit=%d", journalSizeLimit)); e != nil {
+		cleanup()
+		return nil, e
+	}
+	if inMemory {
+		// DSN pragmas are not applied for raw in-memory DSNs; set them here.
+		if _, e = db.Exec("PRAGMA foreign_keys=ON"); e != nil {
+			cleanup()
+			return nil, e
+		}
+		if _, e = db.Exec("PRAGMA busy_timeout=5000"); e != nil {
+			cleanup()
+			return nil, e
+		}
 	}
 	if e = migrate(db); e != nil {
-		return fail(e)
+		cleanup()
+		return nil, e
 	}
-	if e = os.Chmod(path, 0600); e != nil {
-		return fail(e)
+	if !inMemory {
+		if e = os.Chmod(path, 0600); e != nil {
+			cleanup()
+			return nil, e
+		}
+		read, e = openReader(path)
+		if e != nil {
+			cleanup()
+			return nil, e
+		}
+	} else {
+		read = db
 	}
-	return &Store{db}, nil
+	return &Store{DB: db, Read: read}, nil
+}
+
+// openReader opens a query_only reader pool sharing the same database file.
+// query_only prevents accidental writes through the reader; foreign_keys and
+// busy_timeout match the writer so constraints and contention behave identically.
+func openReader(path string) (*sql.DB, error) {
+	rdsn := fmt.Sprintf("file:%s?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)&_pragma=query_only(1)", path)
+	rdb, e := sql.Open("sqlite", rdsn)
+	if e != nil {
+		return nil, e
+	}
+	rdb.SetMaxOpenConns(4)
+	return rdb, nil
 }
 
 // migrate applies pending migrations, their data and the version ledger in one
@@ -132,25 +209,40 @@ func migrate(db *sql.DB) error {
 }
 
 func (s *Store) Get(key string, v any) error {
+	return s.GetContext(context.Background(), key, v)
+}
+
+// GetContext loads one kv value through the reader pool.
+func (s *Store) GetContext(ctx context.Context, key string, v any) error {
 	var raw string
-	e := s.DB.QueryRow("SELECT value FROM kv WHERE key=?", key).Scan(&raw)
+	e := s.Read.QueryRowContext(ctx, "SELECT value FROM kv WHERE key=?", key).Scan(&raw)
 	if e != nil {
 		return e
 	}
 	return json.Unmarshal([]byte(raw), v)
 }
 func (s *Store) Put(key string, v any) error {
+	return s.PutContext(context.Background(), key, v)
+}
+
+// PutContext writes one kv value through the writer.
+func (s *Store) PutContext(ctx context.Context, key string, v any) error {
 	b, e := json.Marshal(v)
 	if e != nil {
 		return e
 	}
-	_, e = s.DB.Exec("INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, string(b))
+	_, e = s.DB.ExecContext(ctx, "INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", key, string(b))
 	return e
 }
 
 // Audit records an event stamped in INTEGER unix seconds.
 func (s *Store) Audit(actor, action, entity string) error {
-	_, e := s.DB.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
+	return s.AuditContext(context.Background(), actor, action, entity)
+}
+
+// AuditContext records an audit event through the writer with a context.
+func (s *Store) AuditContext(ctx context.Context, actor, action, entity string) error {
+	_, e := s.DB.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
 	return e
 }
 
@@ -162,7 +254,10 @@ func (s *Store) Audit(actor, action, entity string) error {
 // (or vice versa). The id is passed explicitly because callers already have it
 // from ID(); deriving it from opBody JSON would be needlessly fragile.
 func (s *Store) InsertOperation(id, opBody, idempotencyKey, requestHash, actor, action string) error {
-	tx, e := s.DB.Begin()
+	return s.InsertOperationContext(context.Background(), id, opBody, idempotencyKey, requestHash, actor, action)
+}
+func (s *Store) InsertOperationContext(ctx context.Context, id, opBody, idempotencyKey, requestHash, actor, action string) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -178,21 +273,30 @@ func (s *Store) InsertOperation(id, opBody, idempotencyKey, requestHash, actor, 
 
 // UpdateOperation overwrites the body for an existing operation id.
 func (s *Store) UpdateOperation(id, opBody string) error {
-	_, e := s.DB.Exec("UPDATE operations SET body=? WHERE id=?", opBody, id)
+	return s.UpdateOperationContext(context.Background(), id, opBody)
+}
+func (s *Store) UpdateOperationContext(ctx context.Context, id, opBody string) error {
+	_, e := s.DB.ExecContext(ctx, "UPDATE operations SET body=? WHERE id=?", opBody, id)
 	return e
 }
 
 // LoadOperation returns the raw JSON body of one operation, or sql.ErrNoRows.
 func (s *Store) LoadOperation(id string) (string, error) {
+	return s.LoadOperationContext(context.Background(), id)
+}
+func (s *Store) LoadOperationContext(ctx context.Context, id string) (string, error) {
 	var raw string
-	e := s.DB.QueryRow("SELECT body FROM operations WHERE id=?", id).Scan(&raw)
+	e := s.Read.QueryRowContext(ctx, "SELECT body FROM operations WHERE id=?", id).Scan(&raw)
 	return raw, e
 }
 
 // FindOperationByIdempotencyKey returns (id, request_hash, true) when key
 // exists; (false) when not found; or an error for storage failures.
 func (s *Store) FindOperationByIdempotencyKey(key string) (id, requestHash string, found bool, err error) {
-	e := s.DB.QueryRow("SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&id, &requestHash)
+	return s.FindOperationByIdempotencyKeyContext(context.Background(), key)
+}
+func (s *Store) FindOperationByIdempotencyKeyContext(ctx context.Context, key string) (id, requestHash string, found bool, err error) {
+	e := s.Read.QueryRowContext(ctx, "SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&id, &requestHash)
 	if errors.Is(e, sql.ErrNoRows) {
 		return "", "", false, nil
 	}
@@ -205,15 +309,18 @@ func (s *Store) FindOperationByIdempotencyKey(key string) (id, requestHash strin
 // CountSucceededByRevision reports how many operations reference the revision
 // with status='succeeded'. Used to gate rollback to a previously-applied rev.
 func (s *Store) CountSucceededByRevision(revID string) (int, error) {
+	return s.CountSucceededByRevisionContext(context.Background(), revID)
+}
+func (s *Store) CountSucceededByRevisionContext(ctx context.Context, revID string) (int, error) {
 	var n int
-	e := s.DB.QueryRow("SELECT COUNT(*) FROM operations WHERE json_extract(body,'$.revision_id')=? AND json_extract(body,'$.status')='succeeded'", revID).Scan(&n)
+	e := s.Read.QueryRowContext(ctx, "SELECT COUNT(*) FROM operations WHERE json_extract(body,'$.revision_id')=? AND json_extract(body,'$.status')='succeeded'", revID).Scan(&n)
 	return n, e
 }
 
 // ListOperationBodies returns the (id, body) of every operation row, in any
 // order. Used by httpapi's New() reconciliation pass to recover abandoned ops.
 func (s *Store) ListOperationBodies() ([]struct{ ID, Body string }, error) {
-	rows, e := s.DB.Query("SELECT id,body FROM operations")
+	rows, e := s.Read.Query("SELECT id,body FROM operations")
 	if e != nil {
 		return nil, e
 	}
@@ -235,7 +342,10 @@ func (s *Store) ListOperationBodies() ([]struct{ ID, Body string }, error) {
 // are the client/policy IDs that differ from the active snapshot; they receive
 // action-specific audit rows alongside the legacy "draft" row.
 func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string) error {
-	tx, e := s.DB.Begin()
+	return s.ChangeDraftWithAssignmentsContext(context.Background(), v, actor, action, expected, username, newClientIDs, entityIDs)
+}
+func (s *Store) ChangeDraftWithAssignmentsContext(ctx context.Context, v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -281,7 +391,10 @@ func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected
 // ChangeDraft writes the draft and the draft-level plus per-entity audit rows
 // in one transaction. The admin path: no manager assignments are needed.
 func (s *Store) ChangeDraft(v any, actor, action string, expected int, entityIDs []string) error {
-	tx, e := s.DB.Begin()
+	return s.ChangeDraftContext(context.Background(), v, actor, action, expected, entityIDs)
+}
+func (s *Store) ChangeDraftContext(ctx context.Context, v any, actor, action string, expected int, entityIDs []string) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -324,7 +437,10 @@ func (s *Store) ChangeDraft(v any, actor, action string, expected int, entityIDs
 // per-entity audit rows in one transaction. entityIDs are the client/policy IDs
 // that differed between the discarded draft and the active snapshot.
 func (s *Store) DiscardDraft(v any, actor string, expected int, entityIDs []string) error {
-	tx, e := s.DB.Begin()
+	return s.DiscardDraftContext(context.Background(), v, actor, expected, entityIDs)
+}
+func (s *Store) DiscardDraftContext(ctx context.Context, v any, actor string, expected int, entityIDs []string) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -362,12 +478,16 @@ func (s *Store) DiscardDraft(v any, actor string, expected int, entityIDs []stri
 	return tx.Commit()
 }
 
-// audit events older than the cutoff are deleted, and revision blobs that are
-// neither the current LKG nor among the most recent N are dropped. Callers run
-// this from the periodic maintenance loop so the database cannot grow without
-// bound on a long-lived single-node install.
+// audit_events older than AuditRetention are deleted, and revision blobs that
+// are neither the current LKG nor among the most recent N are dropped. Callers
+// run this from the periodic maintenance loop so the database cannot grow
+// without bound on a long-lived single-node install. Audit retention is
+// age-based only; there is no row-count cap.
 func (s *Store) Prune(auditCutoff time.Time, revisionRetention int) error {
-	tx, e := s.DB.Begin()
+	return s.PruneContext(context.Background(), auditCutoff, revisionRetention)
+}
+func (s *Store) PruneContext(ctx context.Context, auditCutoff time.Time, revisionRetention int) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -376,9 +496,6 @@ func (s *Store) Prune(auditCutoff time.Time, revisionRetention int) error {
 	// the same unit keeps range deletes O(log n) on the index instead of falling
 	// back to a full scan with TEXT comparison.
 	if _, e = tx.Exec("DELETE FROM audit_events WHERE created_at < ?", auditCutoff.Unix()); e != nil {
-		return e
-	}
-	if _, e = tx.Exec("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT 5000)"); e != nil {
 		return e
 	}
 	if revisionRetention > 0 {
@@ -397,7 +514,10 @@ AND key NOT IN (SELECT key FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DE
 // writes the corresponding audit_event in one transaction. Used by
 // httpapi.createRevision so schema details stay inside store.
 func (s *Store) InsertRevision(revID, revBody, actor, action string) error {
-	tx, e := s.DB.Begin()
+	return s.InsertRevisionContext(context.Background(), revID, revBody, actor, action)
+}
+func (s *Store) InsertRevisionContext(ctx context.Context, revID, revBody, actor, action string) error {
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
@@ -421,7 +541,14 @@ func (s *Store) ListRevisions() ([]struct {
 	Applied      bool
 	LatestStatus string
 }, error) {
-	rows, e := s.DB.Query(`SELECT value,
+	return s.ListRevisionsContext(context.Background())
+}
+func (s *Store) ListRevisionsContext(ctx context.Context) ([]struct {
+	Body         string
+	Applied      bool
+	LatestStatus string
+}, error) {
+	rows, e := s.Read.QueryContext(ctx, `SELECT value,
  EXISTS(SELECT 1 FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') AND json_extract(body,'$.status')='succeeded'),
  COALESCE((SELECT json_extract(body,'$.status') FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') ORDER BY rowid DESC LIMIT 1),'draft')
  FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DESC LIMIT 100`)

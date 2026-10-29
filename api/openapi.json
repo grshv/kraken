@@ -70,6 +70,34 @@
                 }
               }
             }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -106,6 +134,34 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -241,6 +297,34 @@
                 }
               }
             }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -283,6 +367,34 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -334,6 +446,34 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -494,6 +634,34 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1062,6 +1230,34 @@
                 }
               }
             }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Admin-only; manager receives 403 admin_required."
@@ -1118,6 +1314,34 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1213,6 +1437,34 @@
                 }
               }
             }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Admin-only; manager receives 403 admin_required."
@@ -1269,6 +1521,34 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1505,6 +1785,34 @@
           },
           "default": {
             "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2468,7 +2776,8 @@
           "capabilities",
           "has_unapplied_changes",
           "runtime_update_available",
-          "instance"
+          "instance",
+          "ingestion"
         ],
         "properties": {
           "web": {
@@ -2516,6 +2825,9 @@
           },
           "instance": {
             "$ref": "#/components/schemas/Instance"
+          },
+          "ingestion": {
+            "$ref": "#/components/schemas/Ingestion"
           }
         }
       },
@@ -2919,29 +3231,26 @@
         "type": "object",
         "additionalProperties": false,
         "required": [
-          "observed_at",
-          "stale",
-          "source_available",
-          "backlog",
-          "dropped_records"
+          "state",
+          "observed_at"
         ],
         "properties": {
-          "observed_at": {
+          "state": {
             "type": "string",
-            "description": "Last successful source read; empty before first collection."
+            "enum": [
+              "ok",
+              "storage_low",
+              "error"
+            ],
+            "description": "Event collection loop state: ok (ingesting), storage_low (paused below the low-disk threshold), error (last collection failed)."
           },
-          "stale": {
-            "type": "boolean"
-          },
-          "source_available": {
-            "type": "boolean"
-          },
-          "backlog": {
-            "type": "boolean"
-          },
-          "dropped_records": {
-            "type": "integer",
-            "minimum": 0
+          "observed_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "RFC3339 timestamp of the last state observation."
           }
         }
       },
