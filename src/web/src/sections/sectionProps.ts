@@ -26,6 +26,11 @@ export type SectionProps = {
   onToast: (message: string) => void;
   onNavigate: (id: NavId) => void;
   onConfirm: (options: ConfirmOptions) => void;
+  // One-shot hint delivered by the command palette ("new-client",
+  // "new-proxy-login", "blocked-domains"). The section consumes it in an
+  // effect and calls onIntentHandled so the shell clears it for the next use.
+  intent?: "new-client" | "new-proxy-login" | "blocked-domains";
+  onIntentHandled?: () => void;
 };
 
 // Manager scope extracted from the session for source-network checks.

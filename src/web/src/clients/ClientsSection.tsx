@@ -53,8 +53,18 @@ type ClientStats = {
   open_connections: number | null;
   top_destinations: { host: string; requests: number; denied: number }[];
 };
-type ProxyAccount = { username: string; owner?: string | null; enabled?: boolean };
-type AuditRow = { id: string; actor: string; action: string; entity_id: string; timestamp: string };
+type ProxyAccount = {
+  username: string;
+  owner?: string | null;
+  enabled?: boolean;
+};
+type AuditRow = {
+  id: string;
+  actor: string;
+  action: string;
+  entity_id: string;
+  timestamp: string;
+};
 
 type Tab = "overview" | "access" | "source" | "requests" | "history";
 
@@ -62,15 +72,27 @@ type Tab = "overview" | "access" | "source" | "requests" | "history";
 // onCommit (PUT /configuration/draft with expected_version); 409 toasts and
 // reloads; per-field errors surface via ApiError.code returned by onCommit.
 export function ClientsSection(props: SectionProps) {
-  const { request, draft, active, session, onCommit, onToast, onNavigate } =
-    props;
+  const {
+    request,
+    draft,
+    active,
+    session,
+    onCommit,
+    onToast,
+    onNavigate,
+    intent,
+    onIntentHandled,
+  } = props;
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState<"all" | "denied" | "draft">("all");
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
-  const [creating, setCreating] = useState<
-    { from?: string; name: string; src: string; domains: string[] } | null
-  >(null);
+  const [creating, setCreating] = useState<{
+    from?: string;
+    name: string;
+    src: string;
+    domains: string[];
+  } | null>(null);
   const [confirm, setConfirm] = useState<ConfirmOptions | null>(null);
   const [confirmFn, setConfirmFn] = useState<(() => void) | null>(null);
   const [unknown, setUnknown] = useState<UnknownSource[] | null>(null);
@@ -83,6 +105,13 @@ export function ClientsSection(props: SectionProps) {
     [activeSnap, snap],
   );
   const clients = snap?.clients ?? [];
+
+  // Command palette "new-client": open the blank creation form once.
+  useEffect(() => {
+    if (intent !== "new-client") return;
+    setCreating({ name: "", src: "", domains: [] });
+    onIntentHandled?.();
+  }, [intent, onIntentHandled]);
 
   // Unknown sources for the list group + "create from IP".
   useEffect(() => {
@@ -151,9 +180,7 @@ export function ClientsSection(props: SectionProps) {
               <span className="list-title">Клиенты</span>
               <Button
                 size="xs"
-                onClick={() =>
-                  setCreating({ name: "", src: "", domains: [] })
-                }
+                onClick={() => setCreating({ name: "", src: "", domains: [] })}
               >
                 <Plus aria-hidden /> Новый
               </Button>
@@ -179,7 +206,10 @@ export function ClientsSection(props: SectionProps) {
               </button>
             ))}
             {(!unknown || unknown.length === 0) && (
-              <div className="muted-text small" style={{ padding: "12px 14px" }}>
+              <div
+                className="muted-text small"
+                style={{ padding: "12px 14px" }}
+              >
                 Клиентов пока нет. Пока их нет, прокси отказывает всем.
               </div>
             )}
@@ -206,7 +236,12 @@ export function ClientsSection(props: SectionProps) {
         initialDomains={creating.domains}
         onCancel={() => setCreating(null)}
         onSubmit={async (name, src, domains, mode) => {
-          const r = createClientFromIP(snap!, src || creating.from || "", name, domains);
+          const r = createClientFromIP(
+            snap!,
+            src || creating.from || "",
+            name,
+            domains,
+          );
           if (!r) {
             onToast("Проверьте адрес источника и имя");
             return;
@@ -216,7 +251,9 @@ export function ClientsSection(props: SectionProps) {
             next = {
               ...next,
               policies: next.policies.map((p) =>
-                p.id === r.policyID ? { ...p, mode: "all_web", destinations: [] } : p,
+                p.id === r.policyID
+                  ? { ...p, mode: "all_web", destinations: [] }
+                  : p,
               ),
             };
           } else if (mode === "shared") {
@@ -252,7 +289,10 @@ export function ClientsSection(props: SectionProps) {
             <span className="list-title">
               {session.role === "manager" ? "Мои клиенты" : "Клиенты"}
             </span>
-            <Button size="xs" onClick={() => setCreating({ name: "", src: "", domains: [] })}>
+            <Button
+              size="xs"
+              onClick={() => setCreating({ name: "", src: "", domains: [] })}
+            >
               <Plus aria-hidden /> Новый
             </Button>
           </div>
@@ -266,15 +306,23 @@ export function ClientsSection(props: SectionProps) {
             />
           </div>
           <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
-            <FilterChip active={filter === "all"} onClick={() => setFilter("all")}>
+            <FilterChip
+              active={filter === "all"}
+              onClick={() => setFilter("all")}
+            >
               все {clients.length}
             </FilterChip>
-            <FilterChip active={filter === "denied"} onClick={() => setFilter("denied")}>
+            <FilterChip
+              active={filter === "denied"}
+              onClick={() => setFilter("denied")}
+            >
               с отказами
             </FilterChip>
-            <FilterChip active={filter === "draft"} onClick={() => setFilter("draft")}>
-              в черновике{" "}
-              {clients.filter((c) => clientMarks[c.id]).length}
+            <FilterChip
+              active={filter === "draft"}
+              onClick={() => setFilter("draft")}
+            >
+              в черновике {clients.filter((c) => clientMarks[c.id]).length}
             </FilterChip>
           </div>
         </div>
@@ -296,7 +344,13 @@ export function ClientsSection(props: SectionProps) {
                   {c.source_networks.join(", ")}
                 </span>
                 <span className={"small num" + (st?.denied ? " up" : "")}>
-                  {!c.enabled ? "выкл" : st?.denied ? `${st.denied} отказов` : st ? `${st.requests}` : "—"}
+                  {!c.enabled
+                    ? "выкл"
+                    : st?.denied
+                      ? `${st.denied} отказов`
+                      : st
+                        ? `${st.requests}`
+                        : "—"}
                 </span>
               </button>
             );
@@ -347,7 +401,9 @@ export function ClientsSection(props: SectionProps) {
             onConfirm={setConfirm}
             setConfirmFn={setConfirmFn}
             onDelete={async () => {
-              const res = await onCommit(deleteClient(snap!, selectedClient.id));
+              const res = await onCommit(
+                deleteClient(snap!, selectedClient.id),
+              );
               if (res.ok) {
                 setSelected(null);
                 onToast("Клиент удалён из черновика");
@@ -355,14 +411,21 @@ export function ClientsSection(props: SectionProps) {
             }}
             onToggleEnabled={async () => {
               await onCommit(
-                setClientEnabled(snap!, selectedClient.id, !selectedClient.enabled),
+                setClientEnabled(
+                  snap!,
+                  selectedClient.id,
+                  !selectedClient.enabled,
+                ),
               );
             }}
             onDuplicate={() => {
               setCreating({
                 name: selectedClient.name + "-копия",
                 src: selectedClient.source_networks[0] ?? "",
-                domains: (snap!.policies.find((p) => p.id === selectedClient.policy_id)?.destinations ?? []).map((d) => (d.include_subdomains ? "*." : "") + d.domain),
+                domains: (
+                  snap!.policies.find((p) => p.id === selectedClient.policy_id)
+                    ?.destinations ?? []
+                ).map((d) => (d.include_subdomains ? "*." : "") + d.domain),
               });
             }}
           />
@@ -406,7 +469,8 @@ function Sparkline({
 }: {
   series?: { requests: number; denied: number }[];
 }) {
-  if (!series || series.length === 0) return <svg className="spark" width={52} height={16} />;
+  if (!series || series.length === 0)
+    return <svg className="spark" width={52} height={16} />;
   const max = Math.max(1, ...series.map((s) => s.requests));
   const w = 52;
   const h = 16;
@@ -416,7 +480,12 @@ function Sparkline({
     .join(" ");
   return (
     <svg className="spark" width={w} height={h} aria-hidden>
-      <polyline points={pts} fill="none" stroke="currentColor" strokeWidth={1} />
+      <polyline
+        points={pts}
+        fill="none"
+        stroke="currentColor"
+        strokeWidth={1}
+      />
     </svg>
   );
 }
@@ -485,8 +554,7 @@ function ClientDetail({
   const scope = managerScope(session);
   // Manager may not edit a policy referenced by a foreign client.
   const policyEditable =
-    !scope ||
-    sharedWith.every((c) => scope.clientIDs.includes(c.id));
+    !scope || sharedWith.every((c) => scope.clientIDs.includes(c.id));
   const tabs: [Tab, string][] = [
     ["overview", "Обзор"],
     ["access", "Доступ"],
@@ -506,7 +574,9 @@ function ClientDetail({
             {client.name}
           </h1>
           {marks[client.id] === "new" && <Badge>новый, в черновике</Badge>}
-          {marks[client.id] === "changed" && <Badge variant="secondary">изменён</Badge>}
+          {marks[client.id] === "changed" && (
+            <Badge variant="secondary">изменён</Badge>
+          )}
           <span className="grow" />
           <Button size="xs" onClick={onToggleEnabled}>
             <Power aria-hidden /> {client.enabled ? "Отключить" : "Включить"}
@@ -530,12 +600,24 @@ function ClientDetail({
             <Trash2 aria-hidden /> Удалить
           </Button>
         </div>
-        <div className="muted-text small row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <span>{client.kind ?? "host"}</span>·<span className="mono">{client.source_networks.join(", ")}</span>·
-          <PolicyBadge client={client} policy={policy} sharedCount={sharedWith.length} />
+        <div
+          className="muted-text small row"
+          style={{ gap: 8, flexWrap: "wrap" }}
+        >
+          <span>{client.kind ?? "host"}</span>·
+          <span className="mono">{client.source_networks.join(", ")}</span>·
+          <PolicyBadge
+            client={client}
+            policy={policy}
+            sharedCount={sharedWith.length}
+          />
         </div>
       </header>
-      <div className="tabs" role="tablist" style={{ borderBottom: "1px solid var(--border)" }}>
+      <div
+        className="tabs"
+        role="tablist"
+        style={{ borderBottom: "1px solid var(--border)" }}
+      >
         {tabs.map(([k, l]) => (
           <span
             key={k}
@@ -550,7 +632,15 @@ function ClientDetail({
       </div>
       <div className="inspector-body">
         {tab === "overview" && (
-          <OverviewTab client={client} policy={policy} stats={stats} snap={snap} onCommit={onCommit} onToast={onToast} onNavigate={onNavigate} />
+          <OverviewTab
+            client={client}
+            policy={policy}
+            stats={stats}
+            snap={snap}
+            onCommit={onCommit}
+            onToast={onToast}
+            onNavigate={onNavigate}
+          />
         )}
         {tab === "access" && (
           <AccessTab
@@ -567,14 +657,23 @@ function ClientDetail({
           />
         )}
         {tab === "source" && (
-          <SourceTab client={client} snap={snap} request={request} session={session} onCommit={onCommit} onToast={onToast} />
+          <SourceTab
+            client={client}
+            snap={snap}
+            request={request}
+            session={session}
+            onCommit={onCommit}
+            onToast={onToast}
+          />
         )}
         {tab === "requests" && (
-          <RequestsTab client={client} request={request} onNavigate={onNavigate} />
+          <RequestsTab
+            client={client}
+            request={request}
+            onNavigate={onNavigate}
+          />
         )}
-        {tab === "history" && (
-          <HistoryTab client={client} request={request} />
-        )}
+        {tab === "history" && <HistoryTab client={client} request={request} />}
       </div>
     </>
   );
@@ -594,7 +693,8 @@ function PolicyBadge({
   if (policy.mode === "all_web") return <span>весь веб</span>;
   return (
     <span>
-      {sharedCount > 1 ? `${policy.name} (общая)` : "своя политика"} · {policy.destinations.length} доменов
+      {sharedCount > 1 ? `${policy.name} (общая)` : "своя политика"} ·{" "}
+      {policy.destinations.length} доменов
     </span>
   );
 }
@@ -624,7 +724,8 @@ function OverviewTab({
           <Ban aria-hidden />
           <div className="grow">
             <div style={{ fontWeight: 500 }}>
-              {d.denied} отказов к <span className="mono">{d.host}</span> за 24 ч
+              {d.denied} отказов к <span className="mono">{d.host}</span> за 24
+              ч
             </div>
             <div className="small muted-text">
               Домена нет в политике клиента.
@@ -644,14 +745,27 @@ function OverviewTab({
         </div>
       ))}
       <div className="kpis">
-        <Kpi label="Запросы, 24 ч" value={stats ? String(stats.requests) : "—"} />
+        <Kpi
+          label="Запросы, 24 ч"
+          value={stats ? String(stats.requests) : "—"}
+        />
         <Kpi
           label="Отказы, 24 ч"
           value={stats ? String(stats.denied) : "—"}
           tone={stats?.denied ? "bad" : undefined}
         />
-        <Kpi label="Трафик, 24 ч" value={stats ? formatBytes(stats.bytes) : "—"} />
-        <Kpi label="Открытые соединения" value={stats?.open_connections != null ? String(stats.open_connections) : "—"} />
+        <Kpi
+          label="Трафик, 24 ч"
+          value={stats ? formatBytes(stats.bytes) : "—"}
+        />
+        <Kpi
+          label="Открытые соединения"
+          value={
+            stats?.open_connections != null
+              ? String(stats.open_connections)
+              : "—"
+          }
+        />
       </div>
       <div className="card">
         <div className="card-head">
@@ -688,7 +802,11 @@ function OverviewTab({
       <div className="card">
         <div className="card-head">
           <span className="card-title grow">Правила</span>
-          <Button size="xs" variant="ghost" onClick={() => onNavigate("clients")}>
+          <Button
+            size="xs"
+            variant="ghost"
+            onClick={() => onNavigate("clients")}
+          >
             Изменить
           </Button>
         </div>
@@ -756,12 +874,18 @@ function AccessTab({
     if (!policy) return;
     let live = true;
     request<{
-      domains: { domain: string; include_subdomains: boolean; hits_24h: number; hits_7d: number }[];
+      domains: {
+        domain: string;
+        include_subdomains: boolean;
+        hits_24h: number;
+        hits_7d: number;
+      }[];
     }>(`/inspector/policies/${policy.id}/hits`)
       .then((r) => {
         if (!live) return;
         const next: DomainHits = {};
-        for (const d of r.domains ?? []) next[d.domain] = { hits_24h: d.hits_24h, hits_7d: d.hits_7d };
+        for (const d of r.domains ?? [])
+          next[d.domain] = { hits_24h: d.hits_24h, hits_7d: d.hits_7d };
         setHits(next);
       })
       .catch(() => {});
@@ -824,7 +948,9 @@ function AccessTab({
                 await onCommit({
                   ...snap,
                   policies: snap.policies.map((p) =>
-                    p.id === policy.id ? { ...p, mode: "all_web", destinations: [] } : p,
+                    p.id === policy.id
+                      ? { ...p, mode: "all_web", destinations: [] }
+                      : p,
                   ),
                 });
               }}
@@ -839,7 +965,8 @@ function AccessTab({
             <div className="callout callout-warn">
               <ShieldCheck aria-hidden />
               <div className="small">
-                Общая политика: правка затронет также {others.map((c) => c.name).join(", ")}.
+                Общая политика: правка затронет также{" "}
+                {others.map((c) => c.name).join(", ")}.
               </div>
             </div>
           )}
@@ -849,13 +976,20 @@ function AccessTab({
         <div className="card">
           <div className="card-head">
             <span className="card-title">Разрешённые домены</span>
-            <Button size="xs" variant="ghost" onClick={() => onNavigate("policies")}>
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => onNavigate("policies")}
+            >
               Открыть политику
             </Button>
           </div>
           <div className="card-body">
             {deniedTop.length > 0 && (
-              <div className="callout callout-warn" style={{ marginBottom: 10 }}>
+              <div
+                className="callout callout-warn"
+                style={{ marginBottom: 10 }}
+              >
                 <Ban aria-hidden />
                 <div className="small">
                   Отказанные домены этого клиента:{" "}
@@ -960,7 +1094,10 @@ function SourceTab({
   const scope = managerScope(session);
   const others = snap.clients.filter((c) => c.id !== client.id);
   const save = async () => {
-    const lines = networks.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    const lines = networks
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     const parsed: string[] = [];
     for (const ln of lines) {
       const n = parseNetwork(ln);
@@ -971,7 +1108,12 @@ function SourceTab({
       // Overlap with another client (same family) unless distinct proxy logins.
       for (const c of others) {
         if (!c.enabled) continue;
-        if (client.proxy_username && c.proxy_username && client.proxy_username !== c.proxy_username) continue;
+        if (
+          client.proxy_username &&
+          c.proxy_username &&
+          client.proxy_username !== c.proxy_username
+        )
+          continue;
         if (c.source_networks.some((m) => networksOverlap(n, m))) {
           setFieldError(`${n} пересекается с клиентом ${c.name}.`);
           return;
@@ -997,9 +1139,12 @@ function SourceTab({
       ),
     };
     const res = await onCommit(next);
-    if (!res.ok && res.code === "source_outside_scope") setFieldError("Адрес вне ваших сетей.");
-    else if (!res.ok && res.code === "source_overlap") setFieldError("Адрес пересекается с чужим клиентом.");
-    else if (!res.ok && res.code !== "revision_conflict") onToast(res.message ?? "Ошибка сохранения");
+    if (!res.ok && res.code === "source_outside_scope")
+      setFieldError("Адрес вне ваших сетей.");
+    else if (!res.ok && res.code === "source_overlap")
+      setFieldError("Адрес пересекается с чужим клиентом.");
+    else if (!res.ok && res.code !== "revision_conflict")
+      onToast(res.message ?? "Ошибка сохранения");
   };
   return (
     <>
@@ -1014,7 +1159,10 @@ function SourceTab({
           </Label>
           <Label>
             Описание
-            <Input value={description} onChange={(e) => setDescription(e.target.value)} />
+            <Input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+            />
           </Label>
           <Label>
             Тип
@@ -1031,7 +1179,9 @@ function SourceTab({
           <Label>
             Включён
             <Badge variant={client.enabled ? "default" : "secondary"}>
-              {client.enabled ? "правила действуют" : "все запросы получают отказ"}
+              {client.enabled
+                ? "правила действуют"
+                : "все запросы получают отказ"}
             </Badge>
           </Label>
         </div>
@@ -1071,11 +1221,14 @@ function SourceTab({
                 const next = {
                   ...snap,
                   clients: snap.clients.map((c) =>
-                    c.id === client.id ? { ...c, proxy_username: e.target.value || undefined } : c,
+                    c.id === client.id
+                      ? { ...c, proxy_username: e.target.value || undefined }
+                      : c,
                   ),
                 };
                 const res = await onCommit(next);
-                if (!res.ok && res.code === "username_taken") onToast("Логин уже занят");
+                if (!res.ok && res.code === "username_taken")
+                  onToast("Логин уже занят");
               }}
             >
               <option value="">Не требуется</option>
@@ -1087,7 +1240,8 @@ function SourceTab({
             </select>
           </Label>
           <div className="help muted-text small">
-            Логины прокси настраиваются в разделе «Аккаунты». Пароль в политике не хранится.
+            Логины прокси настраиваются в разделе «Аккаунты». Пароль в политике
+            не хранится.
           </div>
         </div>
       </div>
@@ -1107,7 +1261,9 @@ function RequestsTab({
   const [items, setItems] = useState<Event[]>([]);
   useEffect(() => {
     let live = true;
-    request<{ items: Event[] }>(`/events?client_id=${encodeURIComponent(client.id)}&limit=50`)
+    request<{ items: Event[] }>(
+      `/events?client_id=${encodeURIComponent(client.id)}&limit=50`,
+    )
       .then((r) => {
         if (live) setItems(r.items ?? []);
       })
@@ -1136,10 +1292,18 @@ function RequestsTab({
             <tbody>
               {items.slice(0, 20).map((e) => (
                 <tr key={e.id}>
-                  <td className="num muted-text small">{e.timestamp.slice(11, 19)}</td>
+                  <td className="num muted-text small">
+                    {e.timestamp.slice(11, 19)}
+                  </td>
                   <td className="mono">{e.destination}</td>
                   <td>
-                    <Badge variant={e.proxy_result.includes("DENIED") ? "destructive" : "secondary"}>
+                    <Badge
+                      variant={
+                        e.proxy_result.includes("DENIED")
+                          ? "destructive"
+                          : "secondary"
+                      }
+                    >
                       {e.proxy_result}
                     </Badge>
                   </td>
@@ -1170,7 +1334,9 @@ function HistoryTab({
   const [items, setItems] = useState<AuditRow[]>([]);
   useEffect(() => {
     let live = true;
-    request<{ items: AuditRow[] }>(`/audit?entity_id=${encodeURIComponent(client.id)}&limit=50`)
+    request<{ items: AuditRow[] }>(
+      `/audit?entity_id=${encodeURIComponent(client.id)}&limit=50`,
+    )
       .then((r) => {
         if (live) setItems(r.items ?? []);
       })
@@ -1183,7 +1349,15 @@ function HistoryTab({
     <div className="card">
       <div className="card-body">
         {items.map((r) => (
-          <div key={r.id} className="row" style={{ padding: "8px 0", borderBottom: "1px solid var(--border)", alignItems: "flex-start" }}>
+          <div
+            key={r.id}
+            className="row"
+            style={{
+              padding: "8px 0",
+              borderBottom: "1px solid var(--border)",
+              alignItems: "flex-start",
+            }}
+          >
             <span className="num muted-text small" style={{ width: 120 }}>
               {r.timestamp.replace("T", " ").slice(0, 19)}
             </span>
@@ -1191,10 +1365,14 @@ function HistoryTab({
               <div>{actionLabel(r.action)}</div>
               <div className="small muted-text">{r.actor}</div>
             </div>
-            {r.action.includes("draft") && <Badge variant="secondary">в черновике</Badge>}
+            {r.action.includes("draft") && (
+              <Badge variant="secondary">в черновике</Badge>
+            )}
           </div>
         ))}
-        {items.length === 0 && <div className="muted-text small">Истории нет</div>}
+        {items.length === 0 && (
+          <div className="muted-text small">Истории нет</div>
+        )}
       </div>
     </div>
   );
@@ -1223,7 +1401,12 @@ function NewClientForm({
   initialSrc: string;
   initialDomains: string[];
   onCancel: () => void;
-  onSubmit: (name: string, src: string, domains: string[], mode: "own" | "shared" | "all" | "none") => Promise<void>;
+  onSubmit: (
+    name: string,
+    src: string,
+    domains: string[],
+    mode: "own" | "shared" | "all" | "none",
+  ) => Promise<void>;
 }) {
   const [name, setName] = useState(initialName);
   const [src, setSrc] = useState(initialSrc);
@@ -1237,14 +1420,17 @@ function NewClientForm({
           <h1 className="page-title" style={{ margin: 0 }}>
             Новый клиент
           </h1>
-          {from && <Badge variant="secondary">из неописанного источника {from}</Badge>}
+          {from && (
+            <Badge variant="secondary">из неописанного источника {from}</Badge>
+          )}
           <span className="grow" />
           <Button size="xs" variant="ghost" onClick={onCancel}>
             <X aria-hidden /> Отмена
           </Button>
         </div>
         <div className="muted-text small">
-          Клиент попадёт в черновик. Трафик не изменится, пока вы не примените изменения.
+          Клиент попадёт в черновик. Трафик не изменится, пока вы не примените
+          изменения.
         </div>
       </header>
       <div className="inspector-body">
@@ -1255,7 +1441,11 @@ function NewClientForm({
           <div className="card-body fgrid">
             <Label>
               Имя
-              <Input value={name} onChange={(e) => setName(e.target.value)} placeholder="например, build-02" />
+              <Input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="например, build-02"
+              />
             </Label>
             <Label>
               Тип
@@ -1276,8 +1466,12 @@ function NewClientForm({
               />
             </Label>
             {from && (
-              <div className="help muted-text small" style={{ gridColumn: "1/-1" }}>
-                За 24 ч с {from} были запросы, все отказаны (источник не описан).
+              <div
+                className="help muted-text small"
+                style={{ gridColumn: "1/-1" }}
+              >
+                За 24 ч с {from} были запросы, все отказаны (источник не
+                описан).
               </div>
             )}
           </div>
@@ -1288,9 +1482,24 @@ function NewClientForm({
           </div>
           <div className="card-body">
             <div className="opts">
-              <RadioOption active={mode === "own"} title="Свой список доменов" hint="Только перечисленные сайты" onClick={() => setMode("own")} />
-              <RadioOption active={mode === "all"} title="Весь веб" hint="Кроме запрещённого для всех" onClick={() => setMode("all")} />
-              <RadioOption active={mode === "none"} title="Пока без доступа" hint="Описать и решить позже" onClick={() => setMode("none")} />
+              <RadioOption
+                active={mode === "own"}
+                title="Свой список доменов"
+                hint="Только перечисленные сайты"
+                onClick={() => setMode("own")}
+              />
+              <RadioOption
+                active={mode === "all"}
+                title="Весь веб"
+                hint="Кроме запрещённого для всех"
+                onClick={() => setMode("all")}
+              />
+              <RadioOption
+                active={mode === "none"}
+                title="Пока без доступа"
+                hint="Описать и решить позже"
+                onClick={() => setMode("none")}
+              />
             </div>
             {mode === "own" && (
               <Label>
@@ -1316,7 +1525,10 @@ function NewClientForm({
                 setErr("Укажите имя клиента.");
                 return;
               }
-              const dom = domains.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+              const dom = domains
+                .split(/[\s,]+/)
+                .map((s) => s.trim())
+                .filter(Boolean);
               await onSubmit(name.trim(), src, dom, mode);
             }}
           >

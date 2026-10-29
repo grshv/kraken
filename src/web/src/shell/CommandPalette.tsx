@@ -3,6 +3,7 @@ import { Search } from "lucide-react";
 import type { NavId } from "./nav";
 import { navItems } from "./nav";
 import type { Role } from "./nav";
+import { paletteIntent } from "./paletteIntent";
 
 type Action = {
   id: string;
@@ -13,7 +14,9 @@ type Action = {
 };
 
 // ⌘K / Ctrl+K command palette. Actions: navigation to every visible section,
-// plus stub actions (new client, block domain, review draft, new proxy login).
+// plus new client, block domain for all, review & apply, and new proxy login.
+// Actions whose paletteIntent is null for the role (e.g. block-domain for
+// manager) are hidden, so the palette never offers a dead action.
 export function CommandPalette({
   role,
   open,
@@ -44,29 +47,29 @@ export function CommandPalette({
         label: "Новый клиент",
         group: "Действия",
         hint: "Создать источник доступа",
-        run: () => onAction("new-client"),
+        run: () => onAction("act:new-client"),
       },
       {
         id: "act:block-domain",
         label: "Запретить домен для всех",
         group: "Действия",
-        run: () => onAction("block-domain"),
+        run: () => onAction("act:block-domain"),
       },
       {
         id: "act:review",
         label: "Проверить и применить черновик",
         group: "Действия",
         hint: "⌘↵",
-        run: () => onAction("review"),
+        run: () => onAction("act:review"),
       },
       {
         id: "act:new-login",
         label: "Новый логин прокси",
         group: "Действия",
-        run: () => onAction("new-login"),
+        run: () => onAction("act:new-login"),
       },
     ];
-    return [...stubs, ...nav];
+    return [...stubs, ...nav].filter((a) => paletteIntent(a.id, role) !== null);
   }, [role, onNavigate, onAction]);
 
   const filtered = useMemo(() => {

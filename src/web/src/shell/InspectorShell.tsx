@@ -118,7 +118,7 @@ export function InspectorShell({
 
   const act = useCallback(
     (id: string) => {
-      if (id === "review") {
+      if (id === "act:review") {
         openReview();
         return;
       }

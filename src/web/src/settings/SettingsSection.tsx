@@ -30,7 +30,12 @@ import {
   setUpstream,
   setExpertConfig,
 } from "./edits";
-import { formatDuration, parseDuration, parseNameservers, parsePortList } from "./units";
+import {
+  formatDuration,
+  parseDuration,
+  parseNameservers,
+  parsePortList,
+} from "./units";
 import type { SectionProps } from "../sections/sectionProps";
 import type { Settings, Snapshot, UpstreamProxy } from "../model";
 import type { NavId } from "../shell/nav";
@@ -59,7 +64,12 @@ type SetId =
   | "logs"
   | "expert";
 
-const SECTIONS: { id: SetId; icon: typeof Ban; label: string; count?: number }[] = [
+const SECTIONS: {
+  id: SetId;
+  icon: typeof Ban;
+  label: string;
+  count?: number;
+}[] = [
   { id: "blocked", icon: Ban, label: "Запрещено для всех" },
   { id: "protect", icon: ShieldCheck, label: "Встроенная защита" },
   { id: "upstream", icon: Network, label: "Вышестоящий прокси" },
@@ -77,8 +87,17 @@ const SECTIONS: { id: SetId; icon: typeof Ban; label: string; count?: number }[]
 // (PUT /configuration/draft with expected_version); 409 toasts and reloads;
 // per-field errors surface via ApiError.code returned by onCommit.
 export function SettingsSection(props: SectionProps) {
-  const { request, draft, active, session, onCommit, onToast, onNavigate } =
-    props;
+  const {
+    request,
+    draft,
+    active,
+    session,
+    onCommit,
+    onToast,
+    onNavigate,
+    intent,
+    onIntentHandled,
+  } = props;
   const [active_id, setActiveId] = useState<SetId>("blocked");
   const [instanceName, setInstanceName] = useState<string>("");
   const [certs, setCerts] = useState<Cert[] | null>(null);
@@ -88,6 +107,13 @@ export function SettingsSection(props: SectionProps) {
   const snap = draft?.snapshot;
   const activeSnap = active;
   const s = snap ? effectiveSettings(snap) : null;
+
+  // Command palette "blocked-domains": switch to the blocked list once.
+  useEffect(() => {
+    if (intent !== "blocked-domains") return;
+    setActiveId("blocked");
+    onIntentHandled?.();
+  }, [intent, onIntentHandled]);
 
   useEffect(() => {
     let live = true;
@@ -162,7 +188,9 @@ export function SettingsSection(props: SectionProps) {
           {SECTIONS.map((sec) => (
             <button
               key={sec.id}
-              className={"list-item" + (active_id === sec.id ? " selected" : "")}
+              className={
+                "list-item" + (active_id === sec.id ? " selected" : "")
+              }
               style={{
                 gridTemplateColumns: "auto minmax(0,1fr) auto",
                 alignItems: "center",
@@ -200,7 +228,12 @@ export function SettingsSection(props: SectionProps) {
             />
           )}
           {active_id === "protect" && (
-            <ProtectSection snap={snap} s={s} dirty={dirty("allow_private_destinations")} onCommit={commit} />
+            <ProtectSection
+              snap={snap}
+              s={s}
+              dirty={dirty("allow_private_destinations")}
+              onCommit={commit}
+            />
           )}
           {active_id === "upstream" && (
             <UpstreamSection
@@ -211,7 +244,12 @@ export function SettingsSection(props: SectionProps) {
             />
           )}
           {active_id === "privacy" && (
-            <PrivacySection snap={snap} s={s} dirty={dirty("hide_client_address")} onCommit={commit} />
+            <PrivacySection
+              snap={snap}
+              s={s}
+              dirty={dirty("hide_client_address")}
+              onCommit={commit}
+            />
           )}
           {active_id === "ports" && (
             <PortsSection
@@ -223,18 +261,43 @@ export function SettingsSection(props: SectionProps) {
               onCommit={commit}
             />
           )}
-          {active_id === "certs" && <CertsSection certs={certs} onNavigate={onNavigate} />}
+          {active_id === "certs" && (
+            <CertsSection certs={certs} onNavigate={onNavigate} />
+          )}
           {active_id === "dns" && (
-            <DnsSection snap={snap} s={s} dirtyPositive={dirty("positive_dns_ttl_seconds")} dirtyNegative={dirty("negative_dns_ttl_seconds")} dirtyDns={dirty("dns_nameservers")} onCommit={commit} />
+            <DnsSection
+              snap={snap}
+              s={s}
+              dirtyPositive={dirty("positive_dns_ttl_seconds")}
+              dirtyNegative={dirty("negative_dns_ttl_seconds")}
+              dirtyDns={dirty("dns_nameservers")}
+              onCommit={commit}
+            />
           )}
           {active_id === "timeouts" && (
-            <TimeoutsSection snap={snap} s={s} onCommit={commit} dirty={dirty} />
+            <TimeoutsSection
+              snap={snap}
+              s={s}
+              onCommit={commit}
+              dirty={dirty}
+            />
           )}
           {active_id === "cache" && (
-            <CacheSection snap={snap} s={s} dirtyEnabled={dirty("cache_enabled")} dirtyMem={dirty("cache_memory_mb")} onCommit={commit} />
+            <CacheSection
+              snap={snap}
+              s={s}
+              dirtyEnabled={dirty("cache_enabled")}
+              dirtyMem={dirty("cache_memory_mb")}
+              onCommit={commit}
+            />
           )}
           {active_id === "logs" && (
-            <LogsSection snap={snap} s={s} dirty={dirty("log_rotations")} onCommit={commit} />
+            <LogsSection
+              snap={snap}
+              s={s}
+              dirty={dirty("log_rotations")}
+              onCommit={commit}
+            />
           )}
           {active_id === "expert" && (
             <ExpertSection
@@ -318,7 +381,10 @@ function BlockedSection({
   snap: Snapshot;
   s: Settings;
   dirty: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const blocked = s.blocked_domains ?? [];
   return (
@@ -339,7 +405,10 @@ function BlockedSection({
           <DomainEditor
             destinations={blocked}
             onChange={async (next) => {
-              await onCommit(setBlockedDomains(snap, next), "Список обновлён в черновике");
+              await onCommit(
+                setBlockedDomains(snap, next),
+                "Список обновлён в черновике",
+              );
             }}
           />
         </div>
@@ -357,7 +426,10 @@ function ProtectSection({
   snap: Snapshot;
   s: Settings;
   dirty: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   return (
     <div className="card">
@@ -419,7 +491,10 @@ function UpstreamSection({
   snap: Snapshot;
   s: Settings;
   dirty: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const up = s.upstream_proxy ?? null;
   const enabled = up !== null;
@@ -475,7 +550,11 @@ function UpstreamSection({
             checked={enabled}
             ariaLabel="Вышестоящий прокси"
             onChange={(v) => {
-              if (!v) onCommit(setUpstream(snap, null), "Вышестоящий прокси выключен");
+              if (!v)
+                onCommit(
+                  setUpstream(snap, null),
+                  "Вышестоящий прокси выключен",
+                );
             }}
           />
         </SetRow>
@@ -534,7 +613,10 @@ function PrivacySection({
   snap: Snapshot;
   s: Settings;
   dirty: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   return (
     <div className="card">
@@ -577,7 +659,10 @@ function PortsSection({
   instanceName: string;
   dirtySafe: boolean;
   dirtyConnect: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const [safePorts, setSafePorts] = useState(s.safe_ports.join(", "));
   const [connectPorts, setConnectPorts] = useState(s.connect_ports.join(", "));
@@ -597,7 +682,10 @@ function PortsSection({
       setSafeErr("Порты: целые 1–65535 через запятую");
       return;
     }
-    onCommit(patchSettings(snap, { safe_ports: parsed }), "Порты сайтов сохранены");
+    onCommit(
+      patchSettings(snap, { safe_ports: parsed }),
+      "Порты сайтов сохранены",
+    );
   }
   function saveConnect() {
     setConnectErr(null);
@@ -606,7 +694,10 @@ function PortsSection({
       setConnectErr("Порты: целые 1–65535 через запятую");
       return;
     }
-    onCommit(patchSettings(snap, { connect_ports: parsed }), "Порты CONNECT сохранены");
+    onCommit(
+      patchSettings(snap, { connect_ports: parsed }),
+      "Порты CONNECT сохранены",
+    );
   }
 
   return (
@@ -661,10 +752,7 @@ function PortsSection({
             </Button>
           </div>
         )}
-        <SetRow
-          label="Порты прокси"
-          help="Задаются при установке контейнера"
-        >
+        <SetRow label="Порты прокси" help="Задаются при установке контейнера">
           <span className="mono muted-text">
             {s.http_port} · {s.tls_port} TLS
           </span>
@@ -701,9 +789,7 @@ function CertsSection({
         const left = daysUntil(c.not_after);
         const warn = left !== null && left < 30;
         const purpose =
-          c.purpose === "panel"
-            ? "Панель управления (HTTPS)"
-            : "Прокси по TLS";
+          c.purpose === "panel" ? "Панель управления (HTTPS)" : "Прокси по TLS";
         return (
           <div className="card" key={c.ref}>
             <div className="card-head">
@@ -739,7 +825,9 @@ function CertsSection({
                 </div>
                 <div className="kv-row">
                   <dt>Имена</dt>
-                  <dd className="mono">{(c.sans ?? []).join(", ") || c.subject}</dd>
+                  <dd className="mono">
+                    {(c.sans ?? []).join(", ") || c.subject}
+                  </dd>
                 </div>
                 <div className="kv-row">
                   <dt>Кем выдан</dt>
@@ -781,10 +869,17 @@ function DnsSection({
   dirtyPositive: boolean;
   dirtyNegative: boolean;
   dirtyDns: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string; message?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string; message?: string }>;
 }) {
-  const [positive, setPositive] = useState(formatDuration(s.positive_dns_ttl_seconds));
-  const [negative, setNegative] = useState(formatDuration(s.negative_dns_ttl_seconds));
+  const [positive, setPositive] = useState(
+    formatDuration(s.positive_dns_ttl_seconds),
+  );
+  const [negative, setNegative] = useState(
+    formatDuration(s.negative_dns_ttl_seconds),
+  );
   const [dns, setDns] = useState(s.dns_nameservers.join(", "));
   const [err, setErr] = useState<string | null>(null);
   const [dnsErr, setDnsErr] = useState<string | null>(null);
@@ -793,7 +888,11 @@ function DnsSection({
     setNegative(formatDuration(s.negative_dns_ttl_seconds));
     setDns(s.dns_nameservers.join(", "));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [s.positive_dns_ttl_seconds, s.negative_dns_ttl_seconds, JSON.stringify(s.dns_nameservers)]);
+  }, [
+    s.positive_dns_ttl_seconds,
+    s.negative_dns_ttl_seconds,
+    JSON.stringify(s.dns_nameservers),
+  ]);
 
   function save() {
     setErr(null);
@@ -870,11 +969,7 @@ function DnsSection({
             style={{ width: 140 }}
           />
         </SetRow>
-        <SetRow
-          label="Кеш ошибок"
-          help=""
-          dirty={dirtyNegative}
-        >
+        <SetRow label="Кеш ошибок" help="" dirty={dirtyNegative}>
           <Input
             className="mono"
             value={negative}
@@ -901,12 +996,19 @@ function TimeoutsSection({
 }: {
   snap: Snapshot;
   s: Settings;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
   dirty: (field: keyof Settings) => boolean;
 }) {
-  const [connect, setConnect] = useState(formatDuration(s.connect_timeout_seconds));
+  const [connect, setConnect] = useState(
+    formatDuration(s.connect_timeout_seconds),
+  );
   const [read, setRead] = useState(formatDuration(s.read_timeout_seconds));
-  const [request, setRequest] = useState(formatDuration(s.request_timeout_seconds));
+  const [request, setRequest] = useState(
+    formatDuration(s.request_timeout_seconds),
+  );
   const [body, setBody] = useState(String(s.max_request_body_mb));
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
@@ -1023,7 +1125,10 @@ function CacheSection({
   s: Settings;
   dirtyEnabled: boolean;
   dirtyMem: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const [mem, setMem] = useState(String(s.cache_memory_mb));
   useEffect(() => {
@@ -1036,7 +1141,10 @@ function CacheSection({
     if (!Number.isInteger(v) || v < 1 || v > 1024) {
       return;
     }
-    onCommit(patchSettings(snap, { cache_memory_mb: v }), "Объём кеша сохранён");
+    onCommit(
+      patchSettings(snap, { cache_memory_mb: v }),
+      "Объём кеша сохранён",
+    );
   }
 
   return (
@@ -1091,7 +1199,10 @@ function LogsSection({
   snap: Snapshot;
   s: Settings;
   dirty: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const [v, setV] = useState(String(s.log_rotations));
   useEffect(() => {
@@ -1101,7 +1212,10 @@ function LogsSection({
   function save() {
     const n = Number(v);
     if (!Number.isInteger(n) || n < 0 || n > 30) return;
-    onCommit(patchSettings(snap, { log_rotations: n }), "Настройки журналов сохранены");
+    onCommit(
+      patchSettings(snap, { log_rotations: n }),
+      "Настройки журналов сохранены",
+    );
   }
   return (
     <div className="card">
@@ -1142,7 +1256,10 @@ function ExpertSection({
   snap: Snapshot;
   expertTemplate: string;
   dirty: boolean;
-  onCommit: (next: Snapshot, ok: string) => Promise<{ ok: boolean; code?: string }>;
+  onCommit: (
+    next: Snapshot,
+    ok: string,
+  ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const enabled = snap.configuration_mode === "expert";
   const [text, setText] = useState(snap.expert_config ?? "");
@@ -1195,7 +1312,14 @@ function ExpertSection({
             <Button
               size="sm"
               onClick={() =>
-                onCommit(setExpertConfig(snap, text, enabled ? "expert" : "structured"), "squid.conf сохранён")
+                onCommit(
+                  setExpertConfig(
+                    snap,
+                    text,
+                    enabled ? "expert" : "structured",
+                  ),
+                  "squid.conf сохранён",
+                )
               }
             >
               Сохранить
@@ -1203,7 +1327,16 @@ function ExpertSection({
             <Button
               size="xs"
               variant="outline"
-              onClick={() => onCommit(setExpertConfig(snap, expertTemplate, enabled ? "expert" : "structured"), "Шаблон вставлен")}
+              onClick={() =>
+                onCommit(
+                  setExpertConfig(
+                    snap,
+                    expertTemplate,
+                    enabled ? "expert" : "structured",
+                  ),
+                  "Шаблон вставлен",
+                )
+              }
             >
               <Plus aria-hidden /> Вставить шаблон
             </Button>
