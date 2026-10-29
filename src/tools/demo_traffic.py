@@ -30,7 +30,7 @@ c=sqlite3.connect('file:/data/app/control.sqlite3?mode=ro',uri=True)
 out={'count':c.execute('SELECT COUNT(*) FROM proxy_events').fetchone()[0], 'draft':c.execute("SELECT value FROM kv WHERE key='draft'").fetchone()[0], 'groups':c.execute("SELECT COALESCE(client_name,'unknown'),json_extract(body,'$.proxy_result'),COUNT(*) FROM proxy_events GROUP BY 1,2").fetchall()}
 print(json.dumps(out))
 '''
-    return json.loads(docker('run','--rm','--network','none','--user','13:13','-v','squid-control_control-data:/data:ro',PYTHON,'python','-c',code))
+    return json.loads(docker('run','--rm','--network','none','--user','10013:10013','-v','squid-control_control-data:/data:ro',PYTHON,'python','-c',code))
 
 ORIGIN = r'''import http.server,ssl,threading,time
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -118,7 +118,7 @@ def run():
             docker('exec','--user','0:0','-i',PROXY,'tee','-a','/etc/hosts',input=hosts_block)
             docker('cp',str(directory/'apply'),PROXY+':'+BINARY)
             prepared=True
-            print(docker('exec','--user','13:13',PROXY,BINARY,'start'),flush=True)
+            print(docker('exec','--user','10013:10013',PROXY,BINARY,'start'),flush=True)
             time.sleep(1)
             def client(kind):
                 name=RUN+'-client-'+str(kind);CONTAINERS.append(name)
@@ -147,7 +147,7 @@ def run():
                     raise RuntimeError('Temporary hosts block changed; inspect /etc/hosts')
                 docker('exec','--user','0:0','-i',PROXY,'tee','/etc/hosts',input=current_hosts.replace(hosts_block,''))
             def restore():
-                print(docker('exec','--user','13:13',PROXY,BINARY,'restore'),flush=True)
+                print(docker('exec','--user','10013:10013',PROXY,BINARY,'restore'),flush=True)
                 restored=json.loads(docker('exec',PROXY,'cat','/data/runtime/lkg.json'))
                 assert restored['snapshot']==original['snapshot'],'Original policy not restored'
                 docker('exec','--user','0:0',PROXY,'rm','-f',BINARY)

@@ -23,14 +23,14 @@ make password-reset
 ```
 
 Helper спрашивает username и новый пароль дважды без echo, затем передаёт пароль
-только по stdin в одноразовый container с тем же named volume, UID/GID 13:13.
+только по stdin в одноразовый container с тем же named volume, UID/GID 10013:10013.
 Панель может быть остановлена или работать. Текущий/старый пароль не нужен.
 Helper не пишет credential file и не печатает новый пароль.
 
 Прямой CLI для работающего контейнера:
 
 ```sh
-docker compose -f deploy/compose.yaml exec --user 13:13 squid-control \
+docker compose -f deploy/compose.yaml exec --user 10013:10013 squid-control \
   squid-control password-reset --username admin
 ```
 

@@ -1,23 +1,27 @@
 // Package proxyauth implements the fixed Squid Basic authentication helper.
+//
+// The helper reads a JSON export of enabled proxy accounts rather than the
+// panel SQLite store: Squid runs as a separate UID that must not open the
+// panel database. The Go process atomically rewrites the export after every
+// proxy-account mutation and at serve start.
 package proxyauth
 
 import (
 	"bufio"
-	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
-	"database/sql"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/url"
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
-	"time"
+	"sync"
 
-	_ "modernc.org/sqlite"
 	"squid-control.local/squid/internal/credentials"
 )
 
@@ -25,8 +29,73 @@ var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 
 const MaxLine = 4096
 
-// Run speaks non-concurrent Squid helper protocol. It never logs credentials and
-// opens only the configured database in read-only mode, without migrations.
+// Account is one enabled proxy credential in the export read by Squid.
+type Account struct {
+	Username     string `json:"username"`
+	PasswordHash string `json:"password_hash"`
+}
+
+type exportFile struct {
+	Version  int       `json:"version"`
+	Accounts []Account `json:"accounts"`
+}
+
+// WriteExport atomically replaces path with the given enabled accounts. The
+// file is group-readable (0640) so the proxy user sharing the runtime
+// directory group can read it, while its parent is private to the panel user.
+func WriteExport(path string, accounts []Account) error {
+	b, e := json.Marshal(exportFile{Version: 1, Accounts: accounts})
+	if e != nil {
+		return e
+	}
+	return atomicWrite(path, b, 0640)
+}
+
+func atomicWrite(path string, b []byte, mode os.FileMode) error {
+	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
+		return e
+	}
+	f, e := os.CreateTemp(filepath.Dir(path), ".stage-")
+	if e != nil {
+		return e
+	}
+	name := f.Name()
+	renamed := false
+	defer func() {
+		if !renamed {
+			os.Remove(name)
+		}
+	}()
+	if e = f.Chmod(mode); e != nil {
+		f.Close()
+		return e
+	}
+	if _, e = f.Write(b); e != nil {
+		f.Close()
+		return e
+	}
+	if e = f.Sync(); e != nil {
+		f.Close()
+		return e
+	}
+	if e = f.Close(); e != nil {
+		return e
+	}
+	if e = os.Rename(name, path); e != nil {
+		return e
+	}
+	renamed = true
+	d, e := os.Open(filepath.Dir(path))
+	if e != nil {
+		return e
+	}
+	defer d.Close()
+	return d.Sync()
+}
+
+// Run speaks non-concurrent Squid helper protocol. It never logs credentials
+// and reads the export on every request so a reset/disable takes effect on the
+// next line without restarting the helper.
 func Run(path string, input io.Reader, output io.Writer) error {
 	return run(path, input, output, false)
 }
@@ -36,24 +105,18 @@ func Run(path string, input io.Reader, output io.Writer) error {
 func RunState(path string, input io.Reader, output io.Writer) error {
 	return run(path, input, output, true)
 }
+
 func run(path string, input io.Reader, output io.Writer, stateOnly bool) error {
 	if !filepath.IsAbs(path) {
-		return errors.New("proxy authentication requires an absolute database path")
+		return errors.New("proxy authentication requires an absolute export path")
 	}
-	u := url.URL{Scheme: "file", Path: path}
-	u.RawQuery = "mode=ro&_pragma=busy_timeout(1000)&_pragma=query_only(1)"
-	db, e := sql.Open("sqlite", u.String())
-	if e != nil {
-		return errors.New("proxy authentication storage unavailable")
-	}
-	defer db.Close()
-	db.SetMaxOpenConns(1)
 	dummy := ""
 	if !stateOnly {
-		dummy, e = credentials.Hash(rand.Text())
+		h, e := credentials.Hash(rand.Text())
 		if e != nil {
 			return errors.New("proxy authentication unavailable")
 		}
+		dummy = h
 	}
 	reader := bufio.NewReaderSize(input, MaxLine)
 	for {
@@ -87,11 +150,11 @@ func run(path string, input io.Reader, output io.Writer, stateOnly bool) error {
 		lineValue := strings.TrimSuffix(string(line), "\n")
 		answer := "ERR\n"
 		if stateOnly {
-			if checkState(db, lineValue) {
+			if checkState(path, lineValue) {
 				answer = "OK\n"
 			}
 		} else {
-			if generation := credentialGeneration(db, lineValue, dummy, credentials.Matches); generation != "" {
+			if generation := credentialGeneration(path, lineValue, dummy, credentials.Matches); generation != "" {
 				answer = "OK sc_generation_=" + generation + "\n"
 			}
 		}
@@ -100,13 +163,62 @@ func run(path string, input io.Reader, output io.Writer, stateOnly bool) error {
 		}
 	}
 }
-func check(db *sql.DB, line, dummy string) bool {
-	return checkWithVerifier(db, line, dummy, credentials.Matches)
+
+// fileCache memoizes the parsed export per file identity. WriteExport renames
+// a new file into place, so a reset is seen even when size and mtime match.
+var (
+	fileCacheMu sync.Mutex
+	fileCache   = map[string]fileCacheEntry{}
+)
+
+type fileCacheEntry struct {
+	info     os.FileInfo
+	accounts []Account
 }
-func checkWithVerifier(db *sql.DB, line, dummy string, verify func(string, string) bool) bool {
-	return credentialGeneration(db, line, dummy, verify) != ""
+
+func loadAccounts(path string) ([]Account, error) {
+	st, e := os.Stat(path)
+	if e != nil {
+		return nil, e
+	}
+	fileCacheMu.Lock()
+	if entry, ok := fileCache[path]; ok && os.SameFile(entry.info, st) && entry.info.ModTime().Equal(st.ModTime()) && entry.info.Size() == st.Size() {
+		fileCacheMu.Unlock()
+		return entry.accounts, nil
+	}
+	fileCacheMu.Unlock()
+	file, e := os.Open(path)
+	if e != nil {
+		return nil, e
+	}
+	defer file.Close()
+	if st, e = file.Stat(); e != nil {
+		return nil, e
+	}
+	b, e := io.ReadAll(io.LimitReader(file, 16<<20))
+	if e != nil {
+		return nil, e
+	}
+	var f exportFile
+	if e := json.Unmarshal(b, &f); e != nil {
+		return nil, e
+	}
+	fileCacheMu.Lock()
+	fileCache[path] = fileCacheEntry{info: st, accounts: f.Accounts}
+	fileCacheMu.Unlock()
+	return f.Accounts, nil
 }
-func credentialGeneration(db *sql.DB, line, dummy string, verify func(string, string) bool) string {
+
+func findAccount(accounts []Account, username string) (Account, bool) {
+	for _, a := range accounts {
+		if a.Username == username {
+			return a, true
+		}
+	}
+	return Account{}, false
+}
+
+func credentialGeneration(path, line, dummy string, verify func(string, string) bool) string {
 	fields := strings.Fields(line)
 	if len(fields) != 2 {
 		return ""
@@ -119,28 +231,32 @@ func credentialGeneration(db *sql.DB, line, dummy string, verify func(string, st
 	if e != nil || len(password) < 12 || len(password) > 1024 || strings.ContainsAny(password, "\x00\r\n") {
 		return ""
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	var hash string
-	var enabled bool
-	e = db.QueryRowContext(ctx, "SELECT password_hash,enabled FROM proxy_accounts WHERE username=?", username).Scan(&hash, &enabled)
-	missing := errors.Is(e, sql.ErrNoRows)
-	if missing {
-		hash = dummy
-	} else if e != nil {
+	accounts, e := loadAccounts(path)
+	if e != nil {
+		// Absent or corrupt export: still run the dummy verify so an attacker
+		// cannot learn whether a username exists via timing. The fresh read
+		// below fails and the request is denied.
+		accounts = nil
+	}
+	acct, ok := findAccount(accounts, username)
+	hash := dummy
+	if ok {
+		hash = acct.PasswordHash
+	}
+	if !verify(hash, password) {
 		return ""
 	}
-	matches := verify(hash, password)
-	if !matches || missing || !enabled {
+	if !ok {
 		return ""
 	}
 	// Recheck after the expensive hash to avoid accepting a password disabled or
 	// reset while this request was being verified.
-	var current string
-	if e = db.QueryRowContext(ctx, "SELECT password_hash FROM proxy_accounts WHERE username=? AND enabled=1", username).Scan(&current); e != nil {
+	fresh, e := loadAccounts(path)
+	if e != nil {
 		return ""
 	}
-	if subtle.ConstantTimeCompare([]byte(hash), []byte(current)) != 1 {
+	cur, ok := findAccount(fresh, username)
+	if !ok || subtle.ConstantTimeCompare([]byte(hash), []byte(cur.PasswordHash)) != 1 {
 		return ""
 	}
 	return generation(hash)
@@ -150,7 +266,8 @@ func generation(hash string) string {
 	v := sha256.Sum256([]byte(hash))
 	return hex.EncodeToString(v[:])
 }
-func checkState(db *sql.DB, line string) bool {
+
+func checkState(path, line string) bool {
 	fields := strings.Fields(line)
 	if len(fields) != 3 || fields[2] != "-" {
 		return false
@@ -163,11 +280,13 @@ func checkState(db *sql.DB, line string) bool {
 	if e != nil || len(version) != 64 {
 		return false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	var hash string
-	if e = db.QueryRowContext(ctx, "SELECT password_hash FROM proxy_accounts WHERE username=? AND enabled=1", username).Scan(&hash); e != nil {
+	accounts, e := loadAccounts(path)
+	if e != nil {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(version), []byte(generation(hash))) == 1
+	acct, ok := findAccount(accounts, username)
+	if !ok {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(version), []byte(generation(acct.PasswordHash))) == 1
 }

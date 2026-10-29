@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 
 	"squid-control.local/squid/internal/policy"
+	"squid-control.local/squid/internal/proxyauth"
 	local "squid-control.local/squid/internal/runtime"
 	"squid-control.local/squid/internal/store"
 )
@@ -56,5 +58,20 @@ func ApplyServiceUpdate(ctx context.Context, st *store.Store, rt *local.Manager,
 	if saveErr := st.UpdateOperation(op.ID, string(body)); saveErr != nil {
 		return op, fmt.Errorf("cannot persist service update outcome; recovery required: %w", saveErr)
 	}
+	if exportErr := refreshProxyExport(st, rt); exportErr != nil {
+		slog.Error("proxy account export failed", "error", exportErr)
+	}
 	return op, err
+}
+
+// refreshProxyExport rewrites the helper export after a CLI operation that
+// bypasses the in-process Server (service-update). It never returns the
+// service-update outcome: Squid should keep running the freshly applied config
+// even if the export lagged; the next mutation or serve start refreshes it.
+func refreshProxyExport(st *store.Store, rt *local.Manager) error {
+	accounts, e := st.EnabledProxyAccounts()
+	if e != nil {
+		return e
+	}
+	return proxyauth.WriteExport(rt.Options.ProxyAccounts, accounts)
 }

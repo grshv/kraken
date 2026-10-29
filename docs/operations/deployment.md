@@ -23,8 +23,7 @@
    в runtime. Изменение upstream startup path описывается и проверяется.
 2. Создать persistent volumes для SQLite, journal/LKG/revisions, managed config,
    logs и необязательного cache. Секреты подключить вне image/Git.
-3. Настроить UID/GID: минимум прав для Go, Squid/helper и startup gate.
-   Подтвердить reload без запуска web root; доступ к private keys ограничен нужными процессами.
+3. Права на volume и внешние ключи — по разделу «Файлы и права».
 4. Настроить management IP:443 → container:8443 для HTTPS Go и client listeners.
    Go сам завершает TLS панели; mandatory edge container нет.
 5. При первом запуске recovery gate создаёт deny-all/LKG, затем Pebble запускает
@@ -46,11 +45,20 @@ egress VM, реализовать на контролируемой сетево
 
 ## Файлы и права
 
-Go: SQLite, runtime journal и managed config RW, Squid logs read; собственный
-panel TLS key read. Squid: managed config read, logs/cache write и
-соответствующие server TLS keys read. Секреты монтируются read-only, но
-какие UID имеют доступ, определяется Unix permissions, а не отдельным контейнером.
-Нет обещания, что внутренний модуль скроет секрет от скомпрометированного Go-процесса.
+Пользователи в image: `sccontrol` 10013:10013 (Go, доп. группа `proxy`) и
+`proxy` 13:13 (Squid и helpers). Права по [ADR 0015](../adr/0015-separate-squid-uid.md):
+
+| Путь | Владелец | Режим |
+| --- | --- | --- |
+| `/data` | sccontrol:proxy | 0750 |
+| `/data/app` (SQLite, `manager-token`) | sccontrol:sccontrol | 0700 |
+| `/data/certs`, `/data/runtime` | sccontrol:proxy | 2750, файлы для Squid 0640 |
+| `/data/certs/panel.*` | sccontrol | 0600 |
+| `/data/squid` (PID, cache.log), `/data/logs` | proxy:proxy | 2750 |
+
+Внешние TLS-файлы прокси (`compose.tls.yaml`) должны читаться UID или группой 13,
+ключ панели — UID 10013. Нет обещания, что внутренний модуль скроет секрет от
+скомпрометированного Go-процесса.
 
 Config монтируется каталогом, atomic rename должен быть виден всем процессам.
 Не перекрывать `/etc/squid` целиком без проверки defaults upstream image.

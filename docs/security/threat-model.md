@@ -36,10 +36,13 @@ control API в сеть. Go использует локальный Squid contro
 операциями. Если требуется Pebble control socket, разрешать только нужный service
 и проверить identities/permissions до включения; общий root control не выдаётся web.
 
-Раздельные UID полезны, но сами по себе не гарантируют reload: проверить владельца
-Squid PID/master и допустимый control mechanism. Web не запускается root ради HUP.
-Если схема прав несовместима с image, capability gate должен это выявить до кода.
-Не заявлять изоляцию private keys от web, если процесс имеет права читать ключи.
+Squid (`proxy`) и Go (`sccontrol`) работают под разными UID
+([ADR 0015](../adr/0015-separate-squid-uid.md)). Squid не может открыть SQLite,
+ключ панели и токен manager; он видит active config, Argon2id-верификаторы
+включённых proxy accounts в экспорте и ключ прокси. Reload/rotate — manager-действия
+с токеном только на loopback 3131; запросы с loopback не пишутся в access log.
+Go состоит в группе `proxy` и читает логи Squid: обратной изоляции нет.
+Web не запускается root; CLI-подкоманды, кроме `squid-start` и `proxy-auth`, root отклоняют.
 
 Один контейнер означает общую filesystem/network зону; web exploit может изменить
 доступ через разрешённые ему config paths. Минимальные mounts/capabilities,
@@ -64,9 +67,9 @@ Root/Docker администратор host обходит прикладные 
 Expert section предназначена доверенному администратору, но вставленный чужой
 сниппет — недоверенные данные. Guard пропускает только директивы из allowlist
 (ADR 0007), запрещает параметры из файлов и peers во внутренние сети; итог
-проверяет Squid. Squid работает от того же UID, что и Go, и может читать БД и
-TLS-ключи, поэтому директива, читающая файл (например `err_page_stylesheet`),
-раскрыла бы секрет любому клиенту прокси — такие директивы в allowlist не входят.
+проверяет Squid. Директивы, читающие файлы (например `err_page_stylesheet`),
+в allowlist не входят: даже без доступа к БД они раскрыли бы клиентам active config
+или ключ прокси. Секреты панели дополнительно закрыты правами ОС.
 cache_peer по публичному адресу всё ещё меняет маршрут трафика. Destination ACL не заменяют egress firewall;
 доступ к внутренним сетям должен ограничиваться и вне контейнера. Вывод Squid
 control не включается в web findings и логи, чтобы не раскрывать возможные peer

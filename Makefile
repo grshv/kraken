@@ -34,7 +34,7 @@ integration:
 	python3 src/tests/integration/smoke.py
 
 dev-cert:
-	docker compose -f deploy/compose.yaml run --rm --no-deps --user 13:13 --entrypoint /usr/local/bin/squid-control squid-control dev-cert
+	docker compose -f deploy/compose.yaml run --rm --no-deps --user 10013:10013 --entrypoint /usr/local/bin/squid-control squid-control dev-cert
 
 bootstrap:
 	python3 src/tools/bootstrap.py

@@ -10,12 +10,12 @@ Compose service/image: `squid-control`, `squid-control:dev`.
 Панель публикуется на `127.0.0.1:8443`, HTTP proxy на `127.0.0.1:3128`.
 Изначально Squid закрыт для всех неизвестных клиентов; регистрация через браузер отсутствует.
 Пользователь/пароль задаются интерактивно bootstrap-командой. Она работает только
-при отсутствии admin и запускает бинарник от UID/GID 13:13.
+при отсутствии admin и запускает бинарник от UID/GID 10013:10013.
 
 Frontend, backend и Squid в одном контейнере. Go/Python/Node на host не нужны
 для runtime; Python нужен host helper для скрытого ввода bootstrap password.
-В контейнере оба сервиса работают от proxy (13:13), Pebble — supervisor.
-Это практический компромисс первого среза, не изоляция процессов друг от друга.
+В контейнере Squid работает от `proxy` (13:13), панель — от `sccontrol` (10013:10013),
+Pebble — supervisor ([ADR 0015](../adr/0015-separate-squid-uid.md)).
 
 ## Данные
 
@@ -23,8 +23,8 @@ Compose named volume `/data`: `app/` (SQLite), `runtime/` (LKG/journal/active co
 `logs/` и `certs/`. `make down` сохраняет volume. Не используйте `down -v`, если
 данные нужны. Cache отключён. Секреты в volume не являются резервной копией.
 
-`dev-cert` не заменяет существующие ключи, создаёт только localhost development
-certificate. Public certificate можно получить командой:
+`dev-cert` не заменяет существующие ключи; создаёт development-сертификаты панели
+(`panel.*`, только для 10013) и прокси (`proxy.*`, SAN `proxy`, `localhost`, читает группа `proxy`). Public certificate можно получить командой:
 
 ```sh
 docker compose -f deploy/compose.yaml cp squid-control:/data/certs/panel.crt /tmp/squid-control-panel.crt
@@ -37,7 +37,7 @@ docker compose -f deploy/compose.yaml cp squid-control:/data/certs/panel.crt /tm
 
 Для своего panel certificate добавьте Compose override с read-only mounts,
 `SC_PANEL_CERT`, `SC_PANEL_KEY` и соответствующим `SC_PUBLIC_ORIGIN`.
-Имя должно совпадать с SAN. UID 13 должен читать key; не делайте ключ общедоступным.
+Имя должно совпадать с SAN. UID 10013 должен читать key; не делайте ключ общедоступным.
 Для proxy TLS подготовлен [override](../../deploy/compose.tls.yaml): пути к файлам
 передаются `SC_PROXY_CERT_FILE`/`SC_PROXY_KEY_FILE`, server ref — `proxy-server`.
 
@@ -69,7 +69,7 @@ Loopback source — внутренняя диагностика, её запро
 ```sh
 docker compose -f deploy/compose.yaml exec squid-control pebble services
 docker compose -f deploy/compose.yaml exec squid-control pebble logs -n 50
-docker compose -f deploy/compose.yaml exec --user 13:13 squid-control squid-control check
+docker compose -f deploy/compose.yaml exec --user 10013:10013 squid-control squid-control check
 docker compose -f deploy/compose.yaml exec squid-control pebble restart control
 ```
 
@@ -133,7 +133,7 @@ host mapping не означает редактирование внутренн
 listener для метрик. В локальном контейнере выполните:
 
 ```sh
-docker compose -f deploy/compose.yaml exec --user 13:13 squid-control squid-control service-update
+docker compose -f deploy/compose.yaml exec --user 10013:10013 squid-control squid-control service-update
 ```
 
 Команда создаёт ревизию из подтверждённого LKG, журналируемую операцию и audit

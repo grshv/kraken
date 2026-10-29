@@ -75,7 +75,9 @@ func run() error {
 	}
 	defer st.DB.Close()
 	m := runtime.New(dir, "/usr/sbin/squid", env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"), "")
-	m.Options.AuthDatabase = data
+	m.AppDir = env("SC_APP_DIR", "/data/app")
+	m.Options.SquidDir = env("SC_SQUID_DIR", "/data/squid")
+	m.Options.ProxyAccounts = env("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")
 	current, err := m.ReadManifest()
 	if err != nil {
 		return err

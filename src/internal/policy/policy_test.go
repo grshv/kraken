@@ -40,6 +40,7 @@ func TestRenderDenyByDefault(t *testing.T) {
 		}
 	}
 	userConfig := strings.ReplaceAll(c, "http_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\n", "")
+	userConfig = strings.ReplaceAll(userConfig, "http_access allow sc_probe_source sc_manager_listener sc_manager_control manager\n", "")
 	if strings.Index(userConfig, "http_access allow") < strings.Index(c, "http_access deny sc_private_dst") {
 		t.Fatal("allow precedes protection")
 	}
@@ -48,7 +49,7 @@ func TestRenderDenyByDefault(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if strings.Contains(strings.ReplaceAll(c, "http_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\n", ""), "http_access allow") {
+	if strings.Contains(strings.ReplaceAll(strings.ReplaceAll(c, "http_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\n", ""), "http_access allow sc_probe_source sc_manager_listener sc_manager_control manager\n", ""), "http_access allow") {
 		t.Fatal("empty allowlist granted access")
 	}
 }

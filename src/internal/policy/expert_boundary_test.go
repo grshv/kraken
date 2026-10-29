@@ -84,10 +84,10 @@ func TestExpertBoundaryAllows(t *testing.T) {
 }
 
 func TestProtectedIPv6RangesAndCompiler(t *testing.T) {
-	if CompilerVersion != "7" {
+	if CompilerVersion != "8" {
 		t.Fatalf("compiler version %q", CompilerVersion)
 	}
-	c, e := Render(Empty(), Options{StateDir: "/data", LogPath: "/data/access.log"})
+	c, e := Render(Empty(), Options{StateDir: "/data", SquidDir: "/data/squid", LogPath: "/data/access.log"})
 	if e != nil {
 		t.Fatal(e)
 	}

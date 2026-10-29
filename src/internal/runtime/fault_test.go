@@ -77,7 +77,9 @@ func TestRuntimeCrashChild(t *testing.T) {
 	}
 	phase := os.Getenv("SC_TEST_CRASH_PHASE")
 	m := New(dir, "/unused", "/dev/null", "", "", "")
+	m.AppDir = dir
 	m.Command = func(context.Context, ...string) error { return nil }
+	m.Reload = func(context.Context, string) error { return nil }
 	m.Probe = func(context.Context, string) error { return nil }
 	m.Persist = func(path string, b []byte) error {
 		if e := Atomic(path, b); e != nil {
@@ -105,8 +107,8 @@ func TestRollbackSurvivesCancelledOperationContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	reloads := 0
-	m.Command = func(c context.Context, args ...string) error {
-		if args[len(args)-1] == "reconfigure" {
+	m.Reload = func(c context.Context, action string) error {
+		if action == "reconfigure" {
 			reloads++
 			if reloads == 1 {
 				cancel()

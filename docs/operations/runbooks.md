@@ -7,7 +7,7 @@ Backup/restore ещё не автоматизированы и не подтве
 ```sh
 docker compose -f deploy/compose.yaml ps
 docker compose -f deploy/compose.yaml exec squid-control pebble services
-docker compose -f deploy/compose.yaml exec --user 13:13 squid-control squid-control check
+docker compose -f deploy/compose.yaml exec --user 10013:10013 squid-control squid-control check
 ```
 
 ## Прокси недоступен
@@ -111,9 +111,32 @@ Pebble service, без restart всего контейнера.
 Откат image не откатывает SQLite schema автоматически: использовать совместимую
 версию либо restore.
 
+### Volume от образа без разделения UID
+
+Образ до [ADR 0015](../adr/0015-separate-squid-uid.md) хранил всё под `proxy` 0700, а
+active config ссылался на PID в `/data/runtime`. Перед первым запуском нового образа:
+сделать копию volume, остановить контейнер и выполнить от root в новом image
+(`docker run --rm --user 0 -v <volume>:/data --entrypoint sh <image> -c '…'`):
+
+```sh
+set -eu; cd /data
+chown 10013:13 /data && chmod 0750 /data
+chown -R 10013:10013 app && chmod 0700 app
+chown 10013:13 certs && chmod 2750 certs
+chown 10013:10013 certs/panel.crt certs/panel.key && chmod 0600 certs/panel.crt certs/panel.key
+rm -f runtime/active.conf runtime/lkg.json runtime/journal.json runtime/squid.pid runtime/cache.log runtime/runtime.lock
+chown -R 10013:13 runtime && chmod 2750 runtime
+install -d -o 13 -g 13 -m 2750 squid
+chown -R 13:13 logs && chmod 2750 logs
+```
+
+Новый контейнер стартует с deny-all; затем в панели заново применить последнюю
+ревизию из истории. Proxy TLS теперь требует отдельные `proxy.crt`/`proxy.key`
+(группа 13, 0640): ключ панели Squid не читает.
+
 ## Истекающий/скомпрометированный сертификат
 
-Минимальная замена server cert: проверить key/chain/SAN/срок и права UID 13,
+Минимальная замена server cert: проверить key/chain/SAN/срок и права (панель — UID 10013, прокси — группа 13),
 остановить контейнер, заменить файлы/исправить mounts, запустить и проверить
 TLS настоящим клиентом. Заранее оставить возможность вернуть прежние файлы.
 Горячий reload и автоматический audit файловой замены не реализованы; API metadata

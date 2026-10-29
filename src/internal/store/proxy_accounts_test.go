@@ -65,3 +65,28 @@ func TestProxyAccountsHashOnlyAndAtomicAudit(t *testing.T) {
 		t.Fatal("safe audit missing", actions, e)
 	}
 }
+
+func TestEnabledProxyAccountsExcludeDisabled(t *testing.T) {
+	s, e := Open(filepath.Join(t.TempDir(), "accounts.db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer s.DB.Close()
+	hash, e := credentials.Hash("test-only-proxy-password")
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, name := range []string{"build", "ci"} {
+		if e = s.CreateProxyAccount(name, hash, "admin"); e != nil {
+			t.Fatal(e)
+		}
+	}
+	off := false
+	if e = s.ChangeProxyAccount("ci", &off, nil, "admin"); e != nil {
+		t.Fatal(e)
+	}
+	got, e := s.EnabledProxyAccounts()
+	if e != nil || len(got) != 1 || got[0].Username != "build" || got[0].PasswordHash != hash {
+		t.Fatalf("%+v %v", got, e)
+	}
+}

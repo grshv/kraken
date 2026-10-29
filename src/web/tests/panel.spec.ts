@@ -242,7 +242,7 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
       "exec",
       "-i",
       "--user",
-      "13:13",
+      "10013:10013",
       fixture.name,
       "tee",
       "-a",

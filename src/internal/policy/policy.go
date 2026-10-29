@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "7"
+const CompilerVersion = "8"
 
 // Squid Basic TTL zero never becomes valid. A separate uncached generation
 // check on every allowed request enforces reset/disable despite Basic caching.
@@ -56,11 +56,12 @@ type Snapshot struct {
 	TLSProfiles []TLSProfile `json:"tls_profiles"`
 }
 type Options struct {
-	StateDir     string
-	LogPath      string
-	ProxyCert    string
-	ProxyKey     string
-	AuthDatabase string
+	StateDir      string
+	SquidDir      string
+	LogPath       string
+	ProxyCert     string
+	ProxyKey      string
+	ProxyAccounts string
 }
 
 func Empty() Snapshot {
@@ -182,7 +183,7 @@ func Validate(s Snapshot, o Options) error {
 			if !proxyUsernamePattern.MatchString(c.ProxyUsername) {
 				return errors.New("invalid proxy username")
 			}
-			if o.AuthDatabase == "" || !strings.HasPrefix(o.AuthDatabase, "/") {
+			if o.ProxyAccounts == "" || !strings.HasPrefix(o.ProxyAccounts, "/") {
 				return errors.New("proxy authentication requires installed database")
 			}
 			if profiles[policies[c.PolicyID].TLSProfileID].Transport != "tls" {
@@ -211,7 +212,7 @@ func Validate(s Snapshot, o Options) error {
 			}
 		}
 	}
-	for _, p := range []string{o.StateDir, o.LogPath, o.ProxyCert, o.ProxyKey, o.AuthDatabase} {
+	for _, p := range []string{o.StateDir, o.SquidDir, o.LogPath, o.ProxyCert, o.ProxyKey, o.ProxyAccounts} {
 		if strings.ContainsAny(p, "\r\n\t \"\\") {
 			return errors.New("unsafe installed filesystem path")
 		}
@@ -241,7 +242,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	h := Fingerprint(s, o)
 	var b strings.Builder
 	settings := EffectiveSettings(s)
-	fmt.Fprintf(&b, "# squid-control compiler=%s revision=%s\nvisible_hostname squid-control\nhttp_port 127.0.0.1:3130\nhttp_port 127.0.0.1:3131\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.StateDir, o.StateDir)
+	fmt.Fprintf(&b, "# squid-control compiler=%s revision=%s\nvisible_hostname squid-control\nhttp_port 127.0.0.1:3130\nhttp_port 127.0.0.1:3131\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.SquidDir, o.SquidDir)
 	if o.ProxyCert != "" && o.ProxyKey != "" {
 		fmt.Fprintf(&b, "https_port %d tls-cert=%s tls-key=%s\n", settings.TLSPort, o.ProxyCert, o.ProxyKey)
 	}
@@ -251,7 +252,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	fmt.Fprintf(&b, "acl sc_safe_ports port %s\nacl sc_ssl_ports port %s\nacl sc_http_listener localport %d\nacl sc_tls_listener localport %d\n", portList(settings.SafePorts), portList(settings.ConnectPorts), settings.HTTPPort, settings.TLSPort)
 	fmt.Fprintf(&b, "acl sc_protected_dst dst %s\n", strings.Join(protectedDestinations, " "))
 	fmt.Fprintf(&b, "acl sc_private_dst dst %s\n", strings.Join(privateDestinations, " "))
-	b.WriteString("acl sc_manager_listener localport 3131\nacl sc_manager_method method GET\nacl sc_manager_path urlpath_regex ^/squid-internal-mgr/(info|counters|5min|active_requests)$\ncachemgr_passwd none info counters 5min active_requests\ncachemgr_passwd disable all\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\nhttp_access deny sc_manager_listener\n")
+	fmt.Fprintf(&b, "acl sc_manager_listener localport 3131\nacl sc_manager_method method GET\nacl sc_manager_path urlpath_regex ^/squid-internal-mgr/(info|counters|5min|active_requests)$\ncachemgr_passwd none info counters 5min active_requests\ninclude %s/manager-auth.conf\ncachemgr_passwd disable all\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\nacl sc_manager_control url_regex ^cache_object://127\\.0\\.0\\.1/(reconfigure|rotate)@\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_control manager\nhttp_access deny sc_manager_listener\n", o.StateDir)
 	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports\nhttp_access deny CONNECT !sc_ssl_ports\nhttp_access deny manager\nhttp_access deny sc_protected_dst\n")
 	if !settings.AllowPrivateDestinations {
 		b.WriteString("http_access deny sc_private_dst\n")
@@ -272,8 +273,8 @@ func Render(s Snapshot, o Options) (string, error) {
 			}
 		}
 		authenticatedSources = unique
-		fmt.Fprintf(&b, "auth_param basic program /usr/local/bin/squid-control proxy-auth --database %s\nauth_param basic children 2 startup=0 idle=1 queue-size=8 on-persistent-overload=ERR\nauth_param basic realm Squid Control\nauth_param basic casesensitive on\nauth_param basic credentialsttl 1 seconds\n", o.AuthDatabase)
-		fmt.Fprintf(&b, "external_acl_type sc_identity_state ttl=0 negative_ttl=0 cache=0 children-max=2 children-startup=0 children-idle=1 queue-size=8 %%LOGIN %%{sc_generation_}note %%DATA /usr/local/bin/squid-control proxy-auth --state --database %s\nacl sc_proxy_current external sc_identity_state\n", o.AuthDatabase)
+		fmt.Fprintf(&b, "auth_param basic program /usr/local/bin/squid-control proxy-auth --accounts %s\nauth_param basic children 2 startup=0 idle=1 queue-size=8 on-persistent-overload=ERR\nauth_param basic realm Squid Control\nauth_param basic casesensitive on\nauth_param basic credentialsttl 1 seconds\n", o.ProxyAccounts)
+		fmt.Fprintf(&b, "external_acl_type sc_identity_state ttl=0 negative_ttl=0 cache=0 children-max=2 children-startup=0 children-idle=1 queue-size=8 %%LOGIN %%{sc_generation_}note %%DATA /usr/local/bin/squid-control proxy-auth --state --accounts %s\nacl sc_proxy_current external sc_identity_state\n", o.ProxyAccounts)
 		fmt.Fprintf(&b, "acl sc_auth_sources src %s\nacl sc_proxy_authenticated proxy_auth REQUIRED\nhttp_access deny sc_auth_sources sc_http_listener\nhttp_access deny sc_auth_sources sc_tls_listener !sc_proxy_authenticated\n", strings.Join(authenticatedSources, " "))
 	}
 	b.WriteString("# BEGIN user policy\n")

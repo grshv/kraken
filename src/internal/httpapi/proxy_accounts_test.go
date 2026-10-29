@@ -2,9 +2,52 @@ package httpapi
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+func TestProxyAccountExportWrittenOnMutation(t *testing.T) {
+	s, h := fixtureServer(t)
+	cookie, csrf := loginTest(t, h)
+	w := request(h, "POST", "/proxy-accounts", map[string]any{"username": "build", "password": "test-only-proxy-password"}, cookie, csrf, "https://panel.test")
+	if w.Code != 201 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	b, e := os.ReadFile(s.Runtime.Options.ProxyAccounts)
+	if e != nil {
+		t.Fatal("export not written after create", e)
+	}
+	if !strings.Contains(string(b), `"username":"build"`) || strings.Contains(string(b), "test-only-proxy-password") {
+		t.Fatalf("unexpected export content: %s", b)
+	}
+	w = request(h, "PATCH", "/proxy-accounts/build", map[string]any{"enabled": false}, cookie, csrf, "https://panel.test")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	b, _ = os.ReadFile(s.Runtime.Options.ProxyAccounts)
+	if strings.Contains(string(b), `"username":"build"`) {
+		t.Fatalf("disabled account remained in export: %s", b)
+	}
+}
+
+func TestProxyAccountExportFailureReturns503(t *testing.T) {
+	s, h := fixtureServer(t)
+	cookie, csrf := loginTest(t, h)
+	dir := filepath.Dir(s.Runtime.Options.ProxyAccounts)
+	if e := os.Chmod(dir, 0500); e != nil {
+		t.Fatal(e)
+	}
+	defer os.Chmod(dir, 0750)
+	w := request(h, "POST", "/proxy-accounts", map[string]any{"username": "broken", "password": "test-only-proxy-password"}, cookie, csrf, "https://panel.test")
+	if w.Code != 503 {
+		t.Fatalf("expected 503 on export failure, got %d %s", w.Code, w.Body.String())
+	}
+	if strings.Contains(w.Body.String(), "password") || strings.Contains(w.Body.String(), "hash") {
+		t.Fatalf("response leaked credential material: %s", w.Body.String())
+	}
+}
 
 func TestProxyAccountAPI(t *testing.T) {
 	_, h := fixtureServer(t)

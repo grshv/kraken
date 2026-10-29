@@ -5,6 +5,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -59,6 +61,7 @@ type Manager struct {
 	metricsAttempt time.Time
 
 	Dir     string
+	AppDir  string
 	Binary  string
 	Options policy.Options
 	// Image is the build-time base image digest (e.g.
@@ -67,6 +70,14 @@ type Manager struct {
 	// this LKG without having to cross-reference the revision row.
 	Image   string
 	Command func(context.Context, ...string) error
+	// Reload triggers a Squid reconfigure (action "reconfigure") or log
+	// rotation (action "rotate") over the loopback manager listener. The
+	// default implementation issues a cache_object request authenticated by
+	// the manager token in <AppDir>/manager-token, which Squid reads from
+	// the included <StateDir>/manager-auth.conf. Cross-UID signalling via
+	// `-k reconfigure/rotate` would require a shared UID, so cachemgr over
+	// TCP is used instead.
+	Reload  func(context.Context, string) error
 	mu      sync.Mutex
 	Persist func(string, []byte) error
 	Probe   func(context.Context, string) error
@@ -87,9 +98,10 @@ type Manager struct {
 func New(dir, binary, logPath, cert, key, image string) *Manager {
 	m := &Manager{
 		Dir:           dir,
+		AppDir:        envString("SC_APP_DIR", "/data/app"),
 		Binary:        binary,
 		Image:         image,
-		Options:       policy.Options{StateDir: dir, LogPath: logPath, ProxyCert: cert, ProxyKey: key},
+		Options:       policy.Options{StateDir: dir, SquidDir: envString("SC_SQUID_DIR", "/data/squid"), LogPath: logPath, ProxyCert: cert, ProxyKey: key, ProxyAccounts: envString("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")},
 		ParseTimeout:  parseTimeoutDefault,
 		ReloadTimeout: reloadTimeoutDefault,
 		VerifyBudget:  verifyBudgetDefault,
@@ -110,10 +122,19 @@ func New(dir, binary, logPath, cert, key, image string) *Manager {
 			}
 		}
 	}
-	m.Persist = Atomic
+	// Every StateDir file is read by Squid or squid-start (ADR 0015).
+	m.Persist = func(path string, b []byte) error { return AtomicMode(path, b, 0640) }
 	m.Command = m.command
+	m.Reload = m.defaultReload
 	m.Probe = m.verify
 	return m
+}
+
+func envString(key, def string) string {
+	if v := os.Getenv(key); v != "" {
+		return v
+	}
+	return def
 }
 func (m *Manager) ActivePath() string { return filepath.Join(m.Dir, "active.conf") }
 func (m *Manager) lock() (func(), error) {
@@ -136,7 +157,12 @@ func (m *Manager) lock() (func(), error) {
 	}
 	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close(); m.mu.Unlock() }, nil
 }
-func Atomic(path string, b []byte) error {
+func Atomic(path string, b []byte) error { return AtomicMode(path, b, 0600) }
+
+// AtomicMode writes b atomically with the given file mode. Used for files Squid
+// reads (active.conf, manager-auth.conf), which must be group-readable so the
+// proxy user — sharing the runtime directory group — can open them.
+func AtomicMode(path string, b []byte, mode os.FileMode) error {
 	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return e
 	}
@@ -145,15 +171,13 @@ func Atomic(path string, b []byte) error {
 		return e
 	}
 	name := f.Name()
-	// Track whether the staged temp has been promoted via rename so the
-	// deferred cleanup only removes an unpromoted temp file.
 	renamed := false
 	defer func() {
 		if !renamed {
 			os.Remove(name)
 		}
 	}()
-	if e = f.Chmod(0600); e != nil {
+	if e = f.Chmod(mode); e != nil {
 		f.Close()
 		return e
 	}
@@ -178,6 +202,137 @@ func Atomic(path string, b []byte) error {
 	}
 	defer d.Close()
 	return d.Sync()
+}
+
+// persistShared writes a Squid-readable file through Persist, keeping storage
+// injections effective; the chmod covers a Persist that creates 0600 files.
+func (m *Manager) persistShared(path string, b []byte) error {
+	if e := m.Persist(path, b); e != nil {
+		return e
+	}
+	return os.Chmod(path, 0640)
+}
+
+// ensureManagerAuth persists the manager token in <AppDir>/manager-token and
+// the included auth file <StateDir>/manager-auth.conf. The token is 32 random
+// bytes (hex) and never appears in Render, Manifest, errors or logs. The
+// include line is rewritten only when its content changed.
+func (m *Manager) ensureManagerAuth() error {
+	token, e := m.retrieveToken()
+	if e != nil {
+		return e
+	}
+	want := "cachemgr_passwd " + token + " reconfigure rotate\n"
+	path := filepath.Join(m.Dir, "manager-auth.conf")
+	if b, e := os.ReadFile(path); e == nil && string(b) == want {
+		return nil
+	}
+	return m.persistShared(path, []byte(want))
+}
+
+var managerToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+func (m *Manager) retrieveToken() (string, error) {
+	path := filepath.Join(m.AppDir, "manager-token")
+	if b, e := os.ReadFile(path); e == nil {
+		if token := strings.TrimSpace(string(b)); managerToken.MatchString(token) {
+			return token, nil
+		}
+		return "", errors.New("manager token file is malformed")
+	} else if !errors.Is(e, os.ErrNotExist) {
+		return "", e
+	}
+	var raw [32]byte
+	if _, e := rand.Read(raw[:]); e != nil {
+		return "", e
+	}
+	token := hex.EncodeToString(raw[:])
+	if e := os.MkdirAll(m.AppDir, 0700); e != nil {
+		return "", e
+	}
+	if e := AtomicMode(path, []byte(token), 0600); e != nil {
+		return "", e
+	}
+	return token, nil
+}
+
+// defaultReload issues a loopback cachemgr request authenticated by the manager
+// token; Squid reloads/rotates based on the action path. Errors never include
+// the token: a malformed response or non-200 status is reported generically.
+func (m *Manager) defaultReload(ctx context.Context, action string) error {
+	token, e := m.retrieveToken()
+	if e != nil {
+		return e
+	}
+	d := net.Dialer{Timeout: m.ReloadTimeout}
+	c, e := d.DialContext(ctx, "tcp", "127.0.0.1:3131")
+	if e != nil {
+		return fmt.Errorf("squid manager unreachable: %w", e)
+	}
+	defer c.Close()
+	deadline := time.Now().Add(m.ReloadTimeout)
+	if dl, ok := ctx.Deadline(); ok && dl.Before(deadline) {
+		deadline = dl
+	}
+	c.SetDeadline(deadline)
+	req := "GET cache_object://127.0.0.1/" + action + "@" + token + " HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
+	if _, e = io.WriteString(c, req); e != nil {
+		return fmt.Errorf("squid manager request failed: %w", e)
+	}
+	r, e := http.ReadResponse(bufio.NewReader(io.LimitReader(c, 64*1024)), nil)
+	if e != nil {
+		return fmt.Errorf("squid manager response failed: %w", e)
+	}
+	defer r.Body.Close()
+	if r.StatusCode != 200 {
+		return fmt.Errorf("squid manager %s returned status %d", action, r.StatusCode)
+	}
+	return nil
+}
+
+// SquidReady reports whether the on-disk state is consistent enough for
+// squid-start to exec the binary without recovery. It only reads files; absence
+// of lkg.json is a normal pre-init state, not an error.
+func (m *Manager) SquidReady() (bool, error) {
+	lkg, e := m.ReadManifest()
+	if errors.Is(e, os.ErrNotExist) {
+		return false, nil
+	}
+	if e != nil {
+		return false, e
+	}
+	active, e := os.ReadFile(m.ActivePath())
+	if e != nil {
+		return false, e
+	}
+	if string(active) != lkg.Config {
+		return false, nil
+	}
+	j, je := m.readJournal()
+	if errors.Is(je, os.ErrNotExist) {
+		return true, nil
+	}
+	if je != nil {
+		return false, je
+	}
+	if j.Stage == "terminal" {
+		return true, nil
+	}
+	if j.Previous.Hash == lkg.Hash {
+		return true, nil
+	}
+	return false, nil
+}
+
+// writeShared persists a JSON Squid reads (lkg.json, journal.json) at 0640 so the
+// proxy user — sharing the runtime directory group — can open it for the
+// squid-start readiness check.
+func (m *Manager) writeShared(name string, v any) error {
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	return m.persistShared(filepath.Join(m.Dir, name), b)
 }
 func (m *Manager) write(name string, v any) error {
 	b, e := json.Marshal(v)
@@ -306,6 +461,9 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		return e
 	}
 	defer unlock()
+	if e := m.ensureManagerAuth(); e != nil {
+		return e
+	}
 	prev, e := m.ReadManifest()
 	if errors.Is(e, os.ErrNotExist) {
 		// Allow safe re-entry when a first_run marker exists between
@@ -328,16 +486,16 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		}
 		// Durable first_run marker records that init is in progress; a crash
 		// before lkg.json becomes a clean re-run of this same branch.
-		if e = m.write("journal.json", Journal{Stage: "first_run", Candidate: prev}); e != nil {
+		if e = m.writeShared("journal.json", Journal{Stage: "first_run", Candidate: prev}); e != nil {
 			return e
 		}
-		if e = m.Persist(m.ActivePath(), []byte(c)); e != nil {
+		if e = m.persistShared(m.ActivePath(), []byte(c)); e != nil {
 			return e
 		}
-		if e = m.write("lkg.json", prev); e != nil {
+		if e = m.writeShared("lkg.json", prev); e != nil {
 			return e
 		}
-		return m.write("journal.json", Journal{Stage: "terminal", Outcome: "initialised", Candidate: prev})
+		return m.writeShared("journal.json", Journal{Stage: "terminal", Outcome: "initialised", Candidate: prev})
 	}
 	if e != nil {
 		return e
@@ -356,7 +514,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 			return e
 		}
 		j.Stage, j.Outcome = "terminal", "initialised"
-		return m.write("journal.json", j)
+		return m.writeShared("journal.json", j)
 	}
 	if je == nil && j.Stage != "terminal" {
 		// The previous manifest in the durable journal is authoritative after a crash.
@@ -367,7 +525,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		if e = m.parse(ctx, prev.Config); e != nil {
 			return e
 		}
-		if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e != nil {
+		if e = m.persistShared(m.ActivePath(), []byte(prev.Config)); e != nil {
 			return e
 		}
 		if !offline {
@@ -377,7 +535,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 				return fmt.Errorf("recovery reload not verified: %w", e)
 			}
 		}
-		if e = m.write("lkg.json", prev); e != nil {
+		if e = m.writeShared("lkg.json", prev); e != nil {
 			return e
 		}
 		if offline {
@@ -387,7 +545,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		}
 		j.Stage = "terminal"
 		j.Outcome = "rolled_back"
-		return m.write("journal.json", j)
+		return m.writeShared("journal.json", j)
 	}
 	return m.checkDrift(prev)
 }
@@ -416,6 +574,9 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	if e = m.Verify(ctx, prev.Hash); e != nil {
 		return "rejected", fmt.Errorf("old runtime not ready: %w", e)
 	}
+	if e = m.ensureManagerAuth(); e != nil {
+		return "rejected", e
+	}
 	config, e := policy.Render(s, m.Options)
 	if e != nil {
 		return "rejected", e
@@ -425,19 +586,19 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	}
 	next := Manifest{Compiler: policy.CompilerVersion, ImageDigest: m.Image, Revision: revision, Hash: policy.Fingerprint(s, m.Options), Config: config, Snapshot: s}
 	j := Journal{Operation: id, Stage: "promoting", Previous: prev, Candidate: next}
-	if e = m.write("journal.json", j); e != nil {
+	if e = m.writeShared("journal.json", j); e != nil {
 		return "rejected", e
 	}
 	lkgPromoted := false
-	if e = m.Persist(m.ActivePath(), []byte(config)); e == nil {
+	if e = m.persistShared(m.ActivePath(), []byte(config)); e == nil {
 		j.Stage = "reloading"
-		e = m.write("journal.json", j)
+		e = m.writeShared("journal.json", j)
 	}
 	if e == nil {
 		e = m.reloadVerify(ctx, next.Hash)
 	}
 	if e == nil {
-		e = m.write("lkg.json", next)
+		e = m.writeShared("lkg.json", next)
 		if e == nil {
 			lkgPromoted = true
 		}
@@ -445,7 +606,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	if e == nil {
 		j.Stage = "terminal"
 		j.Outcome = "succeeded"
-		e = m.write("journal.json", j)
+		e = m.writeShared("journal.json", j)
 		if e == nil {
 			return "succeeded", nil
 		}
@@ -463,24 +624,24 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 	defer cancelRollback()
 	j.Stage = "rolling_back"
-	if e = m.write("journal.json", j); e != nil {
+	if e = m.writeShared("journal.json", j); e != nil {
 		// Avoid triple-wrapping the original "configuration output withheld"
 		// message; surface a single rolled-back summary plus the rollback step
 		// error without repeating the redaction phrase.
 		return "degraded", fmt.Errorf("apply failed: %w; rollback journal write failed: %v", original, e)
 	}
-	if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e == nil {
+	if e = m.persistShared(m.ActivePath(), []byte(prev.Config)); e == nil {
 		e = m.reloadVerify(rollbackCtx, prev.Hash)
 	}
 	if e == nil {
-		e = m.write("lkg.json", prev)
+		e = m.writeShared("lkg.json", prev)
 	}
 	if e != nil {
 		return "degraded", fmt.Errorf("apply failed: %w; rollback failed: %v", original, e)
 	}
 	j.Stage = "terminal"
 	j.Outcome = "rolled_back"
-	if e = m.write("journal.json", j); e != nil {
+	if e = m.writeShared("journal.json", j); e != nil {
 		return "degraded", fmt.Errorf("apply failed: %w; terminal journal write failed: %v", original, e)
 	}
 	return "rolled_back", original
@@ -488,7 +649,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 func (m *Manager) reloadVerify(ctx context.Context, hash string) error {
 	c, cancel := context.WithTimeout(ctx, m.ReloadTimeout)
 	defer cancel()
-	if e := m.Command(c, "-f", m.ActivePath(), "-k", "reconfigure"); e != nil {
+	if e := m.Reload(c, "reconfigure"); e != nil {
 		return e
 	}
 	return m.Verify(ctx, hash)
@@ -678,8 +839,11 @@ func (m *Manager) Maintain(ctx context.Context, prune func() error) error {
 		return e
 	}
 	defer unlock()
+	if e := m.ensureManagerAuth(); e != nil {
+		return e
+	}
 	rotate := false
-	for _, p := range []string{m.Options.LogPath, filepath.Join(m.Dir, "cache.log")} {
+	for _, p := range []string{m.Options.LogPath, filepath.Join(m.Options.SquidDir, "cache.log")} {
 		if st, e := os.Stat(p); e == nil && st.Size() > 10*1024*1024 {
 			rotate = true
 		}
@@ -687,7 +851,7 @@ func (m *Manager) Maintain(ctx context.Context, prune func() error) error {
 	if rotate {
 		c, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		if e = m.Command(c, "-f", m.ActivePath(), "-k", "rotate"); e != nil {
+		if e = m.Reload(c, "rotate"); e != nil {
 			slog.Warn("log rotation failed", "error", e)
 		}
 	}

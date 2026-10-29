@@ -16,15 +16,16 @@
 | Применение | Черновик, preview/diff, parse, apply, fingerprint, LKG, recovery, rollback, service-update | Go fault tests (ENOSPC, SIGKILL), smoke |
 | Диагностика | История запросов с фильтрами и cursor, аудит, retention, обзор с live-метриками Squid | Go tests, smoke |
 | TLS | TLS к прокси, сквозной HTTPS CONNECT с исходным сертификатом сайта | Smoke с проверкой цепочки |
-| Упаковка | Один image на `ubuntu/squid`, Pebble, Squid и Go от `proxy:13:13` | `make image`, Linux/arm64 |
+| Упаковка | Один image на `ubuntu/squid`, Pebble; Squid от `proxy` 13, Go от `sccontrol` 10013. Squid не читает SQLite, ключ панели и токен manager; reload/rotate через manager с токеном; proxy auth читает экспорт верификаторов | Go tests, мутационная проверка, smoke с `docker exec --user 13:13`, Linux/arm64; обновление старого volume проверено вручную |
 | UI | React, shadcn/ui, светлая и тёмная тема | Playwright (20 сценариев) |
 
 Факты о базовом образе и матрица возможностей: [image report](research/image-compatibility.md).
 
 ## Известные ограничения
 
-- Squid и Go работают от одного UID. Squid может читать БД и TLS-ключи; пока это
-  закрыто только allowlist expert-секции (устраняется срезом 2 плана).
+- Squid читает active config, верификаторы proxy accounts и ключ прокси; Go читает логи
+  Squid через группу `proxy`. Volume от прежнего образа переводится вручную с
+  возвратом к deny-all до повторного apply ([runbook](operations/runbooks.md#volume-от-образа-без-разделения-uid)).
 - `cache_peer` (expert и `upstream_proxy`) принимает только IP-литерал. Peer может
   маршрутизировать трафик за пределами визуальной модели; нужен egress firewall.
 - Ошибка parse показывает номер строки, но не текст сообщения Squid.
@@ -40,7 +41,6 @@
 
 | # | Срез | Критерии приёмки | Состояние |
 | --- | --- | --- | --- |
-| 2 | Разделение UID Squid и Go | Процесс Squid не может открыть SQLite панели и ключ панели (проверка `docker exec --user proxy`); proxy auth читает отдельный экспорт верификаторов; reload, apply, rollback и recovery работают как раньше. Spike выполнен: на Squid 6.13 `cache_object://127.0.0.1/reconfigure@<token>` через loopback 3131 перечитывает конфиг из процесса с другим UID, `kill -HUP` даёт EPERM. Решение — [ADR 0015](adr/0015-separate-squid-uid.md) | В работе |
 | 3 | Сетевые запреты в smoke | С реальных source-адресов отклоняются IPv6 loopback/link-local, IPv4-mapped, 6to4, Teredo, private (при выключенной настройке), metadata; имя, резолвящееся во внутренний адрес; смена DNS-ответа между запросами (rebinding) не открывает внутренний адрес | Не начат |
 | 4 | APT через прокси | `apt-get update` и `apt-get install` тестового пакета из локального подписанного репозитория через HTTP и через HTTPS CONNECT; проверка подписей включена; allowlist-клиент без домена репозитория получает отказ | Не начат |
 | 5 | Ревизия expert-режима | Частые сценарии (кандидаты: upstream proxy, правила кеша пакетов) перенесены в типизированные настройки с тестами; expert остаётся аварийным режимом. Состав сценариев подтверждает владелец | Upstream proxy реализован (Go tests, мутационная проверка; integration — после сведения со срезами 2–4). Остальные сценарии ждут ответа владельца |

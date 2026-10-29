@@ -3,12 +3,30 @@ package httpapi
 import (
 	"database/sql"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 
 	"squid-control.local/squid/internal/credentials"
+	"squid-control.local/squid/internal/proxyauth"
 	"squid-control.local/squid/internal/store"
 )
+
+// refreshProxyExports atomically rewrites the proxy-account export the Squid
+// helper reads. Called after every successful proxy-account mutation, at serve
+// start and in service-update so a disabled or reset identity cannot be reused
+// on a cached Basic credential. Errors are surfaced without hashes/passwords.
+func (s *Server) refreshProxyAccounts() error {
+	accounts, e := s.Store.EnabledProxyAccounts()
+	if e != nil {
+		return e
+	}
+	if e := proxyauth.WriteExport(s.Runtime.Options.ProxyAccounts, accounts); e != nil {
+		slog.Error("proxy account export failed", "error", e)
+		return e
+	}
+	return nil
+}
 
 func (s *Server) listProxyAccounts(w http.ResponseWriter, r *http.Request, v session) {
 	items, e := s.Store.ProxyAccounts()
@@ -49,6 +67,10 @@ func (s *Server) createProxyAccount(w http.ResponseWriter, r *http.Request, v se
 		return
 	} else if e != nil {
 		fail(w, 503, "storage_unavailable", "Не удалось создать учётную запись")
+		return
+	}
+	if e := s.refreshProxyAccounts(); e != nil {
+		fail(w, 503, "storage_unavailable", "Экспорт учётных записей прокси недоступен")
 		return
 	}
 	account, e := s.Store.ProxyAccount(input.Username)
@@ -98,6 +120,10 @@ func (s *Server) updateProxyAccount(w http.ResponseWriter, r *http.Request, v se
 		return
 	} else if e != nil {
 		fail(w, 503, "storage_unavailable", "Не удалось сохранить учётную запись")
+		return
+	}
+	if e := s.refreshProxyAccounts(); e != nil {
+		fail(w, 503, "storage_unavailable", "Экспорт учётных записей прокси недоступен")
 		return
 	}
 	account, e := s.Store.ProxyAccount(username)

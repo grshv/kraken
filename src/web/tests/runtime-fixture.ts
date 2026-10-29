@@ -41,7 +41,7 @@ export async function startFixture() {
       "--rm",
       "-i",
       "--user",
-      "13:13",
+      "10013:10013",
       "-v",
       `${volume}:/data`,
       "--entrypoint",

@@ -3,6 +3,8 @@ package store
 import (
 	"errors"
 	"time"
+
+	"squid-control.local/squid/internal/proxyauth"
 )
 
 type ProxyAccount struct {
@@ -100,4 +102,24 @@ func (s *Store) ProxyAccount(username string) (ProxyAccount, error) {
 	v.CreatedAt = time.Unix(created, 0).UTC().Format(time.RFC3339)
 	v.UpdatedAt = time.Unix(updated, 0).UTC().Format(time.RFC3339)
 	return v, nil
+}
+
+// EnabledProxyAccounts returns the proxy-auth verifiers the helper is allowed
+// to read. Only enabled accounts are exported; the panel-side hash is secret
+// but safe to share with Squid (a verification hash, not the password).
+func (s *Store) EnabledProxyAccounts() ([]proxyauth.Account, error) {
+	rows, e := s.DB.Query("SELECT username,password_hash FROM proxy_accounts WHERE enabled=1 ORDER BY username LIMIT 1024")
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []proxyauth.Account{}
+	for rows.Next() {
+		var v proxyauth.Account
+		if e = rows.Scan(&v.Username, &v.PasswordHash); e != nil {
+			return nil, e
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
 }

@@ -26,7 +26,11 @@ func fixtureServer(t *testing.T) (*Server, http.Handler) {
 		t.Fatal(e)
 	}
 	rt := local.New(t.TempDir(), "/unused", "/dev/null", "", "", "test-image")
+	rt.AppDir = t.TempDir()
+	rt.Options.ProxyAccounts = filepath.Join(t.TempDir(), "proxy-accounts.json")
+	rt.Options.SquidDir = t.TempDir()
 	rt.Command = func(context.Context, ...string) error { return nil }
+	rt.Reload = func(context.Context, string) error { return nil }
 	rt.Probe = func(context.Context, string) error { return nil }
 	if e = rt.Recover(context.Background(), true); e != nil {
 		t.Fatal(e)

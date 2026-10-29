@@ -79,20 +79,18 @@ proxy VM: Docker Engine / Compose
 Пути и порты целевые и проверяются image spike. Внешняя привязка панели только к
 management interface, listeners proxy — к клиентскому interface. Внутренний 8443
 позволяет Go-процессу не требовать привилегированного порта.
-Config каталог RW для управляющего процесса и read-only по Unix permissions
-для Squid, где это позволяет выбранная схема UID/GID. Один mount сам по себе
-не создаёт per-process RO: права и ownership проверяются отдельно.
+Go работает как `sccontrol` (10013, доп. группа `proxy`), Squid — как `proxy` (13).
+`/data/runtime` и proxy-сертификат Squid читает через группу; SQLite, ключ панели и
+токен manager в `/data/app` и `panel.*` ему недоступны. Права — в
+[ADR 0015](../adr/0015-separate-squid-uid.md) и [deployment](../operations/deployment.md#файлы-и-права).
 
 ## Локальное управление
 
 Приложение запускает установленный в этом же image Squid с фиксированными argv
-для parse/reconfigure. Shell и произвольный command/path из UI не используются.
+только для `-k parse`. Reload и rotate — запрос
+`cache_object://127.0.0.1/<action>@<token>` на loopback-listener 3131: сигнал из
+другого UID невозможен. Shell и произвольный command/path из UI не используются.
 Проверки не создают соседние контейнеры и не обращаются к Docker API.
-
-UID/GID, права на PID/control path и возможность reload проверяются до реализации.
-Не запускать весь web root ради сигнала. Если нужны разные UID, выбрать проверенный
-узкий механизм локального control доступа; при невозможности — пересмотреть
-capability profile, а не добавлять universal exec или Docker socket.
 
 ## Запуск и восстановление
 
@@ -134,13 +132,13 @@ scripts/                    проверка документации
 
 Все application directories схемы находятся под `src/`; `deploy/` остаётся в корне.
 `src/internal/runtime` сейчас содержит локальный adapter и manager без подпакетов.
-Go и Squid в первом срезе используют общий UID 13; это разрешает reload,
-но не изолирует config/secret permissions между процессами. Контракт внутреннего модуля:
+Go и Squid работают под разными UID ([ADR 0015](../adr/0015-separate-squid-uid.md)).
+Контракт внутреннего модуля:
 [runtime contract](../../api/runtime-contract.md). `internal/policy` не импортирует
 HTTP, SQLite или runtime/process APIs.
 
 Настройки и экспертная секция входят в immutable snapshot наравне с политиками.
-Compiler v5 защищает служебные paths/ACL/probe и проверяет expert section;
+Compiler v8 защищает служебные paths/ACL/probe и проверяет expert section;
 в expert mode она заменяет визуальные клиентские правила. Детали границы:
 [ADR 0007](../adr/0007-general-clients-expert-configuration.md).
 

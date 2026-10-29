@@ -12,7 +12,9 @@ func TestFirstRunResumesAfterEveryWrite(t *testing.T) {
 	for _, failAt := range []int{1, 2, 3, 4} {
 		t.Run(string(rune('0'+failAt)), func(t *testing.T) {
 			m := New(t.TempDir(), "/unused", "/dev/null", "", "", "")
+			m.AppDir = t.TempDir()
 			m.Command = func(context.Context, ...string) error { return nil }
+			m.Reload = func(context.Context, string) error { return nil }
 			m.Probe = func(context.Context, string) error { return nil }
 			writes := 0
 			m.Persist = func(path string, b []byte) error {
@@ -47,8 +49,8 @@ func TestRecoveryRemainsPendingUntilLiveVerification(t *testing.T) {
 	if e := m.write("journal.json", Journal{Stage: "reloading", Previous: prev, Candidate: prev}); e != nil {
 		t.Fatal(e)
 	}
-	m.Command = func(_ context.Context, args ...string) error {
-		if args[len(args)-1] == "reconfigure" {
+	m.Reload = func(_ context.Context, action string) error {
+		if action == "reconfigure" {
 			return errors.New("control channel down")
 		}
 		return nil
@@ -68,7 +70,7 @@ func TestRecoveryRemainsPendingUntilLiveVerification(t *testing.T) {
 		t.Fatal(e)
 	}
 	assertPending()
-	m.Command = func(context.Context, ...string) error { return nil }
+	m.Reload = func(context.Context, string) error { return nil }
 	m.Probe = func(context.Context, string) error { return errors.New("wrong runtime fingerprint") }
 	if e := m.Recover(context.Background(), false); e == nil {
 		t.Fatal("wrong fingerprint accepted")

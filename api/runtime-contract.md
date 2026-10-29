@@ -34,7 +34,7 @@ validation. Cert references выбираются из локально уста�
 Parse выполняется бинарником Squid из того же итогового image, в том же контейнере,
 на candidate bundle с изолированными writable runtime paths. Проверить, что parse
 не пишет live PID/cache/log; при невозможности validation отклоняется.
-Reload адресует Squid, не Pebble PID 1. Docker API и запуск соседних контейнеров нет.
+Reload и rotate — manager-запрос с токеном на `127.0.0.1:3131`, не сигнал и не Pebble PID 1. Docker API и запуск соседних контейнеров нет.
 
 ## Journal, lock и startup gate
 

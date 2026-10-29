@@ -39,7 +39,9 @@ func env(key, def string) string {
 }
 func manager() *local.Manager {
 	m := local.New(env("SC_RUNTIME_STATE_DIR", "/data/runtime"), env("SC_SQUID_BINARY", "/usr/sbin/squid"), env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"), baseImage)
-	m.Options.AuthDatabase = env("SC_DATABASE_PATH", "/data/app/control.sqlite3")
+	m.AppDir = env("SC_APP_DIR", "/data/app")
+	m.Options.SquidDir = env("SC_SQUID_DIR", "/data/squid")
+	m.Options.ProxyAccounts = env("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")
 	return m
 }
 func main() {
@@ -53,33 +55,46 @@ func run() error {
 		return errors.New("usage: squid-control serve|bootstrap|password-reset|dev-cert|squid-start|check|proxy-auth|service-update")
 	}
 	cmd := os.Args[1]
+	// serve and every CLI subcommand except squid-start/proxy-auth refuse to
+	// run as root: a privileged panel process would defeat the per-UID filesystem
+	// isolation between Squid (proxy) and the panel (sccontrol).
+	if os.Geteuid() == 0 && cmd != "squid-start" && cmd != "proxy-auth" {
+		return errors.New("refusing to run as root")
+	}
 	m := manager()
 	ctx := context.Background()
 	switch cmd {
 	case "proxy-auth":
 		f := flag.NewFlagSet(cmd, flag.ContinueOnError)
 		stateOnly := f.Bool("state", false, "check authenticated verifier generation")
-		database := f.String("database", env("SC_DATABASE_PATH", "/data/app/control.sqlite3"), "installed credential database")
+		accounts := f.String("accounts", env("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json"), "exported proxy accounts")
 		if e := f.Parse(os.Args[2:]); e != nil {
 			return e
 		}
 		if *stateOnly {
-			return proxyauth.RunState(*database, os.Stdin, os.Stdout)
+			return proxyauth.RunState(*accounts, os.Stdin, os.Stdout)
 		}
-		return proxyauth.Run(*database, os.Stdin, os.Stdout)
+		return proxyauth.Run(*accounts, os.Stdin, os.Stdout)
 	case "squid-start":
-		for i := 0; i < 50; i++ {
-			e := m.Recover(ctx, true)
-			if errors.Is(e, local.ErrBusy) {
-				time.Sleep(100 * time.Millisecond)
-				continue
-			}
+		// squid-start runs as the proxy user and never writes runtime state:
+		// it waits for serve (sccontrol) to persist a consistent active.conf
+		// and journal, then execs squid with a private umask.
+		deadline := time.Now().Add(120 * time.Second)
+		for {
+			ready, e := m.SquidReady()
 			if e != nil {
 				return e
 			}
-			return syscall.Exec(m.Binary, []string{m.Binary, "-N", "-f", m.ActivePath()}, os.Environ())
+			if ready {
+				break
+			}
+			if time.Now().After(deadline) {
+				return errors.New("squid-start timed out waiting for active configuration")
+			}
+			time.Sleep(200 * time.Millisecond)
 		}
-		return local.ErrBusy
+		syscall.Umask(0o027)
+		return syscall.Exec(m.Binary, []string{m.Binary, "-N", "-f", m.ActivePath()}, os.Environ())
 	case "service-update":
 		if len(os.Args) != 2 {
 			return errors.New("usage: squid-control service-update")
@@ -137,15 +152,14 @@ func run() error {
 		}
 		return nil
 	case "serve":
-		if os.Geteuid() == 0 {
-			return errors.New("refusing to run web as root")
-		}
 		if e := os.MkdirAll(filepath.Dir(m.Options.LogPath), 0700); e != nil {
 			return e
 		}
-		recovered := false
+		// Offline recovery first: durable on-disk state is restored without
+		// touching the live process so a crashed promotion is rolled back even
+		// if Squid has not started yet.
 		for i := 0; i < 50; i++ {
-			e := m.Recover(ctx, false)
+			e := m.Recover(ctx, true)
 			if errors.Is(e, local.ErrBusy) {
 				time.Sleep(100 * time.Millisecond)
 				continue
@@ -153,11 +167,21 @@ func run() error {
 			if e != nil {
 				return e
 			}
-			recovered = true
 			break
 		}
-		if !recovered {
-			return local.ErrBusy
+		// Online recovery: reload+verify against the running Squid. Squid and
+		// serve start concurrently under Pebble, so a transient reload/verify
+		// failure is retried for up to 120 s before serve aborts.
+		onlineDeadline := time.Now().Add(120 * time.Second)
+		for {
+			e := m.Recover(ctx, false)
+			if e == nil {
+				break
+			}
+			if !errors.Is(e, local.ErrBusy) && time.Now().After(onlineDeadline) {
+				return e
+			}
+			time.Sleep(500 * time.Millisecond)
 		}
 		st, e := store.Open(env("SC_DATABASE_PATH", "/data/app/control.sqlite3"))
 		if e != nil {
@@ -250,10 +274,10 @@ func run() error {
 }
 func devCert() error {
 	dir := env("SC_CERT_DIR", "/data/certs")
-	if e := os.MkdirAll(dir, 0700); e != nil {
+	if e := os.MkdirAll(dir, 0750); e != nil {
 		return e
 	}
-	for _, n := range []string{"panel.crt", "panel.key"} {
+	for _, n := range []string{"panel.crt", "panel.key", "proxy.crt", "proxy.key"} {
 		if _, e := os.Stat(filepath.Join(dir, n)); !errors.Is(e, os.ErrNotExist) {
 			return errors.New("certificate files already exist")
 		}
@@ -280,6 +304,41 @@ func devCert() error {
 	}
 	if e = local.Atomic(filepath.Join(dir, "panel.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert})); e != nil {
 		return e
+	}
+	// Separate self-signed proxy certificate: SAN covers the in-network alias
+	// "proxy" plus localhost so panel-driven HTTPS-CONNECT tests can pin it.
+	proxyKey, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if e != nil {
+		return e
+	}
+	proxySerial, e := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
+	if e != nil {
+		return e
+	}
+	proxyTemplate := x509.Certificate{SerialNumber: proxySerial, Subject: pkix.Name{CommonName: "Squid Control proxy"}, DNSNames: []string{"proxy", "localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	proxyCert, e := x509.CreateCertificate(rand.Reader, &proxyTemplate, &proxyTemplate, &proxyKey.PublicKey, proxyKey)
+	if e != nil {
+		return e
+	}
+	proxyDER, e := x509.MarshalPKCS8PrivateKey(proxyKey)
+	if e != nil {
+		return e
+	}
+	// proxy.* is group_readable (0640, group proxy) so Squid can read it; the
+	// setgid runtime/certs directories already inherit group=proxy, the
+	// explicit chown keeps correctness if that inheritance is unavailable.
+	if e = local.AtomicMode(filepath.Join(dir, "proxy.key"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: proxyDER}), 0640); e != nil {
+		return e
+	}
+	if e = local.AtomicMode(filepath.Join(dir, "proxy.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: proxyCert}), 0640); e != nil {
+		return e
+	}
+	for _, n := range []string{"proxy.key", "proxy.crt"} {
+		p := filepath.Join(dir, n)
+		if e = os.Chmod(p, 0640); e != nil {
+			return e
+		}
+		_ = os.Chown(p, -1, 13)
 	}
 	fmt.Println("Created self-signed localhost certificate (development only)")
 	return nil

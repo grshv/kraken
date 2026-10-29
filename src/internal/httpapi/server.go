@@ -144,6 +144,9 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 			return nil, e
 		}
 	}
+	if e := s.refreshProxyAccounts(); e != nil {
+		return nil, e
+	}
 	return s, nil
 }
 func respond(w http.ResponseWriter, status int, v any) {

@@ -38,10 +38,14 @@ func TestRealSquidParseProxyAuthentication(t *testing.T) {
 		t.Fatal(e)
 	}
 	s, o := authFixture()
-	o.StateDir = "/tmp"
+	o.StateDir = "/fixture"
+	o.SquidDir = "/fixture"
 	o.LogPath = "/tmp/proxy-access.log"
 	o.ProxyCert = "/fixture/proxy.crt"
 	o.ProxyKey = "/fixture/proxy.key"
+	if e = os.WriteFile(filepath.Join(dir, "manager-auth.conf"), []byte("cachemgr_passwd fixture-token reconfigure rotate\n"), 0640); e != nil {
+		t.Fatal(e)
+	}
 	other := s.Clients[0]
 	other.ID = "second"
 	other.ProxyUsername = "REQUIRED"
