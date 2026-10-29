@@ -1,10 +1,11 @@
-.PHONY: help docs-check web-build build test check image integration integration-network integration-apt dev-cert bootstrap password-reset up down
+.PHONY: help docs-check web-build build test check image integration integration-network integration-apt integration-ops dev-cert bootstrap password-reset up down
 
 help:
 	@echo "build        Build frontend and Go binary in bin/"
 	@echo "check        Docs, frontend type/build, Go race tests, vet and patch checks"
 	@echo "image        Build single-container development image"
-	@echo "integration  Run smoke, network and APT tests on real Squid (requires image)"
+	@echo "integration  Run smoke, network, APT and ops tests on real Squid (requires image)"
+	@echo "integration-ops  Run operational runbook tests (backup/restore, cert, image update, disk full)"
 	@echo "dev-cert     Create localhost development certificate in Compose volume"
 	@echo "bootstrap    Interactively create initial administrator"
 	@echo "password-reset  Reset an existing password locally and revoke sessions"
@@ -34,12 +35,16 @@ integration:
 	python3 src/tests/integration/smoke.py
 	python3 src/tests/integration/network.py
 	python3 src/tests/integration/apt.py
+	python3 src/tests/integration/ops.py
 
 integration-network:
 	python3 src/tests/integration/network.py
 
 integration-apt:
 	python3 src/tests/integration/apt.py
+
+integration-ops:
+	python3 src/tests/integration/ops.py
 
 dev-cert:
 	docker compose -f deploy/compose.yaml run --rm --no-deps --user 10013:10013 --entrypoint /usr/local/bin/kraken kraken dev-cert

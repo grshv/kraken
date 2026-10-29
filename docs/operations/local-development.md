@@ -91,6 +91,14 @@ files и password env не используются. Запуск: `npm --prefix
 Только fixture допускает self-signed development TLS; network smoke отдельно
 проверяет chain без отключения верификации.
 
+`make integration-ops` (`src/tests/integration/ops.py`) поднимает отдельные
+disposable контейнеры/сети/volumes с уникальным префиксом и проверяет
+процедуры runbook на образе `kraken:ops` (`docker build -f deploy/Dockerfile
+-t kraken:ops .`, тег параметризуется через `KRAKEN_TEST_IMAGE`): копия и
+восстановление `/data`, замена серверного сертификата панели и прокси, обновление
+образа на том же volume, поведение при заполненном диске (tmpfs-backed `/data`).
+Сертификаты и ключи генерируются во временный каталог и не коммитятся.
+
 ## Новые настройки и сброс
 
 [Настройки и экспертная граница](../adr/0007-general-clients-expert-configuration.md).
