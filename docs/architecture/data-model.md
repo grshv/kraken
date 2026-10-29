@@ -51,11 +51,16 @@ Foreign keys, busy timeout, WAL на локальной файловой сис�
 применяются к обоим пулам; `synchronous=FULL` и `journal_size_limit` — через
 `PRAGMA` после открытия writer. Для in-memory/`file:` DSN в тестах reader равен
 writer (один пул). Reader не блокирует writer, writer не ждёт reader'а.
-Сессия читается через reader; `last_seen_at` обновляется короткой
-write-транзакцией не чаще раза в минуту условным
+Каждый метод `store` принимает `context.Context` первым параметром и сам ограничивает
+свою работу `store.OpTimeout` (3 с), даже если вызывающий передал фоновый контекст;
+дедлайн прерывает и ожидание блокировки SQLite. Чтения идут через reader pool и
+не ждут писателя. Вызовы SQL без контекста в `store` и `admin` запрещены
+статическим тестом. `kraken backup` получает собственный дедлайн 10 минут.
+Сессия читается через reader; `last_seen_at` обновляется по возможности (дедлайн
+250 мс: занятая БД не мешает уже проверенному запросу) не чаще раза в минуту условным
 `UPDATE ... WHERE token_hash=? AND last_seen_at=?` — удалённая параллельным
 reset'ом сессия не воскрешается (recheck existence). Периодическое обслуживание:
-`PRAGMA wal_checkpoint(TRUNCATE)` раз в 10 мин, `PRAGMA optimize` суточно.
+`PRAGMA wal_checkpoint(PASSIVE)` раз в 10 мин (не ждёт читателей и не держит запись), `PRAGMA optimize` суточно.
 
 Онлайн-копию делает `kraken backup` (`VACUUM INTO` управляющей БД и `rollups.db`,
 runtime и сертификаты); остановленная копия /data тоже согласована. Копирование
@@ -145,31 +150,37 @@ checkpoint чтения access.log) и `rollups.db` (долгоживущие а
 events-YYYY-MM.db: `host(id, name UNIQUE)` — словарь хостов назначений; `event(id,
 ts, client_id, client_name, source_ip, host_id, port, method, result,
 http_status, duration_ms, bytes, failed, proxy_username, revision_id,
-match_basis, tls_mode, source_id)` — индексы `ts`, `(client_id, ts)`,
+match_basis, tls_mode, source_id, count)` — индексы `ts`, `(client_id, ts)`,
 `(source_ip, ts) WHERE client_id IS NULL` и уникальный `source_id`; `checkpoint(k,
 v)` — позиция чтения access.log, пишется в одной транзакции с событиями.
-`source_id` сохраняет исходный id события (хэш строки access.log) для lookup'а
+Одинаковые события одной порции в пределах одной секунды UTC (клиент, источник,
+хост, порт, метод, результат, статус, логин, ревизия, режим TLS) хранятся одной
+строкой: `count` — число запросов, `bytes` — сумма, `duration_ms` — максимум, `ts` и
+`source_id` — первого события. Все счётчики (агрегаты, фасеты, инспектор) суммируют
+`count`. `source_id` сохраняет исходный id события (хэш строки access.log) для lookup'а
 explain по legacy id; API выставляет компактную форму `<YYYYMM>-<rowid>`. Сырой
 текст URL и path/query/userinfo не хранятся.
 
 rollups.db (таблицы WITHOUT ROWID, агрегируются UPSERT на месте): `client_15m`,
 `client_host_1h`, `client_host_1d` (+ индекс `client_id, day`) — по клиентам;
 `unknown_15m`, `unknown_host_1h`, `unknown_host_1d` (с `bytes`) — по неописанным
-источникам; `watermark(month, last_event_id)` — до какого события месяц свёрнут. Bucket
+источникам; `facet_15m(bucket, client_id, source_ip, method, proxy_result, failed,
+requests)` — счётчики журнала для окон длиннее суток; `watermark(month, last_event_id)` — до какого события месяц свёрнут. Bucket
 хранится как unix-секунды. Rollup идемпотентен: падение между ingest и rollup
 даёт повтор с прежнего watermark; потеря rollups.db перестраивается из сырых
 месячных файлов при открытии.
 
 Каждый файл: один writer (`_txlock=immediate`, `busy_timeout=5000`, WAL,
 `synchronous=NORMAL`) и пул read-only readers (`query_only`); месячные файлы
-открываются лениво, кеш открытых — 4. Битый или несовместимый файл телеметрии
+открываются лениво, кеш открытых — 4. Файлы телеметрии создаются с правами 0600;
+все вызовы SQL несут контекст, WAL checkpoint — `PASSIVE`. Битый или несовместимый файл телеметрии
 переименовывается в `.broken-<unix>`, создаётся заново, warn в лог и
 `status.instance.telemetry_broken_files`; панель продолжает работать. Текущий
 месяц никогда не удаляется ретеншном.
 
 Retention: сырые события — 90 дней по возрасту и бюджет 5 GiB (oldest-first,
-текущий месяц не трогается); часовые агрегаты — 30 дней; 15-минутные и суточные
-агрегаты — 3 года. Audit управляющей БД — 90 дней и до 5000 строк. Месячные файлы
+текущий месяц не трогается); часовые агрегаты и `facet_15m` — 30 дней; 15-минутные и суточные
+агрегаты — 3 года. Audit управляющей БД — 3 года без лимита строк. Месячные файлы
 удаляются целиком (нет DELETE миллионов строк, VACUUM и фрагментации); агрегаты
 чистятся чанками по 5000 строк по составному PK.
 
