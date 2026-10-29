@@ -1,4 +1,4 @@
-.PHONY: help docs-check web-build build test check image integration integration-network integration-apt dev-cert bootstrap password-reset up down
+.PHONY: help docs-check web-build web-test build test check image integration integration-network integration-apt dev-cert bootstrap password-reset up down
 
 help:
 	@echo "build        Build frontend and Go binary in bin/"
@@ -17,13 +17,16 @@ web-build:
 	npm --prefix src/web ci --no-audit --no-fund
 	npm --prefix src/web run build
 
+web-test:
+	npm --prefix src/web run test
+
 build: web-build
 	cd src && go build -trimpath -o ../bin/kraken ./cmd/control
 
 test: web-build
 	cd src && go test -race ./...
 
-check: docs-check web-build test
+check: docs-check web-build web-test test
 	cd src && go vet ./...
 	@test -z "$$(gofmt -l src)" || { gofmt -l src; echo 'gofmt: files above need formatting'; exit 1; }
 	git diff --check

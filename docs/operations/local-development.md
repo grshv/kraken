@@ -84,12 +84,8 @@ journal/drift; restart control запускает reconciliation. Не реда�
 containers/network/volume и удаляет их в finally, не трогая пользовательский Compose.
 Нужен свободный тестовый subnet 11.250.17.0/24; origins и client identities синтетические.
 Доступ к интернету нужен для pull/build зависимостей, не для проверки HTTP origins.
-Browser tests сами создают и удаляют отдельный container/volume с account;
-случайный password живёт только в памяти и передаётся CLI по stdin, credential
-files и password env не используются. Запуск: `npm --prefix src/web run test:e2e`.
-Нужен установленный Playwright Chromium либо KRAKEN_CHROMIUM_PATH к executable.
-Только fixture допускает self-signed development TLS; network smoke отдельно
-проверяет chain без отключения верификации.
+Web unit-тесты (`npm --prefix src/web run test`) гоняют vitest без браузера и
+образа; e2e на ключевые потоки — отдельный срез.
 
 ## Новые настройки и сброс
 

@@ -142,6 +142,27 @@ export type RevisionSummary = {
   can_rollback: boolean;
   latest_status: string;
 };
+export type Revision = {
+  id: string;
+  draft_version: number;
+  policy_hash: string;
+  compiler_version: string;
+  // Server today returns image_digest only on the immutable revision object.
+  // The UI does not display it; kept optional for forward compatibility.
+  image_digest?: string;
+  created_at: string;
+};
+
+// Help index row and full article mirror the OpenAPI HelpEntry/HelpArticle
+// schemas. Markdown bodies are rendered by the small safe renderer in
+// help/markdown.ts, never via dangerouslySetInnerHTML with raw HTML.
+export type HelpEntry = {
+  slug: string;
+  title: string;
+  section: string;
+  order: number;
+};
+export type HelpArticle = HelpEntry & { markdown: string };
 export const defaultSettings: Settings = {
   http_port: 3128,
   tls_port: 3129,
