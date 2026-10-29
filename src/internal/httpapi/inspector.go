@@ -2,7 +2,6 @@ package httpapi
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"net"
 	"net/http"
@@ -17,14 +16,14 @@ import (
 	"kraken.local/kraken/internal/events"
 	"kraken.local/kraken/internal/policy"
 	"kraken.local/kraken/internal/store"
+	"kraken.local/kraken/internal/telemetry"
 )
 
-// inspectorEventScope returns the event-scope filter for inspector reads. Nil
-// means admin (no filtering). For a manager it is his assigned clients and
-// networks from managerScope; the store.Scope is also returned for handler-
-// level checks (inScope, managerDraftView). A store error yields ok=false so
-// the handler answers 503 storage_unavailable, matching the journal.
-func (s *Server) inspectorEventScope(v session) (*store.EventScope, store.Scope, bool) {
+// inspectorTelemetryScope returns the telemetry scope for inspector reads and
+// the store.Scope for handler-level policy-visibility checks. Nil telemetry
+// scope = admin (no filtering). A store error yields ok=false so the handler
+// answers 503 storage_unavailable, matching the journal.
+func (s *Server) inspectorTelemetryScope(v session) (*telemetry.Scope, store.Scope, bool) {
 	if v.Role != "manager" {
 		return nil, store.Scope{}, true
 	}
@@ -32,7 +31,7 @@ func (s *Server) inspectorEventScope(v session) (*store.EventScope, store.Scope,
 	if e != nil {
 		return nil, store.Scope{}, false
 	}
-	return &store.EventScope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}, sc, true
+	return &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}, sc, true
 }
 
 // explanation is the result of evaluating one event against a snapshot.
@@ -156,7 +155,7 @@ func splitDestination(destination string) (host string, port int) {
 
 func strPtr(s string) *string { return &s }
 
-// eventFailed mirrors the SaveEvents failed rule so the inspector counts
+// eventFailed mirrors the ingestion failed rule so the inspector counts
 // denials the same way the stored failed column does.
 func eventFailed(v events.Event) bool {
 	return strings.Contains(v.ProxyResult, "DENIED") || strings.Contains(v.ProxyResult, "FAIL") || (v.ProxyHTTPStatus != nil && *v.ProxyHTTPStatus >= 400)
@@ -218,28 +217,35 @@ func (s *Server) openConnections(ctx context.Context) (any, any) {
 
 func (s *Server) inspectorClientStats(w http.ResponseWriter, r *http.Request, v session) {
 	id := r.PathValue("id")
-	es, scope, ok := s.inspectorEventScope(v)
+	ts, scope, ok := s.inspectorTelemetryScope(v)
 	if !ok {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
-	// A manager must not learn whether a foreign client exists: out-of-scope is
-	// reported as 404, the same as a missing ID.
-	if !s.clientKnown(id) || (es != nil && !inScope(scope, id)) {
+	if !s.clientKnown(id) || (ts != nil && !inScope(scope, id)) {
 		fail(w, 404, "not_found", "Клиент не найден")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	stats, e := s.Store.InspectorClientStats(ctx, now, id, es)
+	from := now.Add(-24 * time.Hour)
+	buckets, e := s.Telemetry.Series(ctx, from, now, 15*time.Minute, id, ts)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Статистика клиента временно недоступна")
 		return
 	}
-	from := now.Add(-24 * time.Hour)
-	series := make([]map[string]any, len(stats.Buckets))
-	for i, b := range stats.Buckets {
+	top, e := s.Telemetry.TopHosts(ctx, from, now, []string{id}, ts, 10)
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Статистика клиента временно недоступна")
+		return
+	}
+	var stats struct{ requests, denied, bytes int64 }
+	series := make([]map[string]any, len(buckets))
+	for i, b := range buckets {
+		stats.requests += b.Requests
+		stats.denied += b.Denied
+		stats.bytes += b.Bytes
 		series[i] = map[string]any{
 			"start":    from.Add(time.Duration(i) * 15 * time.Minute).UTC().Format(time.RFC3339Nano),
 			"requests": b.Requests,
@@ -247,20 +253,20 @@ func (s *Server) inspectorClientStats(w http.ResponseWriter, r *http.Request, v 
 			"bytes":    b.Bytes,
 		}
 	}
-	top := make([]map[string]any, len(stats.TopDestinations))
-	for i, d := range stats.TopDestinations {
-		top[i] = map[string]any{"host": d.Host, "requests": d.Requests, "denied": d.Denied}
+	topOut := make([]map[string]any, len(top))
+	for i, d := range top {
+		topOut[i] = map[string]any{"host": d.Host, "requests": d.Requests, "denied": d.Denied}
 	}
 	open, reason := s.openConnections(ctx)
 	respond(w, 200, map[string]any{
 		"window_hours":                        24,
-		"requests":                            stats.Requests,
-		"denied":                              stats.Denied,
-		"bytes":                               stats.Bytes,
+		"requests":                            stats.requests,
+		"denied":                              stats.denied,
+		"bytes":                               stats.bytes,
 		"series":                              series,
 		"open_connections":                    open,
 		"open_connections_unavailable_reason": reason,
-		"top_destinations":                    top,
+		"top_destinations":                    topOut,
 	})
 }
 
@@ -271,15 +277,12 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 		fail(w, 404, "not_found", "Политика не найдена")
 		return
 	}
-	es, scope, ok := s.inspectorEventScope(v)
+	ts, scope, ok := s.inspectorTelemetryScope(v)
 	if !ok {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
-	// A manager sees a policy only if at least one of his clients references it
-	// in the active revision, or no client references it at all. A policy
-	// referenced only by foreign clients is reported as 404.
-	if es != nil {
+	if ts != nil {
 		active := s.loadActiveManifestOrDraft()
 		refs, mine := 0, false
 		for _, c := range active.Clients {
@@ -311,35 +314,46 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	rows, e := s.Store.InspectorPolicyEvents(ctx, now, clientIDs, es)
+	from24 := now.Add(-24 * time.Hour)
+	from7 := now.Add(-7 * 24 * time.Hour)
+	h24, e := s.Telemetry.TopHosts(ctx, from24, now, clientIDs, ts, 500)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Попадания по политике временно недоступны")
 		return
 	}
-	from24 := now.Add(-24 * time.Hour)
-	from7 := now.Add(-7 * 24 * time.Hour)
+	h7, e := s.Telemetry.TopHosts(ctx, from7, now, clientIDs, ts, 500)
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Попадания по политике временно недоступны")
+		return
+	}
+	m24 := map[string]int64{}
+	for _, h := range h24 {
+		m24[h.Host] = h.Requests
+	}
+	m7 := map[string]int64{}
+	for _, h := range h7 {
+		m7[h.Host] = h.Requests
+	}
 	domains := make([]map[string]any, len(destinations))
 	for i, d := range destinations {
-		h24, h7 := 0, 0
-		for _, ev := range rows {
-			if !policy.DomainMatches(inspectorHost(ev.Destination), d.Domain, d.IncludeSubdomains) {
-				continue
-			}
-			t, _ := time.Parse(time.RFC3339Nano, ev.Timestamp)
-			if !t.Before(from7) && !t.After(now) {
-				h7++
-			}
-			if !t.Before(from24) && !t.After(now) {
-				h24++
+		h24hits, h7hits := int64(0), int64(0)
+		for host, n := range m24 {
+			if policy.DomainMatches(host, d.Domain, d.IncludeSubdomains) {
+				h24hits += n
 			}
 		}
-		domains[i] = map[string]any{"domain": d.Domain, "include_subdomains": d.IncludeSubdomains, "hits_24h": h24, "hits_7d": h7}
+		for host, n := range m7 {
+			if policy.DomainMatches(host, d.Domain, d.IncludeSubdomains) {
+				h7hits += n
+			}
+		}
+		domains[i] = map[string]any{"domain": d.Domain, "include_subdomains": d.IncludeSubdomains, "hits_24h": h24hits, "hits_7d": h7hits}
 	}
 	respond(w, 200, map[string]any{"domains": domains})
 }
 
 func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request, v session) {
-	es, _, ok := s.inspectorEventScope(v)
+	ts, _, ok := s.inspectorTelemetryScope(v)
 	if !ok {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
@@ -347,85 +361,37 @@ func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request,
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	rows, e := s.Store.InspectorUnknownEvents(ctx, now, es)
+	from := now.Add(-24 * time.Hour)
+	srcs, e := s.Telemetry.UnknownSources(ctx, from, now, ts, 100)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Неописанные источники временно недоступны")
 		return
 	}
-	type dst struct {
-		Host     string
-		Requests int64
-		Denied   int64
-	}
-	type src struct {
-		IP       string
-		Requests int64
-		Denied   int64
-		LastSeen string
-		Dests    map[string]*dst
-	}
-	sources := map[string]*src{}
-	for _, ev := range rows {
-		s := sources[ev.SourceIP]
-		if s == nil {
-			s = &src{IP: ev.SourceIP, Dests: map[string]*dst{}}
-			sources[ev.SourceIP] = s
-		}
-		s.Requests++
-		failed := eventFailed(ev)
-		if failed {
-			s.Denied++
-		}
-		if s.LastSeen == "" || ev.Timestamp > s.LastSeen {
-			s.LastSeen = ev.Timestamp
-		}
-		host := inspectorHost(ev.Destination)
-		d := s.Dests[host]
-		if d == nil {
-			d = &dst{Host: host}
-			s.Dests[host] = d
-		}
-		d.Requests++
-		if failed {
-			d.Denied++
-		}
-	}
-	items := make([]map[string]any, 0, len(sources))
-	for _, s := range sources {
-		dests := make([]map[string]any, 0, len(s.Dests))
-		for _, d := range s.Dests {
+	items := make([]map[string]any, 0, len(srcs))
+	for _, sc := range srcs {
+		dests := make([]map[string]any, 0, len(sc.Top))
+		for _, d := range sc.Top {
 			dests = append(dests, map[string]any{"host": d.Host, "requests": d.Requests, "denied": d.Denied})
 		}
-		sort.Slice(dests, func(i, j int) bool {
-			if dests[i]["requests"].(int64) != dests[j]["requests"].(int64) {
-				return dests[i]["requests"].(int64) > dests[j]["requests"].(int64)
-			}
-			return dests[i]["host"].(string) < dests[j]["host"].(string)
-		})
-		if len(dests) > 10 {
-			dests = dests[:10]
+		last := ""
+		if !sc.LastSeen.IsZero() {
+			last = sc.LastSeen.UTC().Format(time.RFC3339Nano)
 		}
-		items = append(items, map[string]any{"source_ip": s.IP, "requests": s.Requests, "denied": s.Denied, "last_seen": s.LastSeen, "top_destinations": dests})
+		items = append(items, map[string]any{"source_ip": sc.SourceIP, "requests": sc.Requests, "denied": sc.Denied, "last_seen": last, "top_destinations": dests})
 	}
-	sort.Slice(items, func(i, j int) bool {
-		if items[i]["requests"].(int64) != items[j]["requests"].(int64) {
-			return items[i]["requests"].(int64) > items[j]["requests"].(int64)
-		}
-		return items[i]["source_ip"].(string) < items[j]["source_ip"].(string)
-	})
 	respond(w, 200, map[string]any{"sources": items})
 }
 
 func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v session) {
-	es, scope, ok := s.inspectorEventScope(v)
+	ts, scope, ok := s.inspectorTelemetryScope(v)
 	if !ok {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	ev, e := s.Store.InspectorEvent(ctx, r.PathValue("event_id"), es)
-	if errors.Is(e, sql.ErrNoRows) {
+	ev, e := s.Telemetry.Event(ctx, r.PathValue("event_id"), ts)
+	if errors.Is(e, telemetry.ErrNotFound) {
 		fail(w, 404, "not_found", "Событие не найдено")
 		return
 	}
@@ -438,10 +404,8 @@ func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v
 		fail(w, 503, "runtime_unavailable", "Активная политика недоступна")
 		return
 	}
-	// A manager explains against his filtered view so a foreign client or an
-	// invisible policy never appears in the response; admin uses the full snapshot.
 	snap := m.Snapshot
-	if es != nil {
+	if ts != nil {
 		snap = managerDraftView(m.Snapshot, scope)
 	}
 	ex := explainEvent(ev, snap)
@@ -454,7 +418,7 @@ func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v
 }
 
 func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v session) {
-	es, _, ok := s.inspectorEventScope(v)
+	ts, _, ok := s.inspectorTelemetryScope(v)
 	if !ok {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
@@ -462,7 +426,7 @@ func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v 
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	rows, e := s.Store.InspectorRecentEvents(ctx, now, es)
+	rows, e := s.Telemetry.RecentEvents(ctx, now.Add(-24*time.Hour), now, ts)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Журнал временно недоступен")
 		return
@@ -574,10 +538,10 @@ func (s *Server) inspectorDomainTemplates(w http.ResponseWriter, r *http.Request
 	respond(w, 200, map[string]any{"templates": templates})
 }
 
-// instanceStatus reports instance identity, data-volume free space and event
-// journal freshness for the status panel. Disk figures come from statfs of the
-// directory holding the SQLite database; a statfs failure surfaces as null
-// rather than a 503 so the rest of status stays useful.
+// instanceStatus reports instance identity, data-volume free space, telemetry
+// size and event journal freshness for the status panel. Disk figures come from
+// statfs of the directory holding the SQLite database; a statfs failure surfaces
+// as null rather than a 503 so the rest of status stays useful.
 func (s *Server) instanceStatus(ctx context.Context) map[string]any {
 	name := os.Getenv("KRAKEN_INSTANCE_NAME")
 	if name == "" {
@@ -593,32 +557,58 @@ func (s *Server) instanceStatus(ctx context.Context) map[string]any {
 			dataFree = uint64(stat.Bavail) * uint64(stat.Bsize)
 		}
 	}
-	var lastEvent, checkpointAt, lastApplied any
-	if ts, ok, e := s.Store.LastEventTimestamp(ctx); e == nil && ok {
-		lastEvent = ts
-	}
-	if cp, e := s.Store.EventCheckpoint(); e == nil && cp.ObservedAt != "" {
-		checkpointAt = cp.ObservedAt
+	var lastEvent, checkpointAt, lastApplied, telBytes any
+	var eventsOldest any
+	var telBroken int
+	if s.Telemetry != nil {
+		info, e := s.Telemetry.Info(ctx)
+		if e == nil {
+			telBytes = info.Bytes
+			telBroken = info.BrokenFiles
+			if !info.OldestRaw.IsZero() {
+				eventsOldest = info.OldestRaw.UTC().Format(time.RFC3339)
+			}
+		}
+		if cp, e := s.Telemetry.Checkpoint(ctx); e == nil {
+			if ts, ok := lastEventTimestampFromTelemetry(ctx, s); ok {
+				lastEvent = ts
+			}
+			if cp.ObservedAt != "" {
+				checkpointAt = cp.ObservedAt
+			}
+		}
 	}
 	if ts, ok, e := s.Store.LastAppliedAt(ctx); e == nil && ok {
 		lastApplied = ts
 	}
 	return map[string]any{
-		"name":                  name,
-		"data_free_bytes":       dataFree,
-		"data_total_bytes":      dataTotal,
-		"journal_last_event_at": lastEvent,
-		"journal_checkpoint_at": checkpointAt,
-		"last_applied_at":       lastApplied,
+		"name":                   name,
+		"data_free_bytes":        dataFree,
+		"data_total_bytes":       dataTotal,
+		"journal_last_event_at":  lastEvent,
+		"journal_checkpoint_at":  checkpointAt,
+		"last_applied_at":        lastApplied,
+		"telemetry_bytes":        telBytes,
+		"events_oldest_at":       eventsOldest,
+		"telemetry_broken_files": telBroken,
 	}
+}
+
+// lastEventTimestampFromTelemetry returns the timestamp of the most recent
+// ingested event across retained months.
+func lastEventTimestampFromTelemetry(ctx context.Context, s *Server) (string, bool) {
+	page, e := s.Telemetry.Events(ctx, telemetry.EventQuery{Limit: 1})
+	if e != nil || len(page.Items) == 0 {
+		return "", false
+	}
+	return page.Items[0].Timestamp, true
 }
 
 // inspectorHost strips the port and IPv6 brackets from a stored destination so
 // dstdomain matching and top-destination grouping use the bare hostname.
-// events.Parse already reduces a log URL to its bare host, but stored bodies
-// are untrusted data, so any smuggled path/query (/...), userinfo (user:pass@)
-// or port is stripped here as defence-in-depth before the host reaches a
-// response.
+// events.Parse already reduces a log URL to its bare host, but stored data is
+// untrusted, so any smuggled path/query (/...), userinfo (user:pass@) or port
+// is stripped here as defence-in-depth before the host reaches a response.
 func inspectorHost(destination string) string {
 	h := destination
 	if i := strings.Index(h, "/"); i >= 0 {

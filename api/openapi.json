@@ -1651,7 +1651,8 @@
             "required": true,
             "schema": {
               "type": "string"
-            }
+            },
+            "description": "Event id in compact <YYYYMM>-<rowid> form, as returned by /events and inspector endpoints."
           }
         ],
         "responses": {
@@ -2536,7 +2537,8 @@
         ],
         "properties": {
           "id": {
-            "type": "string"
+            "type": "string",
+            "description": "Opaque event id in compact <YYYYMM>-<rowid> form: the month key plus the rowid within events-YYYY-MM.db."
           },
           "timestamp": {
             "type": "string",
@@ -3780,7 +3782,10 @@
           "data_total_bytes",
           "journal_last_event_at",
           "journal_checkpoint_at",
-          "last_applied_at"
+          "last_applied_at",
+          "telemetry_bytes",
+          "events_oldest_at",
+          "telemetry_broken_files"
         ],
         "properties": {
           "name": {
@@ -3826,9 +3831,30 @@
             ],
             "format": "date-time",
             "description": "Updated-at of the most recent succeeded apply operation; null when none."
+          },
+          "telemetry_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Total size in bytes of telemetry files (monthly events DBs with WAL/SHM and rollups.db); null before telemetry is opened."
+          },
+          "events_oldest_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "RFC 3339 timestamp of the oldest retained raw event; null when none."
+          },
+          "telemetry_broken_files": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Number of telemetry files quarantined as broken by this process."
           }
         },
-        "description": "Instance identity, data-volume free space and event-journal freshness."
+        "description": "Instance identity, data-volume free space, telemetry size and event-journal freshness."
       },
       "InspectorSeriesBucket": {
         "type": "object",

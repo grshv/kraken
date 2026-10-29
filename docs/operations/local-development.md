@@ -27,10 +27,15 @@ Frontend, backend и Squid в одном контейнере. Node и Go на h
 
 ## Данные
 
-Compose named volume `/data`: `app/` (SQLite), `runtime/` (LKG/journal/active config),
-`logs/` и `certs/`. `docker compose -f deploy/compose.yaml down` сохраняет volume.
-Не используйте `down -v`, если данные нужны. Cache отключён. Секреты в volume не
-являются резервной копией.
+Compose named volume `/data`: `app/` (SQLite, в т.ч. `telemetry/` — события и
+агрегаты), `runtime/` (LKG/journal/active config), `logs/` и `certs/`.
+`docker compose -f deploy/compose.yaml down` сохраняет volume. Не используйте
+`down -v`, если данные нужны. Cache отключён. Секреты в volume не являются
+резервной копией.
+
+Каталог телеметрии — `KRAKEN_TELEMETRY_DIR` (по умолчанию `telemetry/` рядом с
+`control.sqlite3`), срок сырых событий — `KRAKEN_EVENTS_RETENTION_DAYS` (90),
+бюджет — `KRAKEN_EVENTS_BUDGET_MB` (5120).
 
 `kraken dev-cert` (внутри контейнера) не заменяет существующие ключи; создаёт
 development-сертификаты панели (`panel.*`, только для 10013) и прокси (`proxy.*`,

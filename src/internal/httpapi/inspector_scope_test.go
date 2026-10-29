@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"path/filepath"
 	"testing"
@@ -74,7 +76,7 @@ func inspectorScopeFixture(t *testing.T) (*Server, http.Handler, *http.Cookie, s
 		{ID: "ev-uk-in", Timestamp: ts(now, 10*time.Minute), SourceIP: "10.1.0.99", Destination: "unknown.example:443", Method: "CONNECT", ProxyResult: "TCP_DENIED", ProxyHTTPStatus: ptrInt(403), Bytes: 0, TLSMode: "tunnel"},
 		{ID: "ev-uk-out", Timestamp: ts(now, 15*time.Minute), SourceIP: "10.9.9.9", Destination: "unknown.example:443", Method: "CONNECT", ProxyResult: "TCP_DENIED", ProxyHTTPStatus: ptrInt(403), Bytes: 0, TLSMode: "tunnel"},
 	}
-	if e := s.Store.SaveEvents(rows, events.Checkpoint{SourceAvailable: true}); e != nil {
+	if e := s.Telemetry.Ingest(context.Background(), rows, events.Checkpoint{SourceAvailable: true}); e != nil {
 		t.Fatal(e)
 	}
 	createManagerUser(t, h, admin, csrf, "mgr", []string{"10.1.0.0/16"}, []string{"c-a", "c-a2"})
@@ -391,5 +393,55 @@ func TestInspectorScopeEmptyManager(t *testing.T) {
 	}
 	if code := getJSON(t, h, empty, "/inspector/domain-templates", &tpl); code != 200 || len(tpl.Templates) == 0 {
 		t.Fatalf("empty manager domain-templates: %d", code)
+	}
+}
+
+// TestEmptyManagerSeesNoStatisticsOrEvents covers the empty-scope rule on the
+// journal/statistics surface: a manager with no assignments gets zero
+// /statistics, empty /events and empty /inspector/unknown-sources, even though
+// events exist for other clients and unknown sources.
+func TestEmptyManagerSeesNoStatisticsOrEvents(t *testing.T) {
+	_, h, _, _, _ := inspectorScopeFixture(t)
+	empty, _ := loginAs(t, h, "empty", "manager-password-123")
+	// /statistics: zero requests, zero unique sources, 24 hourly buckets present.
+	var stats struct {
+		Requests  int        `json:"requests"`
+		Denied    int        `json:"denied"`
+		UniqueSrc int        `json:"unique_sources"`
+		Hourly    []struct{} `json:"hourly"`
+	}
+	if code := getJSON(t, h, empty, "/statistics", &stats); code != 200 {
+		t.Fatalf("empty manager statistics: %d", code)
+	}
+	if stats.Requests != 0 || stats.Denied != 0 || stats.UniqueSrc != 0 {
+		t.Fatalf("empty manager statistics nonzero: %+v", stats)
+	}
+	if len(stats.Hourly) != 24 {
+		t.Fatalf("empty manager statistics hourly buckets: %d", len(stats.Hourly))
+	}
+	// /events: empty page.
+	w := request(h, "GET", "/events?limit=10", nil, empty, "", "")
+	if w.Code != 200 {
+		t.Fatalf("empty manager events: %d", w.Code)
+	}
+	var page struct {
+		Items []struct {
+			ID string `json:"id"`
+		} `json:"items"`
+	}
+	if e := json.Unmarshal(w.Body.Bytes(), &page); e != nil {
+		t.Fatal(e)
+	}
+	if len(page.Items) != 0 {
+		t.Fatalf("empty manager events not empty: %+v", page)
+	}
+	// /inspector/unknown-sources: empty.
+	var uk struct {
+		Sources []struct {
+			IP string `json:"source_ip"`
+		} `json:"sources"`
+	}
+	if code := getJSON(t, h, empty, "/inspector/unknown-sources", &uk); code != 200 || len(uk.Sources) != 0 {
+		t.Fatalf("empty manager unknown-sources: %d %+v", code, uk)
 	}
 }

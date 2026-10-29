@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"os"
@@ -12,6 +13,7 @@ import (
 	"kraken.local/kraken/internal/events"
 	"kraken.local/kraken/internal/policy"
 	"kraken.local/kraken/internal/store"
+	"kraken.local/kraken/internal/telemetry"
 )
 
 func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {
@@ -68,7 +70,7 @@ func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {
 	if e = s.CollectEvents(); e != nil {
 		t.Fatal(e)
 	}
-	p, e := s.Store.EventPage(store.EventQuery{Limit: 20})
+	p, e := s.Telemetry.Events(context.Background(), telemetry.EventQuery{Limit: 20})
 	if e != nil || len(p.Items) != 2 || p.Items[1].ClientName == nil {
 		t.Fatal("history replayed or reassigned")
 	}
@@ -82,7 +84,7 @@ func TestHistorySurvivesSourceFailureAndReportsFreshness(t *testing.T) {
 	cookie, _ := loginTest(t, h)
 	stored := events.Event{ID: "saved", Timestamp: "2026-10-27T00:00:00Z", SourceIP: "192.0.2.1", Destination: "fixture.test", Method: "GET", ProxyResult: "TCP_MISS/200", TLSMode: "unknown", ClientMatchBasis: "unknown"}
 	cp := events.Checkpoint{ObservedAt: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano), SourceAvailable: true}
-	if e := s.Store.SaveEvents([]events.Event{stored}, cp); e != nil {
+	if e := s.Telemetry.Ingest(context.Background(), []events.Event{stored}, cp); e != nil {
 		t.Fatal(e)
 	}
 	s.Runtime.Options.LogPath = t.TempDir() // a directory is not a valid log source

@@ -65,6 +65,13 @@ Config монтируется каталогом, atomic rename должен б�
 Read-only rootfs/capabilities/non-root проверяются на реальном image, не включаются
 наугад ценой неработающего Pebble/helper. Cache init не выполняется при каждом apply.
 
+Телеметрия (события прокси и агрегаты) по умолчанию лежит в `/data/app/telemetry`
+(тот же volume и владелец 10013:10013), отдельная от управляющей `control.sqlite3`.
+Перенос каталога — `KRAKEN_TELEMETRY_DIR`; retention сырых событий —
+`KRAKEN_EVENTS_RETENTION_DAYS` (90), бюджет диска — `KRAKEN_EVENTS_BUDGET_MB`
+(5120). Повреждение или потеря телеметрии не ломает панель; backup — в
+[runbooks](runbooks.md).
+
 ## Restart, health и upgrade
 
 Панель и Squid имеют независимый restart в Pebble. Restart Go не останавливает

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -10,11 +11,14 @@ import (
 
 	"kraken.local/kraken/internal/events"
 	"kraken.local/kraken/internal/store"
+	"kraken.local/kraken/internal/telemetry"
 )
 
 // CollectEvents is called by one background reader, never by a request handler.
 func (s *Server) CollectEvents() error {
-	cp, e := s.Store.EventCheckpoint()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cp, e := s.Telemetry.Checkpoint(ctx)
 	if e != nil {
 		return e
 	}
@@ -64,7 +68,7 @@ func (s *Server) CollectEvents() error {
 			items[i].ClientMatchBasis = "policy_at_ingest"
 		}
 	}
-	return s.Store.SaveEvents(items, next)
+	return s.Telemetry.Ingest(ctx, items, next)
 }
 func queryLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	limit := 50
@@ -79,12 +83,13 @@ func queryLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	return limit, true
 }
 func queryFailure(w http.ResponseWriter, e error) {
-	if errors.Is(e, store.ErrCursor) {
+	if errors.Is(e, telemetry.ErrCursor) || errors.Is(e, store.ErrCursor) {
 		fail(w, 400, "invalid_cursor", "Страница устарела или фильтры изменились. Откройте последние записи")
 		return
 	}
 	fail(w, 503, "storage_unavailable", "История временно недоступна")
 }
+
 func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 	limit, ok := queryLimit(w, r)
 	if !ok {
@@ -100,49 +105,57 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 400, "invalid_filter", "Некорректный клиент")
 		return
 	}
-	filter := store.EventQuery{ClientID: q.Get("client_id"), Failures: raw == "true", Cursor: q.Get("cursor"), Limit: limit,
-		SourceIP: q.Get("source_ip"), Destination: strings.TrimSpace(q.Get("destination")), Method: q.Get("method"), Result: q.Get("result"), From: q.Get("from"), To: q.Get("to")}
+	filter := telemetry.EventQuery{ClientID: q.Get("client_id"), Failures: raw == "true", Cursor: q.Get("cursor"), Limit: limit,
+		SourceIP: q.Get("source_ip"), Destination: strings.TrimSpace(q.Get("destination")), Method: q.Get("method"), Result: q.Get("result")}
 	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64
 	if filter.SourceIP != "" {
 		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
 			invalid = true
 		}
 	}
-	for _, value := range []string{filter.From, filter.To} {
+	for _, value := range []string{q.Get("from"), q.Get("to")} {
 		if value != "" {
 			if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
 				invalid = true
 			}
 		}
 	}
-	if filter.From != "" && filter.To != "" {
-		from, _ := time.Parse(time.RFC3339Nano, filter.From)
-		to, _ := time.Parse(time.RFC3339Nano, filter.To)
-		invalid = invalid || !from.Before(to)
+	var fromT, toT time.Time
+	if q.Get("from") != "" {
+		fromT, _ = time.Parse(time.RFC3339Nano, q.Get("from"))
+		filter.From = fromT
+	}
+	if q.Get("to") != "" {
+		toT, _ = time.Parse(time.RFC3339Nano, q.Get("to"))
+		filter.To = toT
+	}
+	if !filter.From.IsZero() && !filter.To.IsZero() && !filter.From.Before(filter.To) {
+		invalid = true
 	}
 	if invalid {
 		fail(w, 400, "invalid_filter", "Проверьте IP, длину фильтров и диапазон времени")
 		return
 	}
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		sc, e := s.managerScope(v)
 		if e != nil {
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
-		// Manager cannot query a foreign client_id directly: treat as not found.
-		if filter.ClientID != "" && !inScope(scope, filter.ClientID) {
+		if filter.ClientID != "" && !inScope(sc, filter.ClientID) {
 			fail(w, 404, "not_found", "Клиент не найден")
 			return
 		}
-		filter.Scope = &store.EventScope{ClientIDs: scope.ClientIDs, Networks: scope.Networks}
+		filter.Scope = &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
 	}
-	p, e := s.Store.EventPage(filter)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	p, e := s.Telemetry.Events(ctx, filter)
 	if e != nil {
 		queryFailure(w, e)
 		return
 	}
-	cp, e := s.Store.EventCheckpoint()
+	cp, e := s.Telemetry.Checkpoint(ctx)
 	if e != nil {
 		queryFailure(w, e)
 		return
@@ -151,29 +164,25 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 	if t, e := time.Parse(time.RFC3339Nano, cp.ObservedAt); e == nil {
 		stale = time.Since(t) > 15*time.Second
 	}
-	p.Gap = p.Gap || cp.Gap
-	respond(w, 200, map[string]any{"items": p.Items, "next_cursor": p.NextCursor, "gap": p.Gap, "observed_at": p.ObservedAt, "ingestion": map[string]any{"observed_at": cp.ObservedAt, "stale": stale, "source_available": cp.SourceAvailable, "backlog": cp.Backlog, "dropped_records": cp.Dropped}, "retention_days": store.EventRetentionDays, "record_limit": store.EventLimit})
+	observed := time.Now().UTC().Format(time.RFC3339Nano)
+	respond(w, 200, map[string]any{"items": p.Items, "next_cursor": p.NextCursor, "gap": p.Gap, "observed_at": observed, "ingestion": map[string]any{"observed_at": cp.ObservedAt, "stale": stale, "source_available": cp.SourceAvailable, "backlog": cp.Backlog, "dropped_records": cp.Dropped}, "retention_days": s.Telemetry.RawRetentionDays(), "record_limit": 0})
 }
 func (s *Server) eventClients(w http.ResponseWriter, r *http.Request, v session) {
-	var items []map[string]string
+	var scope *telemetry.Scope
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		sc, e := s.managerScope(v)
 		if e != nil {
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
-		items, e = s.Store.EventClientsScope(scope.ClientIDs)
-		if e != nil {
-			queryFailure(w, e)
-			return
-		}
-	} else {
-		var e error
-		items, e = s.Store.EventClients()
-		if e != nil {
-			queryFailure(w, e)
-			return
-		}
+		scope = &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	items, e := s.Telemetry.EventClients(ctx, scope)
+	if e != nil {
+		queryFailure(w, e)
+		return
 	}
 	respond(w, 200, map[string]any{"items": items})
 }
@@ -189,12 +198,12 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, v session) 
 	}
 	aq := store.AuditQuery{Actor: q.Get("actor"), Action: q.Get("action"), EntityID: q.Get("entity_id"), Cursor: q.Get("cursor"), Limit: limit}
 	if v.Role == "manager" {
-		scope, e := s.managerScope(v)
+		sc, e := s.managerScope(v)
 		if e != nil {
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
-		aq.Scope = &store.AuditScope{ClientIDs: scope.ClientIDs, Networks: scope.Networks, Actor: v.User}
+		aq.Scope = &store.AuditScope{ClientIDs: sc.ClientIDs, Networks: sc.Networks, Actor: v.User}
 	}
 	p, e := s.Store.AuditPage(aq)
 	if e != nil {

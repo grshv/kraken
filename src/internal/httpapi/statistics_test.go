@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -10,13 +11,12 @@ import (
 
 	"kraken.local/kraken/internal/events"
 	"kraken.local/kraken/internal/policy"
-	"kraken.local/kraken/internal/store"
 )
 
 func TestStatisticsAggregateAndStorageFailure(t *testing.T) {
 	s, _ := fixtureServer(t)
 	event := events.Event{ID: "stats-fixture", Timestamp: time.Now().Add(-time.Minute).UTC().Format(time.RFC3339Nano), SourceIP: "192.0.2.1", Destination: "fixture.test", Method: "CONNECT", ProxyResult: "TCP_DENIED/407", Bytes: 42}
-	if err := s.Store.SaveEvents([]events.Event{event}, events.Checkpoint{}); err != nil {
+	if err := s.Telemetry.Ingest(context.Background(), []events.Event{event}, events.Checkpoint{}); err != nil {
 		t.Fatal(err)
 	}
 	// Route authorization is wired centrally by Server.Handler; this tests the
@@ -27,7 +27,7 @@ func TestStatisticsAggregateAndStorageFailure(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatal(w.Body.String())
 	}
-	var got store.Statistics
+	var got Statistics
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
@@ -35,6 +35,7 @@ func TestStatisticsAggregateAndStorageFailure(t *testing.T) {
 		t.Fatalf("incorrect statistics: %+v", got)
 	}
 	_ = s.Store.DB.Close()
+	s.Telemetry.Close()
 	w = httptest.NewRecorder()
 	s.statistics(w, r, session{})
 	if w.Code != http.StatusServiceUnavailable {
@@ -59,7 +60,7 @@ func TestActivityReadsConfirmedPolicyAndDoesNotExposeCheckpoint(t *testing.T) {
 	if err := s.Store.Put("draft", draft); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.Store.SaveEvents(nil, events.Checkpoint{Files: map[string]events.Position{"private-path": {Anchor: "private-anchor"}}, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+	if err := s.Telemetry.Ingest(context.Background(), nil, events.Checkpoint{Files: map[string]events.Position{"private-path": {Anchor: "private-anchor"}}, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
 		t.Fatal(err)
 	}
 	w := request(h, "GET", "/activity", nil, cookie, "", "")
@@ -70,7 +71,7 @@ func TestActivityReadsConfirmedPolicyAndDoesNotExposeCheckpoint(t *testing.T) {
 		Applied struct {
 			Enabled int `json:"enabled_clients"`
 		} `json:"applied"`
-		Activity store.Activity `json:"activity"`
+		Activity Activity `json:"activity"`
 	}
 	if err := json.Unmarshal(w.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
