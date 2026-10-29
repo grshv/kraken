@@ -12,7 +12,7 @@
 | Пользователи | Роли admin/viewer, блокировка, отзыв сессий, защита последнего admin | Go tests, smoke |
 | Клиенты и политики | Клиенты, сети, группы; all_web и allowlist; default deny; защита loopback/link-local/metadata/private | Go tests, smoke на реальных source IP |
 | Proxy auth | Отдельные proxy accounts, Basic только через TLS listener, IP/CIDR + username | Go tests, smoke на Squid 6.13 |
-| Настройки и expert | Визуальные настройки Squid; expert-секция с allowlist директив | Go tests, smoke |
+| Настройки и expert | Визуальные настройки Squid; expert-секция с allowlist директив, запретом файлов-параметров и peers во внутренние сети; строка ошибки parse без вывода Squid | Go tests, мутационная проверка, smoke |
 | Применение | Черновик, preview/diff, parse, apply, fingerprint, LKG, recovery, rollback, service-update | Go fault tests (ENOSPC, SIGKILL), smoke |
 | Диагностика | История запросов с фильтрами и cursor, аудит, retention, обзор с live-метриками Squid | Go tests, smoke |
 | TLS | TLS к прокси, сквозной HTTPS CONNECT с исходным сертификатом сайта | Smoke с проверкой цепочки |
@@ -40,8 +40,7 @@
 
 | # | Срез | Критерии приёмки | Состояние |
 | --- | --- | --- | --- |
-| 1 | Expert allowlist и строка ошибки parse | Директивы вне allowlist, файлы-параметры, `deny_info` с путём, peers во внутренние сети отклоняются при сохранении черновика; 6to4/Teredo/NAT64 local-use в `sc_protected_dst`; ошибка parse показывает номер строки без текста Squid | В работе |
-| 2 | Разделение UID Squid и Go | Процесс Squid не может открыть SQLite панели и ключ панели (проверка `docker exec --user proxy`); proxy auth читает отдельный экспорт верификаторов; reload, apply, rollback и recovery работают как раньше. Сначала spike: способ reload без общего UID (manager `reconfigure` на loopback 3131 или иной), затем ADR | Не начат |
+| 2 | Разделение UID Squid и Go | Процесс Squid не может открыть SQLite панели и ключ панели (проверка `docker exec --user proxy`); proxy auth читает отдельный экспорт верификаторов; reload, apply, rollback и recovery работают как раньше. Spike выполнен: на Squid 6.13 `cache_object://127.0.0.1/reconfigure@<token>` через loopback 3131 перечитывает конфиг из процесса с другим UID, `kill -HUP` даёт EPERM. Нужен ADR: расширение ADR 0013 одним действием с секретом | ADR не начат |
 | 3 | Сетевые запреты в smoke | С реальных source-адресов отклоняются IPv6 loopback/link-local, IPv4-mapped, 6to4, Teredo, private (при выключенной настройке), metadata; имя, резолвящееся во внутренний адрес; смена DNS-ответа между запросами (rebinding) не открывает внутренний адрес | Не начат |
 | 4 | APT через прокси | `apt-get update` и `apt-get install` тестового пакета из локального подписанного репозитория через HTTP и через HTTPS CONNECT; проверка подписей включена; allowlist-клиент без домена репозитория получает отказ | Не начат |
 | 5 | Ревизия expert-режима | Частые сценарии (кандидаты: upstream proxy, правила кеша пакетов) перенесены в типизированные настройки с тестами; expert остаётся аварийным режимом. Состав сценариев подтверждает владелец | Ждёт ответа владельца |
