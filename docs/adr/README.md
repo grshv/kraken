@@ -21,3 +21,4 @@ ADR фиксирует существенное решение: границы �
 | [0012](0012-local-users-and-proxy-passwords.md) | Admin/viewer, proxy accounts и управляемый auth helper | Accepted |
 | [0013](0013-read-only-squid-metrics.md) | Read-only метрики Squid manager на loopback | Accepted |
 | [0014](0014-documentation-discipline.md) | Одна инструкция агентам, один статус, проверяемые правила docs | Accepted |
+| [0015](0015-separate-squid-uid.md) | Отдельный UID для Squid, reload через manager, экспорт proxy-верификаторов | Accepted |
