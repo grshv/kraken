@@ -92,7 +92,9 @@ secret references и terminal outcome. Он связывается с запис
 Откат приложения возможен только при совместимой схеме, иначе restore согласованной
 копии, а не произвольное `down`. Compatibility window документируется в релизе.
 `migrations/001.sql` — базовая схема; следующие миграции добавляются файлами
-`002.sql` и далее в `migrations.Ordered`. Runner записывает version и checksum в
+`002.sql` и далее в `migrations.Ordered`. `003.sql` добавляет составной индекс
+`(client_id, ingested_at)` для rollup-запросов инспектора; `002` зарезервирован
+за другой задачей и пока отсутствует. Runner записывает version и checksum в
 `schema_migrations`. DDL, перенос данных и версия выполняются одной транзакцией
 SQLite: ошибка откатывает весь переход. Записанный checksum, не совпадающий с
 checksum этой сборки, означает базу несовместимой сборки — `store.Open`
@@ -120,7 +122,8 @@ users.password_hash хранит только Argon2id PHC verifier. CLI reset �
 
 proxy_events: seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id UNIQUE, client_id,
 client_name, failed, ingested_at, body (нормализованный JSON). Индексы client/seq,
-failed/seq и ingested_at. kv.event_checkpoint хранит offsets/anchors/generations,
+failed/seq, ingested_at и составной (client_id, ingested_at) из миграции 003 для
+rollup-запросов инспектора. kv.event_checkpoint хранит offsets/anchors/generations,
 last successful read и известные gap/dropped/backlog/source flags. Вставка событий
 и checkpoint — одна транзакция. Сырой текст и URL path/query/userinfo не хранятся.
 

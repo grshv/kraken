@@ -385,3 +385,52 @@ func UserSectionLine(config string, configLine int) (int, bool) {
 	}
 	return configLine - begin, true
 }
+
+// ProtectionDenial reports whether a request to the given destination would be
+// denied by the protective http_access rules that precede user policy: a port
+// outside SafePorts, CONNECT to a port outside ConnectPorts, or a destination
+// IP literal in a protected (or, unless allowed, private) range. Domain hosts
+// are not DNS-resolved here, so a domain that resolves to a protected address
+// is not flagged; this is a static, non-resolving assessment that mirrors the
+// inspector's "evaluate by current rules" contract, not a runtime proof.
+func ProtectionDenial(host string, port int, connect bool, settings Settings) bool {
+	if port > 0 {
+		if !portIn(settings.SafePorts, port) {
+			return true
+		}
+		if connect && !portIn(settings.ConnectPorts, port) {
+			return true
+		}
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		if !peerAddrAllowed(addr, settings.AllowPrivateDestinations) {
+			return true
+		}
+	}
+	return false
+}
+
+// DomainMatches reports whether host matches domain the way Squid's dstdomain
+// ACL does: exact match when includeSubdomains is false; exact match or any
+// subdomain when true. host is the destination hostname (port already stripped)
+// and is compared case-insensitively. IP-literal hosts never match a domain.
+func DomainMatches(host, domain string, includeSubdomains bool) bool {
+	h := strings.ToLower(host)
+	d := strings.ToLower(domain)
+	if h == "" || d == "" {
+		return false
+	}
+	if includeSubdomains {
+		return h == d || strings.HasSuffix(h, "."+d)
+	}
+	return h == d
+}
+
+func portIn(ports []int, port int) bool {
+	for _, p := range ports {
+		if p == port {
+			return true
+		}
+	}
+	return false
+}

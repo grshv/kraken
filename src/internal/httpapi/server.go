@@ -72,6 +72,9 @@ type Server struct {
 	Origin            string
 	Static            http.Handler
 	Image             string
+	// now returns the current time for inspector windowing. Production uses
+	// time.Now; tests override it to assert window boundaries deterministically.
+	now               func() time.Time
 	draftMu           sync.Mutex
 	opsMu             sync.Mutex
 	throttleMu        sync.Mutex
@@ -107,7 +110,7 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 	if e != nil {
 		return nil, e
 	}
-	s := &Server{Store: st, Runtime: rt, Origin: origin, Static: static, Image: image, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, anonymousKey: []byte(rand.Text()), certCache: map[string]certCacheEntry{}}
+	s := &Server{Store: st, Runtime: rt, Origin: origin, Static: static, Image: image, now: time.Now, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, anonymousKey: []byte(rand.Text()), certCache: map[string]certCacheEntry{}}
 	var d Draft
 	e = st.Get("draft", &d)
 	if errors.Is(e, sql.ErrNoRows) {
@@ -202,6 +205,12 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.authorized("configure", s.getOperation))
 	mux.HandleFunc("GET /api/v1/events", s.authorized("read", s.events))
 	mux.HandleFunc("GET /api/v1/events/clients", s.authorized("read", s.eventClients))
+	mux.HandleFunc("GET /api/v1/inspector/clients/{id}/stats", s.authorized("read", s.inspectorClientStats))
+	mux.HandleFunc("GET /api/v1/inspector/policies/{id}/hits", s.authorized("read", s.inspectorPolicyHits))
+	mux.HandleFunc("GET /api/v1/inspector/unknown-sources", s.authorized("read", s.inspectorUnknownSources))
+	mux.HandleFunc("GET /api/v1/inspector/events/{event_id}/explain", s.authorized("read", s.inspectorEventExplain))
+	mux.HandleFunc("GET /api/v1/inspector/draft-impact", s.authorized("read", s.inspectorDraftImpact))
+	mux.HandleFunc("GET /api/v1/inspector/domain-templates", s.authorized("read", s.inspectorDomainTemplates))
 	mux.HandleFunc("GET /api/v1/audit", s.authorized("audit", s.auditEvents))
 	mux.HandleFunc("GET /api/v1/users", s.authorized("users", s.listUsers))
 	mux.HandleFunc("POST /api/v1/users", s.authorized("users", s.createUser))
