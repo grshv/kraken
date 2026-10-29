@@ -16,27 +16,16 @@ import (
 	"kraken.local/kraken/internal/events"
 )
 
-// InspectorScope limits which events an inspector query considers. A nil scope means all
-// events are visible (admin view). A non-nil scope restricts results to events
-// whose client_id is in ClientIDs (a nil ClientIDs means every described
-// client) plus events without a client_id whose source_ip is in SourceCIDRs (a
-// nil SourceCIDRs means every unknown source). Handlers pass nil today; the
-// manager-role wiring lands with slice 9.
-type InspectorScope struct {
-	ClientIDs   []string
-	SourceCIDRs []string
-}
-
-// inScope reports whether a stored event is visible under the given scope. A nil
-// scope admits everything; otherwise per-field nil means "all of that category".
-func inScope(v events.Event, scope *InspectorScope) bool {
+// inScope reports whether a stored event is visible under the given scope. A
+// nil scope admits everything (admin view). A non-nil scope admits an event
+// whose client_id is in ClientIDs, or — when client_id is empty — whose
+// source_ip is inside one of Networks (CIDR or single address, with
+// IPv4-mapped addresses unmapped). Empty lists admit nothing.
+func inScope(v events.Event, scope *EventScope) bool {
 	if scope == nil {
 		return true
 	}
 	if v.ClientID != nil {
-		if scope.ClientIDs == nil {
-			return true
-		}
 		for _, id := range scope.ClientIDs {
 			if id == *v.ClientID {
 				return true
@@ -44,14 +33,11 @@ func inScope(v events.Event, scope *InspectorScope) bool {
 		}
 		return false
 	}
-	if scope.SourceCIDRs == nil {
-		return true
-	}
 	ip, err := netip.ParseAddr(v.SourceIP)
 	if err != nil {
 		return false
 	}
-	for _, raw := range scope.SourceCIDRs {
+	for _, raw := range scope.Networks {
 		if p, e := netip.ParsePrefix(raw); e == nil && (p.Contains(ip) || p.Contains(ip.Unmap())) {
 			return true
 		}
@@ -63,8 +49,9 @@ func inScope(v events.Event, scope *InspectorScope) bool {
 }
 
 // scopeAllowsClient reports whether a single client_id is visible under scope.
-func scopeAllowsClient(scope *InspectorScope, clientID string) bool {
-	if scope == nil || scope.ClientIDs == nil {
+// A nil scope admits every client; a non-nil scope admits only listed clients.
+func scopeAllowsClient(scope *EventScope, clientID string) bool {
+	if scope == nil {
 		return true
 	}
 	for _, id := range scope.ClientIDs {
@@ -76,8 +63,9 @@ func scopeAllowsClient(scope *InspectorScope, clientID string) bool {
 }
 
 // scopeFilterClients restricts a client_id list to those visible under scope.
-func scopeFilterClients(scope *InspectorScope, clientIDs []string) []string {
-	if scope == nil || scope.ClientIDs == nil {
+// A nil scope passes the input through unchanged.
+func scopeFilterClients(scope *EventScope, clientIDs []string) []string {
+	if scope == nil {
 		return clientIDs
 	}
 	allowed := map[string]bool{}
@@ -151,7 +139,7 @@ func hostOf(destination string) string {
 // [now-24h, now] window by Event.Timestamp. The client_id index plus a coarse
 // ingested_at bound select a superset; Go applies the precise window, 96
 // 15-minute buckets and top destinations. Denied uses the stored failed column.
-func (s *Store) InspectorClientStats(ctx context.Context, now time.Time, clientID string, scope *InspectorScope) (ClientStats, error) {
+func (s *Store) InspectorClientStats(ctx context.Context, now time.Time, clientID string, scope *EventScope) (ClientStats, error) {
 	out := ClientStats{Buckets: make([]ClientStatsBucket, 96), TopDestinations: []ClientTopDestination{}}
 	if !scopeAllowsClient(scope, clientID) {
 		return out, nil
@@ -234,7 +222,7 @@ func (s *Store) InspectorClientStats(ctx context.Context, now time.Time, clientI
 // The client_id index plus a coarse ingested_at bound select a superset; Go
 // applies the precise window. Only timestamp and destination are needed by the
 // caller, but the full body is unmarshalled once per row to match the codebase.
-func (s *Store) InspectorPolicyEvents(ctx context.Context, now time.Time, clientIDs []string, scope *InspectorScope) ([]events.Event, error) {
+func (s *Store) InspectorPolicyEvents(ctx context.Context, now time.Time, clientIDs []string, scope *EventScope) ([]events.Event, error) {
 	out := []events.Event{}
 	clientIDs = scopeFilterClients(scope, clientIDs)
 	if len(clientIDs) == 0 {
@@ -281,7 +269,7 @@ func (s *Store) InspectorPolicyEvents(ctx context.Context, now time.Time, client
 // rolling [now-24h, now] window for the handler to group by source_ip. The
 // client_id index selects NULL rows (SQLite indexes NULLs) with a coarse
 // ingested_at bound; Go applies the precise window.
-func (s *Store) InspectorUnknownEvents(ctx context.Context, now time.Time, scope *InspectorScope) ([]events.Event, error) {
+func (s *Store) InspectorUnknownEvents(ctx context.Context, now time.Time, scope *EventScope) ([]events.Event, error) {
 	out := []events.Event{}
 	from := now.UTC().Add(-24 * time.Hour)
 	rows, e := s.DB.QueryContext(ctx, "SELECT body FROM proxy_events WHERE client_id IS NULL AND ingested_at>=? ORDER BY seq DESC LIMIT ?", coarseFrom(now, 24), EventLimit)
@@ -317,7 +305,7 @@ func (s *Store) InspectorUnknownEvents(ctx context.Context, now time.Time, scope
 // window for draft-impact assessment. A coarse ingested_at bound selects a
 // superset; Go applies the precise window before the handler re-evaluates each
 // event against the active policy and the draft.
-func (s *Store) InspectorRecentEvents(ctx context.Context, now time.Time, scope *InspectorScope) ([]events.Event, error) {
+func (s *Store) InspectorRecentEvents(ctx context.Context, now time.Time, scope *EventScope) ([]events.Event, error) {
 	out := []events.Event{}
 	from := now.UTC().Add(-24 * time.Hour)
 	rows, e := s.DB.QueryContext(ctx, "SELECT body FROM proxy_events WHERE ingested_at>=? ORDER BY seq DESC LIMIT ?", coarseFrom(now, 24), EventLimit)
@@ -349,16 +337,24 @@ func (s *Store) InspectorRecentEvents(ctx context.Context, now time.Time, scope 
 	return out, rows.Err()
 }
 
-// InspectorEvent returns one event by its event_id, or sql.ErrNoRows.
-func (s *Store) InspectorEvent(ctx context.Context, eventID string) (events.Event, error) {
+// InspectorEvent returns one event by its event_id, or sql.ErrNoRows. A non-nil
+// scope hides events outside the manager's view (foreign client or unknown
+// source outside his networks) as sql.ErrNoRows, so the handler answers 404 the
+// same as for a missing ID.
+func (s *Store) InspectorEvent(ctx context.Context, eventID string, scope *EventScope) (events.Event, error) {
 	var v events.Event
 	var body string
 	e := s.DB.QueryRowContext(ctx, "SELECT body FROM proxy_events WHERE event_id=?", eventID).Scan(&body)
 	if e != nil {
 		return v, e
 	}
-	e = json.Unmarshal([]byte(body), &v)
-	return v, e
+	if e = json.Unmarshal([]byte(body), &v); e != nil {
+		return v, e
+	}
+	if !inScope(v, scope) {
+		return v, sql.ErrNoRows
+	}
+	return v, nil
 }
 
 // LastEventTimestamp returns the timestamp of the most recently ingested event

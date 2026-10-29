@@ -190,11 +190,11 @@ func TestInspectorEventByID(t *testing.T) {
 	if err := s.SaveEvents([]events.Event{sample("ev-1")}, events.Checkpoint{}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.InspectorEvent(context.Background(), "ev-1")
+	got, err := s.InspectorEvent(context.Background(), "ev-1", nil)
 	if err != nil || got.ID != "ev-1" {
 		t.Fatalf("event by id: %+v %v", got, err)
 	}
-	if _, err := s.InspectorEvent(context.Background(), "missing"); err == nil {
+	if _, err := s.InspectorEvent(context.Background(), "missing", nil); err == nil {
 		t.Fatal("missing event returned no error")
 	}
 }
