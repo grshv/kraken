@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -65,11 +66,11 @@ func TestRenderManagerPolicyLayout(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if !strings.Contains(c, "pid_filename /data/squid/squid.pid\n") {
-		t.Fatal("missing pid_filename in SquidDir")
+	if !strings.Contains(c, "pid_filename "+o.SquidDir+"/squid.pid\n") {
+		t.Fatal("missing pid_filename in the Squid run directory")
 	}
-	if !strings.Contains(c, "cache_log /data/squid/cache.log\n") {
-		t.Fatal("missing cache_log in SquidDir")
+	if !strings.Contains(c, "cache_log "+filepath.Dir(o.LogPath)+"/cache.log\n") {
+		t.Fatal("missing cache_log derived from log path")
 	}
 	inc := strings.Index(c, "include "+o.StateDir+"/manager-auth.conf\n")
 	dis := strings.Index(c, "cachemgr_passwd disable all\n")

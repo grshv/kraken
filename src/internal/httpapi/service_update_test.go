@@ -2,10 +2,7 @@ package httpapi
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"os"
-	"path/filepath"
 	"reflect"
 	"testing"
 
@@ -21,8 +18,7 @@ func oldServiceFixture(t *testing.T) (*Server, local.Manifest) {
 		t.Fatal(err)
 	}
 	old.Compiler = "5"
-	body, _ := json.Marshal(old)
-	if err = os.WriteFile(filepath.Join(s.Runtime.Dir, "lkg.json"), body, 0600); err != nil {
+	if err = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", old); err != nil {
 		t.Fatal(err)
 	}
 	return s, old

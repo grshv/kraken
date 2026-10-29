@@ -19,7 +19,7 @@ import (
 func newTree(t *testing.T) (dataDir, out string, st *store.Store) {
 	t.Helper()
 	dataDir = filepath.Join(t.TempDir(), "data")
-	st, e := store.Open(filepath.Join(dataDir, "app", "control.sqlite3"))
+	st, e := store.Open(filepath.Join(dataDir, "data", "control.sqlite3"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -125,27 +125,26 @@ func openExtracted(t *testing.T, out, name string) *sql.DB {
 
 func TestBackupArchiveContents(t *testing.T) {
 	dataDir, out, st := newTree(t)
-	writeFile(t, filepath.Join(dataDir, "runtime", "active.conf"), "http_access deny all\n")
 	writeFile(t, filepath.Join(dataDir, "certs", "proxy.crt"), "PEM")
-	writeFile(t, filepath.Join(dataDir, "logs", "access.log"), "secret-noise\n")
-	if e := os.Symlink("../certs/proxy.crt", filepath.Join(dataDir, "runtime", "panel.link")); e != nil {
+	writeFile(t, filepath.Join(dataDir, "log", "access.log"), "secret-noise\n")
+	if e := os.Symlink("../certs/proxy.crt", filepath.Join(dataDir, "certs", "panel.link")); e != nil {
 		t.Fatal(e)
 	}
 	if e := Backup(context.Background(), st, dataDir, out); e != nil {
 		t.Fatal(e)
 	}
 	idx := tarIndex(t, out)
-	for _, want := range []string{"app/control.sqlite3", "runtime/active.conf", "runtime/panel.link", "certs/proxy.crt"} {
+	for _, want := range []string{"data/control.sqlite3", "certs/proxy.crt", "certs/panel.link"} {
 		if _, ok := idx[want]; !ok {
 			t.Errorf("missing %q in archive", want)
 		}
 	}
-	for _, bad := range []string{"logs/access.log", "app/control.sqlite3-wal", "app/control.sqlite3-shm"} {
+	for _, bad := range []string{"log/access.log", "data/control.sqlite3-wal", "data/control.sqlite3-shm"} {
 		if _, ok := idx[bad]; ok {
 			t.Errorf("archive must not include %q", bad)
 		}
 	}
-	if h := idx["runtime/panel.link"]; h == nil || h.Typeflag != tar.TypeSymlink || h.Linkname != "../certs/proxy.crt" {
+	if h := idx["certs/panel.link"]; h == nil || h.Typeflag != tar.TypeSymlink || h.Linkname != "../certs/proxy.crt" {
 		t.Errorf("symlink entry wrong: %+v", h)
 	}
 }
@@ -208,7 +207,7 @@ func TestBackupVacuumedCopyIsConsistent(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	db := openExtracted(t, out, "app/control.sqlite3")
+	db := openExtracted(t, out, "data/control.sqlite3")
 	var check string
 	if e := db.QueryRow("PRAGMA integrity_check").Scan(&check); e != nil || check != "ok" {
 		t.Fatalf("integrity_check: %v (%q)", e, check)
@@ -221,20 +220,20 @@ func TestBackupVacuumedCopyIsConsistent(t *testing.T) {
 
 func TestBackupIncludesRollupsVacuumed(t *testing.T) {
 	dataDir, out, st := newTree(t)
-	makeRollups(t, filepath.Join(dataDir, "app", "telemetry", "rollups.db"))
+	makeRollups(t, filepath.Join(dataDir, "data", "telemetry", "rollups.db"))
 	if e := Backup(context.Background(), st, dataDir, out); e != nil {
 		t.Fatal(e)
 	}
 	idx := tarIndex(t, out)
-	if _, ok := idx["app/telemetry/rollups.db"]; !ok {
+	if _, ok := idx["data/telemetry/rollups.db"]; !ok {
 		t.Fatal("rollups.db missing from archive")
 	}
-	for _, bad := range []string{"app/telemetry/rollups.db-wal", "app/telemetry/rollups.db-shm"} {
+	for _, bad := range []string{"data/telemetry/rollups.db-wal", "data/telemetry/rollups.db-shm"} {
 		if _, ok := idx[bad]; ok {
 			t.Errorf("archive must not include %q", bad)
 		}
 	}
-	db := openExtracted(t, out, "app/telemetry/rollups.db")
+	db := openExtracted(t, out, "data/telemetry/rollups.db")
 	var hits int
 	if e := db.QueryRow("SELECT hits FROM rollup WHERE host='demo.test'").Scan(&hits); e != nil || hits != 42 {
 		t.Fatalf("rollup row: %v (%d)", e, hits)
@@ -247,17 +246,17 @@ func TestBackupDoesNotFollowSymlinkOutside(t *testing.T) {
 	if e := os.WriteFile(secret, []byte("SHOULD-NOT-LEAK"), 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e := os.MkdirAll(filepath.Join(dataDir, "runtime"), 0700); e != nil {
+	if e := os.MkdirAll(filepath.Join(dataDir, "certs"), 0700); e != nil {
 		t.Fatal(e)
 	}
-	if e := os.Symlink("../secret.txt", filepath.Join(dataDir, "runtime", "outside.link")); e != nil {
+	if e := os.Symlink("../secret.txt", filepath.Join(dataDir, "certs", "outside.link")); e != nil {
 		t.Fatal(e)
 	}
 	if e := Backup(context.Background(), st, dataDir, out); e != nil {
 		t.Fatal(e)
 	}
 	idx := tarIndex(t, out)
-	h := idx["runtime/outside.link"]
+	h := idx["certs/outside.link"]
 	if h == nil || h.Typeflag != tar.TypeSymlink {
 		t.Fatalf("outside.link must be a symlink entry, got %+v", h)
 	}
@@ -272,12 +271,12 @@ func TestBackupDoesNotFollowSymlinkOutside(t *testing.T) {
 
 func TestBackupMissingDirsAreSkipped(t *testing.T) {
 	dataDir, out, st := newTree(t)
-	// Only app/control.sqlite3 exists; runtime/ and certs/ absent.
+	// Only data/control.sqlite3 exists; certs/ absent.
 	if e := Backup(context.Background(), st, dataDir, out); e != nil {
 		t.Fatal(e)
 	}
 	idx := tarIndex(t, out)
-	if _, ok := idx["app/control.sqlite3"]; !ok {
+	if _, ok := idx["data/control.sqlite3"]; !ok {
 		t.Fatal("control.sqlite3 missing")
 	}
 }

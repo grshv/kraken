@@ -16,7 +16,7 @@ import (
 func testManager(t *testing.T) *Manager {
 	t.Helper()
 	m := New(t.TempDir(), "/unused", "/dev/null", "", "", "")
-	m.AppDir = t.TempDir()
+	m.State = newMemState()
 	m.Command = func(context.Context, ...string) error { return nil }
 	m.Reload = func(context.Context, string) error { return nil }
 	m.Probe = func(context.Context, string) error { return nil }
@@ -62,7 +62,7 @@ func TestCrashRecoveryUsesPrevious(t *testing.T) {
 	next := prev
 	next.Config = "invalid candidate"
 	j := Journal{Operation: "crashed", Stage: "reloading", Previous: prev, Candidate: next}
-	if e := m.write("journal.json", j); e != nil {
+	if e := m.save(stateJournal, j); e != nil {
 		t.Fatal(e)
 	}
 	Atomic(m.ActivePath(), []byte(next.Config))
@@ -132,7 +132,7 @@ func writeFakeSquid(t *testing.T, body string) string {
 func TestParseErrorReportsLineWithoutOutput(t *testing.T) {
 	bin := writeFakeSquid(t, "FATAL: Bungled /x/candidate.conf line 42: SECRET_TOKEN_VALUE")
 	m := New(t.TempDir(), bin, "/dev/null", "", "", "")
-	m.AppDir = t.TempDir()
+	m.State = newMemState()
 	m.Probe = func(context.Context, string) error { return nil }
 	m.Command = func(context.Context, ...string) error { return nil }
 	if e := m.Recover(context.Background(), true); e != nil {
@@ -158,7 +158,7 @@ func TestParseErrorReportsLineWithoutOutput(t *testing.T) {
 func TestParseErrorWithoutLineNumber(t *testing.T) {
 	bin := writeFakeSquid(t, "FATAL: bungled without a line marker")
 	m := New(t.TempDir(), bin, "/dev/null", "", "", "")
-	m.AppDir = t.TempDir()
+	m.State = newMemState()
 	m.Probe = func(context.Context, string) error { return nil }
 	m.Command = func(context.Context, ...string) error { return nil }
 	if e := m.Recover(context.Background(), true); e != nil {
@@ -172,48 +172,48 @@ func TestParseErrorWithoutLineNumber(t *testing.T) {
 	}
 }
 
-func TestSquidReadyBranches(t *testing.T) {
-	// terminal: ready
-	m := testManager(t)
-	if ready, e := m.SquidReady(); e != nil || !ready {
-		t.Fatalf("terminal expected ready, got %v %v", ready, e)
+// TestSquidReadyFileGated checks the squid-start readiness contract: serve
+// writes all three derivative files only after recovery, so their presence (and
+// a non-empty squid.conf) is the signal, and a world-accessible file is refused.
+func TestSquidReadyFileGated(t *testing.T) {
+	dir := t.TempDir()
+	m := New(dir, "/unused", "/dev/null", "", "", "")
+	m.State = newMemState()
+	touch := func(name string, mode os.FileMode, body string) {
+		if e := os.WriteFile(filepath.Join(dir, name), []byte(body), mode); e != nil {
+			t.Fatal(e)
+		}
+		// os.WriteFile only sets the mode on creation; force it so a
+		// re-written file picks up the requested permission.
+		if e := os.Chmod(filepath.Join(dir, name), mode); e != nil {
+			t.Fatal(e)
+		}
 	}
-	prev, _ := m.ReadManifest()
-
-	// no lkg: (false, nil)
-	os.Remove(filepath.Join(m.Dir, "lkg.json"))
 	if ready, e := m.SquidReady(); e != nil || ready {
-		t.Fatalf("no lkg expected (false,nil), got %v %v", ready, e)
+		t.Fatalf("empty dir: got %v %v", ready, e)
 	}
-
-	// active != lkg.Config: (false, nil)
-	Atomic(m.ActivePath(), []byte("drifted config"))
-	Atomic(filepath.Join(m.Dir, "lkg.json"), mustJSON(prev))
-	if ready, e := m.SquidReady(); e != nil || ready {
-		t.Fatalf("drifted active expected (false,nil), got %v %v", ready, e)
+	touch("squid.conf", 0640, "# config\n")
+	if ready, _ := m.SquidReady(); ready {
+		t.Fatal("missing manager-auth.conf/proxy-accounts.json must not be ready")
 	}
-
-	// restore consistent active
-	Atomic(m.ActivePath(), []byte(prev.Config))
-
-	// journal not terminal, previous != lkg.Hash: (false, nil)
-	other := prev
-	other.Hash = "different"
-	Atomic(filepath.Join(m.Dir, "journal.json"), mustJSON(Journal{Stage: "reloading", Previous: other, Candidate: prev}))
-	if ready, e := m.SquidReady(); e != nil || ready {
-		t.Fatalf("non-terminal previous mismatch expected (false,nil), got %v %v", ready, e)
+	touch("manager-auth.conf", 0640, "cachemgr_passwd 0000000000000000000000000000000000000000000000000000000000000000 reconfigure rotate\n")
+	if ready, _ := m.SquidReady(); ready {
+		t.Fatal("missing proxy-accounts.json must not be ready")
 	}
-
-	// journal not terminal, previous.Hash == lkg.Hash: (true, nil)
-	Atomic(filepath.Join(m.Dir, "journal.json"), mustJSON(Journal{Stage: "reloading", Previous: prev, Candidate: prev}))
+	touch("proxy-accounts.json", 0640, "{}")
 	if ready, e := m.SquidReady(); e != nil || !ready {
-		t.Fatalf("non-terminal previous match expected (true,nil), got %v %v", ready, e)
+		t.Fatalf("all files present: got %v %v", ready, e)
 	}
-
-	// terminal: (true, nil)
-	Atomic(filepath.Join(m.Dir, "journal.json"), mustJSON(Journal{Stage: "terminal", Previous: prev, Candidate: prev}))
-	if ready, e := m.SquidReady(); e != nil || !ready {
-		t.Fatalf("terminal expected (true,nil), got %v %v", ready, e)
+	// Empty squid.conf is not ready.
+	touch("squid.conf", 0640, "")
+	if ready, _ := m.SquidReady(); ready {
+		t.Fatal("empty squid.conf must not be ready")
+	}
+	touch("squid.conf", 0640, "# config\n")
+	// A world-readable file is rejected as a spoofing risk.
+	touch("manager-auth.conf", 0644, "cachemgr_passwd 0000000000000000000000000000000000000000000000000000000000000000 reconfigure rotate\n")
+	if _, e := m.SquidReady(); e == nil {
+		t.Fatal("world-accessible manager-auth.conf accepted")
 	}
 }
 
@@ -245,7 +245,7 @@ func TestReloadFakeUsedByApplyAndMaintain(t *testing.T) {
 	}
 }
 
-func TestRealReloadAndTokenLeakage(t *testing.T) {
+func TestRealReloadAndSecretLeakage(t *testing.T) {
 	ln, e := net.Listen("tcp", "127.0.0.1:3131")
 	if e != nil {
 		t.Skipf("cannot bind 3131: %v", e)
@@ -270,33 +270,27 @@ func TestRealReloadAndTokenLeakage(t *testing.T) {
 	}()
 	m := testManager(t)
 	m.Reload = m.defaultReload
+	secret := m.secret
+	if secret == "" || !managerToken.MatchString(secret) {
+		t.Fatalf("no valid secret after recover: %q", secret)
+	}
 	if e := m.Reload(context.Background(), "reconfigure"); e != nil {
 		t.Fatalf("real reload against fake listener failed: %v", e)
 	}
 	ln.Close()
-
-	token, _ := os.ReadFile(filepath.Join(m.AppDir, "manager-token"))
 	e = m.Reload(context.Background(), "reconfigure")
 	if e == nil {
 		t.Fatal("expected reload failure after listener closed")
 	}
-	if len(token) > 0 && strings.Contains(e.Error(), string(token)) {
-		t.Fatalf("reload error leaked token: %v", e)
+	if strings.Contains(e.Error(), secret) {
+		t.Fatalf("reload error leaked secret: %v", e)
 	}
 }
 
-func TestManagerTokenAndIncludeModes(t *testing.T) {
+func TestManagerAuthIncludeModes(t *testing.T) {
 	m := testManager(t)
-	tokPath := filepath.Join(m.AppDir, "manager-token")
-	st, e := os.Stat(tokPath)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if st.Mode().Perm() != 0600 {
-		t.Fatalf("manager-token mode %o", st.Mode().Perm())
-	}
 	incPath := filepath.Join(m.Dir, "manager-auth.conf")
-	st, e = os.Stat(incPath)
+	st, e := os.Stat(incPath)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -306,6 +300,10 @@ func TestManagerTokenAndIncludeModes(t *testing.T) {
 	body, _ := os.ReadFile(incPath)
 	if !strings.HasPrefix(string(body), "cachemgr_passwd ") || !strings.HasSuffix(string(body), " reconfigure rotate\n") {
 		t.Fatalf("manager-auth.conf content unexpected: %s", body)
+	}
+	// No manager token file is persisted anywhere on disk.
+	if _, e := os.Stat(filepath.Join(m.Dir, "manager-token")); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("manager-token file must not exist")
 	}
 }
 

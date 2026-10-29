@@ -830,16 +830,16 @@ func launchInstance(t *testing.T, r *resources, fixturesDir, subnet, base string
 	volume := r.addVolume(name + "-data")
 	docker(t, "network", "create", "--subnet", subnet, network)
 	docker(t, "volume", "create", volume)
-	docker(t, "run", "--rm", "--user", controlUser, "-v", volume+":/data", "--entrypoint", "/usr/local/bin/kraken", testImage(), "dev-cert")
+	docker(t, "run", "--rm", "--user", controlUser, "-v", volume+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", testImage(), "dev-cert")
 	password := randPassword(24)
-	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", volume+":/data", "--entrypoint", "/usr/local/bin/kraken", testImage(), "bootstrap", "--password-stdin")
+	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", volume+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", testImage(), "bootstrap", "--password-stdin")
 	proxy := r.addContainer(name + "-proxy")
 	// First start with an ephemeral port to discover a free host port, then
 	// recreate with a fixed mapping so KRAKEN_PUBLIC_ORIGIN matches.
 	docker(t, "run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1::8443", "-v", volume+":/data",
+		"-p", "127.0.0.1::8443", "-v", volume+":/var/lib/kraken",
 		"-e", "KRAKEN_PUBLIC_ORIGIN=https://localhost",
-		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key", testImage())
+		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", testImage())
 	port := strings.Split(docker(t, "port", proxy, "8443/tcp"), ":")
 	hostPort := port[len(port)-1]
 	origin := "https://localhost:" + hostPort
@@ -848,11 +848,11 @@ func launchInstance(t *testing.T, r *resources, fixturesDir, subnet, base string
 	time.Sleep(time.Second) // let the host port binding release before rebind
 	proxy = r.addContainer(name + "-proxy")
 	docker(t, "run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1:"+hostPort+":8443", "-v", volume+":/data",
+		"-p", "127.0.0.1:"+hostPort+":8443", "-v", volume+":/var/lib/kraken",
 		"-e", "KRAKEN_PUBLIC_ORIGIN="+origin,
-		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key", testImage())
-	docker(t, "cp", proxy+":/data/certs/panel.crt", fixturesDir+"/panel.crt")
-	docker(t, "cp", proxy+":/data/certs/proxy.crt", fixturesDir+"/proxy.crt")
+		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", testImage())
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", fixturesDir+"/panel.crt")
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", fixturesDir+"/proxy.crt")
 	panel := newPanel(origin, fixturesDir+"/panel.crt", password)
 	panel.login(t, password)
 	panel.waitUp(t, 60)
@@ -903,19 +903,19 @@ func launchOpsInstance(t *testing.T, r *resources, fixtures, subnet, base, image
 	volume := r.addVolume(name + "-v")
 	docker(t, "network", "create", "--subnet", subnet, network)
 	docker(t, "volume", "create", volume)
-	docker(t, "run", "--rm", "--user", controlUser, "-v", volume+":/data", "--entrypoint", "/usr/local/bin/kraken", image, "dev-cert")
+	docker(t, "run", "--rm", "--user", controlUser, "-v", volume+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", image, "dev-cert")
 	password := randPassword(24)
-	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", volume+":/data", "--entrypoint", "/usr/local/bin/kraken", image, "bootstrap", "--password-stdin")
+	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", volume+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", image, "bootstrap", "--password-stdin")
 	port := freePort(t)
 	origin := "https://localhost:" + port
 	proxy := r.addContainer(name + "-p")
 	docker(t, "run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1:"+port+":8443", "-v", volume+":/data",
+		"-p", "127.0.0.1:"+port+":8443", "-v", volume+":/var/lib/kraken",
 		"-e", "KRAKEN_PUBLIC_ORIGIN="+origin,
-		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key", image)
-	docker(t, "cp", proxy+":/data/certs/panel.crt", fixtures+"/panel.crt")
+		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", image)
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", fixtures+"/panel.crt")
 	if copyProxy {
-		docker(t, "cp", proxy+":/data/certs/proxy.crt", fixtures+"/proxy.crt")
+		docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", fixtures+"/proxy.crt")
 	}
 	panel := newPanel(origin, fixtures+"/panel.crt", password)
 	panel.login(t, password)

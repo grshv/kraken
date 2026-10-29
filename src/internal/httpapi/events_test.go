@@ -26,8 +26,7 @@ func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {
 		t.Fatal(e)
 	}
 	m.Snapshot.Clients = []policy.Client{{ID: "00000000-0000-4000-8000-000000000099", Name: "fixture client", Networks: []string{"192.0.2.0/24"}}}
-	b, _ := json.Marshal(m)
-	if e = os.WriteFile(filepath.Join(s.Runtime.Dir, "lkg.json"), b, 0600); e != nil {
+	if e = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", m); e != nil {
 		t.Fatal(e)
 	}
 	line := "1793059200.000 5 192.0.2.10 TCP_DENIED/403 42 CONNECT example.test:443 - NONE/- -\n1793059201.000 1 198.51.100.10 TCP_MISS/200 42 GET http://user:password@example.test/path?token=secret - NONE/- -\n"
@@ -65,8 +64,7 @@ func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {
 	}
 	// Changed labels never rewrite persisted history.
 	m.Snapshot.Clients = nil
-	b, _ = json.Marshal(m)
-	_ = os.WriteFile(filepath.Join(s.Runtime.Dir, "lkg.json"), b, 0600)
+	_ = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", m)
 	if _, e = s.CollectEvents(); e != nil {
 		t.Fatal(e)
 	}

@@ -7,12 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"net/netip"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
 )
 
-const CompilerVersion = "9"
+const CompilerVersion = "10"
 
 // Squid Basic TTL zero never becomes valid. A separate uncached generation
 // check on every allowed request enforces reset/disable despite Basic caching.
@@ -227,7 +228,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	h := Fingerprint(s, o)
 	var b strings.Builder
 	settings := EffectiveSettings(s)
-	fmt.Fprintf(&b, "# kraken compiler=%s revision=%s\nvisible_hostname kraken\nhttp_port 127.0.0.1:3130\nhttp_port 127.0.0.1:3131\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.SquidDir, o.SquidDir)
+	fmt.Fprintf(&b, "# kraken compiler=%s revision=%s\nvisible_hostname kraken\nhttp_port 127.0.0.1:3130\nhttp_port 127.0.0.1:3131\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.SquidDir, filepath.Dir(o.LogPath))
 	if o.ProxyCert != "" && o.ProxyKey != "" {
 		fmt.Fprintf(&b, "https_port %d tls-cert=%s tls-key=%s\n", settings.TLSPort, o.ProxyCert, o.ProxyKey)
 	}

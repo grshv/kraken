@@ -18,7 +18,7 @@ import (
 func setup(t *testing.T) (*store.Store, string) {
 	t.Helper()
 	data := t.TempDir()
-	st, e := store.Open(filepath.Join(data, "app", "control.sqlite3"))
+	st, e := store.Open(filepath.Join(data, "data", "control.sqlite3"))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -111,12 +111,10 @@ func TestAcceptRevokeSessions(t *testing.T) {
 
 func TestAcceptBackupArchive(t *testing.T) {
 	st, data := setup(t)
-	os.MkdirAll(filepath.Join(data, "runtime"), 0700)
-	os.WriteFile(filepath.Join(data, "runtime", "lkg.json"), []byte(`{"x":1}`), 0600)
 	os.MkdirAll(filepath.Join(data, "certs"), 0700)
 	os.WriteFile(filepath.Join(data, "certs", "panel.crt"), []byte("CERT"), 0600)
-	os.MkdirAll(filepath.Join(data, "logs"), 0700)
-	os.WriteFile(filepath.Join(data, "logs", "access.log"), []byte("secret log"), 0600)
+	os.MkdirAll(filepath.Join(data, "log"), 0700)
+	os.WriteFile(filepath.Join(data, "log", "access.log"), []byte("secret log"), 0600)
 	out := filepath.Join(t.TempDir(), "b.tar")
 	if e := admin.Backup(context.Background(), st, data, out); e != nil {
 		t.Fatal(e)
@@ -139,19 +137,19 @@ func TestAcceptBackupArchive(t *testing.T) {
 		b, _ := io.ReadAll(tr)
 		names[h.Name] = b
 	}
-	if _, ok := names["app/control.sqlite3"]; !ok {
+	if _, ok := names["data/control.sqlite3"]; !ok {
 		t.Fatalf("no database in backup: %v", keys(names))
 	}
-	if string(names["runtime/lkg.json"]) != `{"x":1}` || string(names["certs/panel.crt"]) != "CERT" {
-		t.Fatalf("runtime/certs missing: %v", keys(names))
+	if string(names["certs/panel.crt"]) != "CERT" {
+		t.Fatalf("certs missing: %v", keys(names))
 	}
 	for n := range names {
-		if strings.HasPrefix(n, "logs/") || strings.HasSuffix(n, "-wal") || strings.HasSuffix(n, "-shm") {
+		if strings.HasPrefix(n, "log/") || strings.HasSuffix(n, "-wal") || strings.HasSuffix(n, "-shm") {
 			t.Fatalf("unexpected entry %s", n)
 		}
 	}
 	restored := filepath.Join(t.TempDir(), "control.sqlite3")
-	os.WriteFile(restored, names["app/control.sqlite3"], 0600)
+	os.WriteFile(restored, names["data/control.sqlite3"], 0600)
 	r, e := store.Open(restored)
 	if e != nil {
 		t.Fatalf("backup database does not open: %v", e)

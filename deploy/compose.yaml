@@ -11,7 +11,7 @@ services:
     environment:
       KRAKEN_PUBLIC_ORIGIN: ${KRAKEN_PUBLIC_ORIGIN:-https://localhost:8443}
     volumes:
-      - control-data:/data
+      - control-data:/var/lib/kraken
     restart: unless-stopped
     stop_grace_period: 160s
     security_opt:

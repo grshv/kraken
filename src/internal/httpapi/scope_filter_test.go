@@ -33,8 +33,7 @@ func seedEventsForScope(t *testing.T, h http.Handler, s *Server, myClientID, for
 		policy.Client{ID: myClientID, Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, PolicyID: "p-evt"},
 		policy.Client{ID: foreignClientID, Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, PolicyID: "p-evt"},
 	)
-	b, _ := json.Marshal(m)
-	if e = os.WriteFile(filepath.Join(s.Runtime.Dir, "lkg.json"), b, 0600); e != nil {
+	if e = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", m); e != nil {
 		t.Fatal(e)
 	}
 	// Two events: one from my client's network, one from the foreign client's.

@@ -7,7 +7,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -50,6 +49,15 @@ func (e *ParseError) Error() string {
 	return fmt.Sprintf("squid rejected configuration at line %d (output withheld)", e.Line)
 }
 
+// StateStore persists runtime state (journal and last-good manifest) in the
+// control database. The runtime never touches a state file on the volume:
+// everything recoverable lives in the database, and everything Squid reads is
+// regenerated into the tmpfs run directory at startup.
+type StateStore interface {
+	LoadState(ctx context.Context, key string, v any) (found bool, err error)
+	SaveState(ctx context.Context, key string, v any) error
+}
+
 type Manifest struct {
 	Compiler    string          `json:"compiler_version,omitempty"`
 	Revision    string          `json:"revision_id"`
@@ -71,22 +79,24 @@ type Manager struct {
 	metricsAttempt time.Time
 
 	Dir     string
-	AppDir  string
 	Binary  string
 	Options policy.Options
+	// State is the durable runtime state store (journal and last-good
+	// manifest) backed by the control database. squid-start never opens it:
+	// it reads only the derivative files in Dir.
+	State StateStore
 	// Image is the build-time base image digest (e.g.
 	// ubuntu/squid@sha256:...). Recorded into every Manifest the runtime
-	// produces so an operator reading lkg.json knows which image produced
-	// this LKG without having to cross-reference the revision row.
+	// produces so an operator reading the last-good state knows which image
+	// produced this LKG without having to cross-reference the revision row.
 	Image   string
 	Command func(context.Context, ...string) error
 	// Reload triggers a Squid reconfigure (action "reconfigure") or log
 	// rotation (action "rotate") over the loopback manager listener. The
 	// default implementation issues a cache_object request authenticated by
-	// the manager token in <AppDir>/manager-token, which Squid reads from
-	// the included <StateDir>/manager-auth.conf. Cross-UID signalling via
-	// `-k reconfigure/rotate` would require a shared UID, so cachemgr over
-	// TCP is used instead.
+	// the manager secret kept in memory and in <Dir>/manager-auth.conf.
+	// Cross-UID signalling via `-k reconfigure/rotate` would require a shared
+	// UID, so cachemgr over TCP is used instead.
 	Reload func(context.Context, string) error
 	// RotateGate gates log rotation in Maintain: when set, Maintain rotates only
 	// if RotateGate(size) returns true (in addition to the >10 MiB threshold).
@@ -95,6 +105,12 @@ type Manager struct {
 	mu         sync.Mutex
 	Persist    func(string, []byte) error
 	Probe      func(context.Context, string) error
+	// secret is the cachemgr password held in memory after ensureManagerAuth.
+	// It is never written to the volume, logs, API or argv. Access is guarded
+	// by mu: ensureManagerAuth runs under the runtime lock (via Recover/Apply),
+	// and defaultReload is only invoked from reloadVerify/Maintain which also
+	// hold the lock.
+	secret string
 	// ParseTimeout bounds `squid -k parse` calls. ReloadTimeout bounds
 	// `squid -k reconfigure` acknowledgement (not full reload, which Squid
 	// performs asynchronously). VerifyBudget is the worst-case time the verify
@@ -112,10 +128,9 @@ type Manager struct {
 func New(dir, binary, logPath, cert, key, image string) *Manager {
 	m := &Manager{
 		Dir:           dir,
-		AppDir:        envString("KRAKEN_APP_DIR", "/data/app"),
 		Binary:        binary,
 		Image:         image,
-		Options:       policy.Options{StateDir: dir, SquidDir: envString("KRAKEN_SQUID_DIR", "/data/squid"), LogPath: logPath, ProxyCert: cert, ProxyKey: key, ProxyAccounts: envString("KRAKEN_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")},
+		Options:       policy.Options{StateDir: dir, SquidDir: envString("KRAKEN_SQUID_RUN_DIR", dir+"-squid"), LogPath: logPath, ProxyCert: cert, ProxyKey: key, ProxyAccounts: envString("KRAKEN_PROXY_ACCOUNTS", filepath.Join(dir, "proxy-accounts.json"))},
 		ParseTimeout:  parseTimeoutDefault,
 		ReloadTimeout: reloadTimeoutDefault,
 		VerifyBudget:  verifyBudgetDefault,
@@ -136,8 +151,16 @@ func New(dir, binary, logPath, cert, key, image string) *Manager {
 			}
 		}
 	}
-	// Every StateDir file is read by Squid or squid-start (ADR 0015).
-	m.Persist = func(path string, b []byte) error { return AtomicMode(path, b, 0640) }
+	// Every file in the run directory is read by Squid or squid-start (ADR 0015).
+	// Derivative files (squid.conf, manager-auth.conf) are chowned to the proxy
+	// group after the atomic write so Squid can read them regardless of the
+	// setgid bit; apply.lock is 0600 and owner-only, created separately by lock().
+	m.Persist = func(path string, b []byte) error {
+		if e := AtomicMode(path, b, 0640); e != nil {
+			return e
+		}
+		return ChownProxyGroup(path)
+	}
 	m.Command = m.command
 	m.Reload = m.defaultReload
 	m.Probe = m.verify
@@ -150,7 +173,7 @@ func envString(key, def string) string {
 	}
 	return def
 }
-func (m *Manager) ActivePath() string { return filepath.Join(m.Dir, "active.conf") }
+func (m *Manager) ActivePath() string { return filepath.Join(m.Dir, "squid.conf") }
 func (m *Manager) lock() (func(), error) {
 	if !m.mu.TryLock() {
 		return nil, ErrBusy
@@ -159,7 +182,7 @@ func (m *Manager) lock() (func(), error) {
 		m.mu.Unlock()
 		return nil, e
 	}
-	f, e := os.OpenFile(filepath.Join(m.Dir, "runtime.lock"), os.O_CREATE|os.O_RDWR, 0600)
+	f, e := os.OpenFile(filepath.Join(m.Dir, "apply.lock"), os.O_CREATE|os.O_RDWR, 0600)
 	if e != nil {
 		m.mu.Unlock()
 		return nil, e
@@ -218,56 +241,72 @@ func AtomicMode(path string, b []byte, mode os.FileMode) error {
 	return d.Sync()
 }
 
-// ensureManagerAuth persists the manager token in <AppDir>/manager-token and
-// the included auth file <StateDir>/manager-auth.conf. The token is 32 random
-// bytes (hex) and never appears in Render, Manifest, errors or logs. The
-// include line is rewritten only when its content changed.
+// ensureManagerAuth persists the manager auth include <Dir>/manager-auth.conf
+// and loads the secret into memory. The secret is 32 random bytes (hex) and
+// never appears in Render, Manifest, errors or logs. On a serve-only restart
+// (Squid still running, tmpfs intact) the existing include is reused so the
+// in-memory secret stays valid for the running Squid; on a full container
+// restart tmpfs is gone and a fresh secret is generated.
 func (m *Manager) ensureManagerAuth() error {
-	token, e := m.retrieveToken()
-	if e != nil {
-		return e
-	}
-	want := "cachemgr_passwd " + token + " reconfigure rotate\n"
 	path := filepath.Join(m.Dir, "manager-auth.conf")
-	if b, e := os.ReadFile(path); e == nil && string(b) == want {
-		return nil
-	}
-	return m.Persist(path, []byte(want))
-}
-
-var managerToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
-
-func (m *Manager) retrieveToken() (string, error) {
-	path := filepath.Join(m.AppDir, "manager-token")
 	if b, e := os.ReadFile(path); e == nil {
-		if token := strings.TrimSpace(string(b)); managerToken.MatchString(token) {
-			return token, nil
+		secret, ok := parseManagerSecret(string(b))
+		if !ok {
+			return errors.New("manager auth include is malformed")
 		}
-		return "", errors.New("manager token file is malformed")
+		m.secret = secret
+		return nil
 	} else if !errors.Is(e, os.ErrNotExist) {
-		return "", e
+		return e
 	}
 	var raw [32]byte
 	if _, e := rand.Read(raw[:]); e != nil {
-		return "", e
+		return e
 	}
-	token := hex.EncodeToString(raw[:])
-	if e := os.MkdirAll(m.AppDir, 0700); e != nil {
-		return "", e
+	m.secret = hex.EncodeToString(raw[:])
+	return m.Persist(path, []byte("cachemgr_passwd "+m.secret+" reconfigure rotate\n"))
+}
+
+// managerToken matches a 32-byte hex secret (64 chars), the only shape ever
+// written to manager-auth.conf or accepted on reload.
+var managerToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
+// parseManagerSecret extracts the secret from a "cachemgr_passwd <hex>
+// reconfigure rotate" include line.
+func parseManagerSecret(line string) (string, bool) {
+	f := strings.Fields(line)
+	if len(f) != 4 || f[0] != "cachemgr_passwd" || f[2] != "reconfigure" || f[3] != "rotate" {
+		return "", false
 	}
-	if e := AtomicMode(path, []byte(token), 0600); e != nil {
-		return "", e
+	if !managerToken.MatchString(f[1]) {
+		return "", false
 	}
-	return token, nil
+	return f[1], true
+}
+
+// loadSecret reads the manager secret from the include file. Used by the CLI
+// reload path (service-update) that does not run ensureManagerAuth first.
+func (m *Manager) loadSecret() error {
+	b, e := os.ReadFile(filepath.Join(m.Dir, "manager-auth.conf"))
+	if e != nil {
+		return e
+	}
+	secret, ok := parseManagerSecret(string(b))
+	if !ok {
+		return errors.New("manager auth include is malformed")
+	}
+	m.secret = secret
+	return nil
 }
 
 // defaultReload issues a loopback cachemgr request authenticated by the manager
-// token; Squid reloads/rotates based on the action path. Errors never include
-// the token: a malformed response or non-200 status is reported generically.
+// secret; Squid reloads/rotates based on the action path. Errors never include
+// the secret: a malformed response or non-200 status is reported generically.
 func (m *Manager) defaultReload(ctx context.Context, action string) error {
-	token, e := m.retrieveToken()
-	if e != nil {
-		return e
+	if m.secret == "" {
+		if e := m.loadSecret(); e != nil {
+			return e
+		}
 	}
 	d := net.Dialer{Timeout: m.ReloadTimeout}
 	c, e := d.DialContext(ctx, "tcp", "127.0.0.1:3131")
@@ -280,7 +319,7 @@ func (m *Manager) defaultReload(ctx context.Context, action string) error {
 		deadline = dl
 	}
 	c.SetDeadline(deadline)
-	req := "GET cache_object://127.0.0.1/" + action + "@" + token + " HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
+	req := "GET cache_object://127.0.0.1/" + action + "@" + m.secret + " HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
 	if _, e = io.WriteString(c, req); e != nil {
 		return fmt.Errorf("squid manager request failed: %w", e)
 	}
@@ -295,65 +334,72 @@ func (m *Manager) defaultReload(ctx context.Context, action string) error {
 	return nil
 }
 
-// SquidReady reports whether the on-disk state is consistent enough for
-// squid-start to exec the binary without recovery. It only reads files; absence
-// of lkg.json is a normal pre-init state, not an error.
+// SquidReady reports whether the derivative files in the run directory are
+// consistent enough for squid-start to exec the binary. It only reads files and
+// never opens the control database: squid-start runs as the proxy user and
+// cannot access data/. serve writes all three files atomically only after
+// recovery completes, so their presence implies a terminal, consistent journal;
+// a non-terminal journal would have rolled back to the previous config before
+// any file was written.
 func (m *Manager) SquidReady() (bool, error) {
-	lkg, e := m.ReadManifest()
-	if errors.Is(e, os.ErrNotExist) {
-		return false, nil
+	for _, name := range []string{"squid.conf", "manager-auth.conf", "proxy-accounts.json"} {
+		info, e := os.Stat(filepath.Join(m.Dir, name))
+		if e != nil {
+			if errors.Is(e, os.ErrNotExist) {
+				return false, nil
+			}
+			return false, e
+		}
+		if info.Mode().Perm()&0007 != 0 {
+			return false, fmt.Errorf("%s is world-accessible", name)
+		}
+		if name == "squid.conf" && info.Size() == 0 {
+			return false, nil
+		}
 	}
-	if e != nil {
-		return false, e
-	}
-	active, e := os.ReadFile(m.ActivePath())
-	if e != nil {
-		return false, e
-	}
-	if string(active) != lkg.Config {
-		return false, nil
-	}
-	j, je := m.readJournal()
-	if errors.Is(je, os.ErrNotExist) {
-		return true, nil
-	}
-	if je != nil {
-		return false, je
-	}
-	if j.Stage == "terminal" {
-		return true, nil
-	}
-	if j.Previous.Hash == lkg.Hash {
-		return true, nil
-	}
-	return false, nil
+	return true, nil
 }
 
-// write persists JSON state; squid-start reads lkg.json and journal.json.
-func (m *Manager) write(name string, v any) error {
-	b, e := json.Marshal(v)
-	if e != nil {
-		return e
-	}
-	return m.Persist(filepath.Join(m.Dir, name), b)
+// State keys in the control database kv table. The runtime persists the
+// recovery journal under stateJournal and the last-good manifest under
+// stateLastGood; the call sites save them in staging order relative to config
+// writes and reloads.
+const (
+	stateJournal  = "runtime.journal"
+	stateLastGood = "runtime.last_good"
+)
+
+// save persists one JSON state value to the control database under key.
+func (m *Manager) save(key string, v any) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	return m.State.SaveState(ctx, key, v)
 }
 func (m *Manager) ReadManifest() (Manifest, error) {
 	var v Manifest
-	b, e := os.ReadFile(filepath.Join(m.Dir, "lkg.json"))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	found, e := m.State.LoadState(ctx, stateLastGood, &v)
 	if e != nil {
 		return v, e
 	}
-	e = json.Unmarshal(b, &v)
-	return v, e
+	if !found {
+		return v, os.ErrNotExist
+	}
+	return v, nil
 }
 func (m *Manager) readJournal() (Journal, error) {
 	var j Journal
-	b, e := os.ReadFile(filepath.Join(m.Dir, "journal.json"))
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	found, e := m.State.LoadState(ctx, stateJournal, &j)
 	if e != nil {
 		return j, e
 	}
-	e = json.Unmarshal(b, &j)
-	return j, e
+	if !found {
+		return j, os.ErrNotExist
+	}
+	return j, nil
 }
 func (m *Manager) Journal() (Journal, error) { return m.readJournal() }
 func (m *Manager) command(ctx context.Context, args ...string) error {
@@ -463,13 +509,14 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 	prev, e := m.ReadManifest()
 	if errors.Is(e, os.ErrNotExist) {
 		// Allow safe re-entry when a first_run marker exists between
-		// Persist(active.conf) and write(lkg.json): the recovery logic is the
+		// Persist(squid.conf) and write(lkg.json): the recovery logic is the
 		// same idempotent init either way.
-		if jb, je2 := os.ReadFile(filepath.Join(m.Dir, "journal.json")); je2 == nil {
-			var existing Journal
-			if jerr := json.Unmarshal(jb, &existing); jerr == nil && existing.Stage != "first_run" {
-				return errors.New("missing LKG with existing journal")
-			}
+		j, je := m.readJournal()
+		if je != nil && !errors.Is(je, os.ErrNotExist) {
+			return je
+		}
+		if je == nil && j.Stage != "first_run" {
+			return errors.New("missing LKG with existing journal")
 		}
 		s := policy.Empty()
 		c, ce := policy.Render(s, m.Options)
@@ -481,17 +528,17 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 			return e
 		}
 		// Durable first_run marker records that init is in progress; a crash
-		// before lkg.json becomes a clean re-run of this same branch.
-		if e = m.write("journal.json", Journal{Stage: "first_run", Candidate: prev}); e != nil {
+		// before lkg becomes a clean re-run of this same branch.
+		if e = m.save(stateJournal, Journal{Stage: "first_run", Candidate: prev}); e != nil {
 			return e
 		}
 		if e = m.Persist(m.ActivePath(), []byte(c)); e != nil {
 			return e
 		}
-		if e = m.write("lkg.json", prev); e != nil {
+		if e = m.save(stateLastGood, prev); e != nil {
 			return e
 		}
-		return m.write("journal.json", Journal{Stage: "terminal", Outcome: "initialised", Candidate: prev})
+		return m.save(stateJournal, Journal{Stage: "terminal", Outcome: "initialised", Candidate: prev})
 	}
 	if e != nil {
 		return e
@@ -510,7 +557,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 			return e
 		}
 		j.Stage, j.Outcome = "terminal", "initialised"
-		return m.write("journal.json", j)
+		return m.save(stateJournal, j)
 	}
 	if je == nil && j.Stage != "terminal" {
 		// The previous manifest in the durable journal is authoritative after a crash.
@@ -531,7 +578,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 				return fmt.Errorf("recovery reload not verified: %w", e)
 			}
 		}
-		if e = m.write("lkg.json", prev); e != nil {
+		if e = m.save(stateLastGood, prev); e != nil {
 			return e
 		}
 		if offline {
@@ -541,7 +588,15 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		}
 		j.Stage = "terminal"
 		j.Outcome = "rolled_back"
-		return m.write("journal.json", j)
+		return m.save(stateJournal, j)
+	}
+	// terminal: ensure the serving config exists on a fresh tmpfs and matches
+	// the stored last-good text (no re-render). A missing file is normal after
+	// a container restart; a present-but-different file is drift.
+	if _, e := os.Stat(m.ActivePath()); errors.Is(e, os.ErrNotExist) {
+		if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e != nil {
+			return e
+		}
 	}
 	return m.checkDrift(prev)
 }
@@ -582,19 +637,19 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	}
 	next := Manifest{Compiler: policy.CompilerVersion, ImageDigest: m.Image, Revision: revision, Hash: policy.Fingerprint(s, m.Options), Config: config, Snapshot: s}
 	j := Journal{Operation: id, Stage: "promoting", Previous: prev, Candidate: next}
-	if e = m.write("journal.json", j); e != nil {
+	if e = m.save(stateJournal, j); e != nil {
 		return "rejected", e
 	}
 	lkgPromoted := false
 	if e = m.Persist(m.ActivePath(), []byte(config)); e == nil {
 		j.Stage = "reloading"
-		e = m.write("journal.json", j)
+		e = m.save(stateJournal, j)
 	}
 	if e == nil {
 		e = m.reloadVerify(ctx, next.Hash)
 	}
 	if e == nil {
-		e = m.write("lkg.json", next)
+		e = m.save(stateLastGood, next)
 		if e == nil {
 			lkgPromoted = true
 		}
@@ -602,7 +657,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	if e == nil {
 		j.Stage = "terminal"
 		j.Outcome = "succeeded"
-		e = m.write("journal.json", j)
+		e = m.save(stateJournal, j)
 		if e == nil {
 			return "succeeded", nil
 		}
@@ -610,7 +665,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	original := e
 	if lkgPromoted {
 		// We are about to roll back even though `next` was already promoted to
-		// active.conf, reloadVerify succeeded and lkg.json was written. The
+		// squid.conf, reloadVerify succeeded and lkg was written. The
 		// terminal-journal marker write failed; on next Recover the journal
 		// Stage != "terminal" branch will restore prev and overwrite the LKG.
 		// This is a legitimate operational surprise — surface it loudly so an
@@ -620,7 +675,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 	defer cancelRollback()
 	j.Stage = "rolling_back"
-	if e = m.write("journal.json", j); e != nil {
+	if e = m.save(stateJournal, j); e != nil {
 		// Avoid triple-wrapping the original "configuration output withheld"
 		// message; surface a single rolled-back summary plus the rollback step
 		// error without repeating the redaction phrase.
@@ -630,14 +685,14 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 		e = m.reloadVerify(rollbackCtx, prev.Hash)
 	}
 	if e == nil {
-		e = m.write("lkg.json", prev)
+		e = m.save(stateLastGood, prev)
 	}
 	if e != nil {
 		return "degraded", fmt.Errorf("apply failed: %w; rollback failed: %v", original, e)
 	}
 	j.Stage = "terminal"
 	j.Outcome = "rolled_back"
-	if e = m.write("journal.json", j); e != nil {
+	if e = m.save(stateJournal, j); e != nil {
 		return "degraded", fmt.Errorf("apply failed: %w; terminal journal write failed: %v", original, e)
 	}
 	return "rolled_back", original
@@ -706,7 +761,7 @@ func (m *Manager) verify(ctx context.Context, hash string) error {
 func (m *Manager) Status() map[string]any {
 	// Use a non-blocking TryLock so a long-running Apply does not stall status
 	// reads. When Apply owns the lock the in-process mutation is mid-flight, so
-	// active.conf may transiently differ from lkg.json — surfacing that as
+	// squid.conf may transiently differ from the manifest — surfacing that as
 	// "degraded" would be a false positive. Mark the runtime as "up,
 	// operation in progress" instead.
 	if m.mu.TryLock() {
@@ -807,7 +862,7 @@ func (m *Manager) Maintain(ctx context.Context, prune func() error) error {
 	var accessSize int64
 	overThreshold := false
 	hardCap := false
-	for _, p := range []string{m.Options.LogPath, filepath.Join(m.Options.SquidDir, "cache.log")} {
+	for _, p := range []string{m.Options.LogPath, filepath.Join(filepath.Dir(m.Options.LogPath), "cache.log")} {
 		st, e := os.Stat(p)
 		if e != nil || st.Size() <= rotateThreshold {
 			continue

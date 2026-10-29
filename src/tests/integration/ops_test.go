@@ -3,7 +3,6 @@
 package integration
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -28,20 +27,6 @@ func requireImage(t *testing.T, image string) {
 	}
 }
 
-// lkgManifest reads /data/runtime/lkg.json from a running proxy as generic JSON.
-func lkgManifest(t *testing.T, proxy string) map[string]any {
-	t.Helper()
-	out, err := dockerExec(proxy, "cat", "/data/runtime/lkg.json")
-	if err != nil {
-		t.Fatalf("read lkg.json: %v", err)
-	}
-	var m map[string]any
-	if json.Unmarshal([]byte(out), &m) != nil {
-		t.Fatalf("parse lkg.json: %v", out)
-	}
-	return m
-}
-
 // opsAllWebAllowlist returns a snapshot with an all_web source client and an
 // allowlist client (allowed.test), the shared policy shape used by every ops
 // section except image-update (which only needs an allowlist).
@@ -61,7 +46,7 @@ func opsAllWebAllowlist(t *testing.T, p *Panel, base string) (policy.Snapshot, s
 	return snap, allID, allowID
 }
 
-// TestOpsBackupRestore covers runbook sections 1a–1d: stop, copy /data volume,
+// TestOpsBackupRestore covers runbook sections 1a–1d: stop, copy /var/lib/kraken volume,
 // restore on a new volume, same password/revision/fingerprint, policy in force,
 // events and audit intact.
 func TestOpsBackupRestore(t *testing.T) {
@@ -77,19 +62,19 @@ func TestOpsBackupRestore(t *testing.T) {
 	volb := r.addVolume(randName("sc-ops") + "-v1b")
 	docker(t, "network", "create", "--subnet", opsSubnets[idx], net)
 	docker(t, "volume", "create", vol)
-	docker(t, "run", "--rm", "--user", controlUser, "-v", vol+":/data", "--entrypoint", "/usr/local/bin/kraken", testImage(), "dev-cert")
+	docker(t, "run", "--rm", "--user", controlUser, "-v", vol+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", testImage(), "dev-cert")
 	password := randPassword(24)
-	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", vol+":/data", "--entrypoint", "/usr/local/bin/kraken", testImage(), "bootstrap", "--password-stdin")
+	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", vol+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", testImage(), "bootstrap", "--password-stdin")
 	port := freePort(t)
 	origin := "https://localhost:" + port
 	proxy := r.addContainer(randName("sc-ops") + "-p1")
 	base := opsBases[idx]
 	docker(t, "run", "-d", "--name", proxy, "--network", net, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1:"+port+":8443", "-v", vol+":/data",
+		"-p", "127.0.0.1:"+port+":8443", "-v", vol+":/var/lib/kraken",
 		"-e", "KRAKEN_PUBLIC_ORIGIN="+origin,
-		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key", testImage())
-	docker(t, "cp", proxy+":/data/certs/panel.crt", filepath.Join(s1, "panel.crt"))
-	docker(t, "cp", proxy+":/data/certs/proxy.crt", filepath.Join(s1, "proxy.crt"))
+		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", testImage())
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", filepath.Join(s1, "panel.crt"))
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", filepath.Join(s1, "proxy.crt"))
 	genOriginCert(t, s1)
 	originC, client := startOriginClient(t, &r, net, s1, randName("sc-ops-s1"), base)
 
@@ -123,7 +108,6 @@ func TestOpsBackupRestore(t *testing.T) {
 	status := panel.status()
 	appliedRev, _ := status["applied_revision"].(string)
 	configHash, _ := status["observed_config_hash"].(string)
-	lkgHash, _ := lkgManifest(t, proxy)["hash"].(string)
 
 	var capturedEventIDs []any
 	t.Run("events exist before backup", func(t *testing.T) {
@@ -146,7 +130,7 @@ func TestOpsBackupRestore(t *testing.T) {
 	})
 	_ = capturedEventIDs
 
-	// Runbook "Копирование данных": stop cleanly, tar-copy the whole /data
+	// Runbook "Копирование данных": stop cleanly, tar-copy the whole /var/lib/kraken
 	// volume preserving rights/UID into a separate restore volume.
 	docker(t, "stop", "-t", "30", proxy)
 	docker(t, "run", "--rm", "-v", vol+":/from", "-v", volb+":/to", "--entrypoint", "sh", testImage(),
@@ -159,9 +143,9 @@ func TestOpsBackupRestore(t *testing.T) {
 	originB := "https://localhost:" + portB
 	proxy = r.addContainer(randName("sc-ops") + "-p1b")
 	docker(t, "run", "-d", "--name", proxy, "--network", net, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1:"+portB+":8443", "-v", volb+":/data",
+		"-p", "127.0.0.1:"+portB+":8443", "-v", volb+":/var/lib/kraken",
 		"-e", "KRAKEN_PUBLIC_ORIGIN="+originB,
-		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key", testImage())
+		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", testImage())
 	panelB := newPanel(originB, filepath.Join(s1, "panel.crt"), password)
 	panelB.login(t, password) // same password opens the restored admin
 	panelB.waitUp(t, 120)
@@ -173,10 +157,6 @@ func TestOpsBackupRestore(t *testing.T) {
 		}
 		if restored["observed_config_hash"] != configHash {
 			t.Errorf("observed_config_hash: got %v, want %s", restored["observed_config_hash"], configHash)
-		}
-		restoredLKG, _ := lkgManifest(t, proxy)["hash"].(string)
-		if restoredLKG != lkgHash {
-			t.Errorf("lkg hash: got %s, want %s", restoredLKG, lkgHash)
 		}
 	})
 
@@ -225,8 +205,8 @@ func TestOpsCertReplace(t *testing.T) {
 	r.track(t)
 	const idx = 1
 	inst := launchOpsInstance(t, &r, s2, opsSubnets[idx], opsBases[idx], testImage(), false)
-	docker(t, "cp", inst.proxy+":/data/certs/panel.crt", filepath.Join(s2, "old-panel.crt"))
-	docker(t, "cp", inst.proxy+":/data/certs/proxy.crt", filepath.Join(s2, "old-proxy.crt"))
+	docker(t, "cp", inst.proxy+":/var/lib/kraken/certs/panel.crt", filepath.Join(s2, "old-panel.crt"))
+	docker(t, "cp", inst.proxy+":/var/lib/kraken/certs/proxy.crt", filepath.Join(s2, "old-proxy.crt"))
 	genOpsCerts(t, s2)
 	client := r.addContainer(randName("sc-ops") + "-c2")
 	base := opsBases[idx]
@@ -244,11 +224,11 @@ func TestOpsCertReplace(t *testing.T) {
 
 	// Runbook cert replacement: stop, swap files preserving rights, start.
 	docker(t, "stop", "-t", "30", inst.proxy)
-	docker(t, "run", "--rm", "-v", inst.volume+":/data", "-v", s2+":/new:ro", "--entrypoint", "sh", testImage(), "-c",
-		"cp /new/new-panel.key /data/certs/panel.key && chown 10013:10013 /data/certs/panel.key && chmod 600 /data/certs/panel.key && "+
-			"cp /new/new-panel.crt /data/certs/panel.crt && chown 10013:10013 /data/certs/panel.crt && chmod 600 /data/certs/panel.crt && "+
-			"cp /new/new-proxy.key /data/certs/proxy.key && chown 10013:13 /data/certs/proxy.key && chmod 640 /data/certs/proxy.key && "+
-			"cp /new/new-proxy.crt /data/certs/proxy.crt && chown 10013:13 /data/certs/proxy.crt && chmod 640 /data/certs/proxy.crt")
+	docker(t, "run", "--rm", "-v", inst.volume+":/var/lib/kraken", "-v", s2+":/new:ro", "--entrypoint", "sh", testImage(), "-c",
+		"cp /new/new-panel.key /var/lib/kraken/certs/panel.key && chown 10013:10013 /var/lib/kraken/certs/panel.key && chmod 600 /var/lib/kraken/certs/panel.key && "+
+			"cp /new/new-panel.crt /var/lib/kraken/certs/panel.crt && chown 10013:10013 /var/lib/kraken/certs/panel.crt && chmod 600 /var/lib/kraken/certs/panel.crt && "+
+			"cp /new/new-proxy.key /var/lib/kraken/certs/proxy.key && chown 10013:13 /var/lib/kraken/certs/proxy.key && chmod 640 /var/lib/kraken/certs/proxy.key && "+
+			"cp /new/new-proxy.crt /var/lib/kraken/certs/proxy.crt && chown 10013:13 /var/lib/kraken/certs/proxy.crt && chmod 640 /var/lib/kraken/certs/proxy.crt")
 	docker(t, "start", inst.proxy)
 	panelN := newPanel(inst.panel.origin, filepath.Join(s2, "new-ca.crt"), inst.password)
 	waitFor(t, 90, func() error {
@@ -339,9 +319,9 @@ func TestOpsImageUpdate(t *testing.T) {
 	time.Sleep(time.Second) // let the host port binding release
 	proxy := r.addContainer(randName("sc-ops") + "-p3b")
 	docker(t, "run", "-d", "--name", proxy, "--network", inst.network, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1:"+inst.port+":8443", "-v", inst.volume+":/data",
+		"-p", "127.0.0.1:"+inst.port+":8443", "-v", inst.volume+":/var/lib/kraken",
 		"-e", "KRAKEN_PUBLIC_ORIGIN="+inst.panel.origin,
-		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key", nextImage())
+		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", nextImage())
 	inst.proxy = proxy
 	// The pre-swap cookie is server-validated against the DB session verifier
 	// on the volume; reuse the same opener/cookie jar.
@@ -374,7 +354,7 @@ func TestOpsImageUpdate(t *testing.T) {
 	})
 }
 
-// TestOpsDiskFull covers section 4: tmpfs-backed /data filled to refusal,
+// TestOpsDiskFull covers section 4: tmpfs-backed /var/lib/kraken filled to refusal,
 // draft/apply fail cleanly without partial application, Squid keeps serving the
 // last good config, panel recovers after space is freed, manifest/DB verify.
 func TestOpsDiskFull(t *testing.T) {
@@ -391,24 +371,23 @@ func TestOpsDiskFull(t *testing.T) {
 	port := freePort(t)
 	origin := "https://localhost:" + port
 	proxy := r.addContainer(randName("sc-ops") + "-p4")
-	// /data on a size-limited tmpfs; tmpfs is not populated from the image, so
-	// the entrypoint recreates the Dockerfile's /data layout and dev cert.
-	initCmd := "install -d -o kraken -g proxy -m 0750 /data && " +
-		"install -d -o kraken -g kraken -m 0700 /data/app && " +
-		"install -d -o kraken -g proxy -m 2750 /data/certs && " +
-		"install -d -o kraken -g proxy -m 2750 /data/runtime && " +
-		"install -d -o proxy -g proxy -m 2750 /data/squid && " +
-		"install -d -o proxy -g proxy -m 2750 /data/logs && " +
+	// /var/lib/kraken on a size-limited tmpfs; tmpfs is not populated from the image, so
+	// the entrypoint recreates the Dockerfile's /var/lib/kraken layout and dev cert.
+	initCmd := "install -d -o kraken -g proxy -m 0750 /var/lib/kraken && " +
+		"install -d -o kraken -g kraken -m 0700 /var/lib/kraken/data && " +
+		"install -d -o kraken -g kraken -m 0700 /var/lib/kraken/data/telemetry && " +
+		"install -d -o kraken -g proxy -m 2750 /var/lib/kraken/certs && " +
+		"install -d -o proxy -g proxy -m 2750 /var/lib/kraken/log && " +
 		"setpriv --reuid=kraken --regid=kraken --init-groups -- /usr/local/bin/kraken dev-cert && " +
 		"exec sleep infinity"
 	docker(t, "run", "-d", "--name", proxy, "--network", net, "--network-alias", "proxy", "--ip", base+".2",
 		"-p", "127.0.0.1:"+port+":8443",
-		"--mount", "type=tmpfs,destination=/data,tmpfs-size=134217728",
+		"--mount", "type=tmpfs,destination=/var/lib/kraken,tmpfs-size=134217728",
 		"-e", "KRAKEN_PUBLIC_ORIGIN="+origin,
-		"-e", "KRAKEN_PROXY_CERT=/data/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/data/certs/proxy.key",
+		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key",
 		"--entrypoint", "sh", testImage(), "-c", initCmd)
 	waitFor(t, 30, func() error {
-		if _, ok := dockerOK(t, "exec", proxy, "test", "-f", "/data/certs/panel.crt"); !ok {
+		if _, ok := dockerOK(t, "exec", proxy, "test", "-f", "/var/lib/kraken/certs/panel.crt"); !ok {
 			return errf("panel.crt not ready")
 		}
 		return nil
@@ -418,7 +397,7 @@ func TestOpsDiskFull(t *testing.T) {
 	// Start pebble detached inside the running container so the tmpfs survives.
 	docker(t, "exec", "-d", proxy, "sh", "-c", "pebble run --verbose >/tmp/pebble.log 2>&1")
 	// docker cp cannot read from a tmpfs mount on this runtime; extract PEM.
-	panelCRT := docker(t, "exec", proxy, "cat", "/data/certs/panel.crt")
+	panelCRT := docker(t, "exec", proxy, "cat", "/var/lib/kraken/certs/panel.crt")
 	writeFile(filepath.Join(s4, "panel.crt"), []byte(panelCRT+"\n"))
 	genOriginCert(t, s4)
 	_, client := startOriginClient(t, &r, net, s4, randName("sc-ops-s4"), base)
@@ -435,7 +414,7 @@ func TestOpsDiskFull(t *testing.T) {
 		return nil
 	})
 
-	t.Run("4a. instance on tmpfs-backed /data serves the applied policy", func(t *testing.T) {
+	t.Run("4a. instance on tmpfs-backed /var/lib/kraken serves the applied policy", func(t *testing.T) {
 		if st := opsFetch(t, client, "http://allowed.test/", false, false, "/fixtures/proxy.crt", "/fixtures/origin.crt"); st != 200 {
 			t.Errorf("allowed: expected 200, got %d", st)
 		}
@@ -449,8 +428,8 @@ func TestOpsDiskFull(t *testing.T) {
 
 	// Fill the volume to refusal: 1M blocks then 4k blocks to top up the last
 	// sub-megabyte so SQLite/WAL writes cannot find room.
-	docker(t, "exec", proxy, "sh", "-c", "dd if=/dev/zero of=/data/fill bs=1M 2>/dev/null; dd if=/dev/zero of=/data/fill.top bs=4k 2>/dev/null; true")
-	freeKB := docker(t, "exec", proxy, "sh", "-c", "df -k /data | awk 'NR==2 {print $4}'")
+	docker(t, "exec", proxy, "sh", "-c", "dd if=/dev/zero of=/var/lib/kraken/fill bs=1M 2>/dev/null; dd if=/dev/zero of=/var/lib/kraken/fill.top bs=4k 2>/dev/null; true")
+	freeKB := docker(t, "exec", proxy, "sh", "-c", "df -k /var/lib/kraken | awk 'NR==2 {print $4}'")
 	freeKBI := 0
 	scanInt(freeKB, &freeKBI)
 	if freeKBI > 4 {
@@ -508,7 +487,7 @@ func TestOpsDiskFull(t *testing.T) {
 	})
 
 	// Free disposable space; the panel recovers without manual intervention.
-	docker(t, "exec", proxy, "sh", "-c", "rm -f /data/fill /data/fill.top")
+	docker(t, "exec", proxy, "sh", "-c", "rm -f /var/lib/kraken/fill /var/lib/kraken/fill.top")
 	waitFor(t, 30, func() error {
 		if panel.draft() == nil {
 			return errf("draft not readable")
@@ -545,9 +524,9 @@ func TestOpsDiskFull(t *testing.T) {
 	})
 }
 
-// TestOpsForcedKill covers section 5: docker kill -s KILL leaves a stale
-// squid.pid; squid-start must clean it so the next launch does not abort with
-// "already running", and the same applied revision keeps serving.
+// TestOpsForcedKill covers section 5: docker kill -s KILL leaves the container
+// dead; squid-start must recover the derivative files from the control DB on
+// the next launch so the same applied revision keeps serving.
 func TestOpsForcedKill(t *testing.T) {
 	requireImage(t, testImage())
 	fixtures := t.TempDir()
