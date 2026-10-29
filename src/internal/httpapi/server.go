@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -552,6 +553,21 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		if runErr != nil {
 			slog.Warn("operation failed", "operation_id", op.ID, "error", runErr)
 			op.Findings = []string{"Проверка или применение не завершились успешно; смотрите локальный журнал процесса"}
+			var pe *local.ParseError
+			if errors.As(runErr, &pe) && pe.Line > 0 {
+				// Surface only the rendered-config line Squid rejected; the
+				// captured bungled-config body stays out of API responses.
+				var n int
+				var ok bool
+				if rendered, rerr := policy.Render(rev.Snapshot, s.Runtime.Options); rerr == nil {
+					n, ok = policy.UserSectionLine(rendered, pe.Line)
+				}
+				if rev.Snapshot.Mode == "expert" && ok {
+					op.Findings = []string{fmt.Sprintf("Squid отклонил конфигурацию: строка %d экспертной секции", n)}
+				} else {
+					op.Findings = []string{fmt.Sprintf("Squid отклонил конфигурацию: строка %d итоговой конфигурации", pe.Line)}
+				}
+			}
 		}
 		op.Updated = stamp()
 		if e := s.saveOperation(op); e != nil {

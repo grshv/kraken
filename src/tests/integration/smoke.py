@@ -265,11 +265,12 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         assert fetch(client)==200
         wait_for(lambda:docker('exec','--user','13:13',proxy,'squid-control','check'))
         print('PASS: installation listener changes rejected, published port and diagnostic probe preserved')
-        forbidden=copy.deepcopy(changed);forbidden['expert_config']='include /data/app/*'
-        try:api('/configuration/draft','PUT',{'expected_version':d['version'],'snapshot':forbidden});raise AssertionError('unsafe include accepted')
-        except urllib.error.HTTPError as exc:assert exc.code==422
-        # A syntax error passes draft editing but is rejected by real Squid validation.
-        broken=copy.deepcopy(changed);broken['expert_config']='this_is_not_a_squid_directive yes'
+        for expert_config in ['include /data/app/*','err_page_stylesheet /run/secrets/proxy.key','this_is_not_a_squid_directive yes']:
+            rejected=copy.deepcopy(changed);rejected['expert_config']=expert_config
+            try:api('/configuration/draft','PUT',{'expected_version':d['version'],'snapshot':rejected});raise AssertionError('unsafe expert config accepted: '+expert_config)
+            except urllib.error.HTTPError as exc:assert exc.code==422,expert_config
+        # An allowlisted directive with a bad argument passes draft editing but is rejected by real Squid validation.
+        broken=copy.deepcopy(changed);broken['expert_config']='acl fixture_bad src not..an..address'
         bad_draft=api('/configuration/draft','PUT',{'expected_version':d['version'],'snapshot':broken})
         bad_rev=api('/revisions','POST',{'expected_draft_version':bad_draft['version']})
         bad_op=api('/operations','POST',{'action':'validate','revision_id':bad_rev['id'],'expected_applied_revision':api('/status')['applied_revision']},str(uuid.uuid4()))
@@ -277,9 +278,11 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
             value=api('/operations/'+bad_op['id'])
             if value['status'] in ['pending','validating']:raise RuntimeError('validation pending')
             return value
-        assert wait_for(bad_finished)['status']=='rejected'
+        bad_result=wait_for(bad_finished)
+        assert bad_result['status']=='rejected'
+        assert 'строка 1 экспертной секции' in bad_result['findings'][0],bad_result['findings']
         assert fetch(client)==200
-        print('PASS: protected expert directives and real parse failure preserve active traffic')
+        print('PASS: allowlist enforcement at save, real parse failure preserves active traffic and reports line')
         # Local reset updates only a verifier, revokes old cookies, and rejects the old password.
         replacement=secrets.token_urlsafe(24)
         output=docker('exec','-i','--user','13:13',proxy,'squid-control','password-reset','--username','admin','--password-stdin',input=replacement+'\n')

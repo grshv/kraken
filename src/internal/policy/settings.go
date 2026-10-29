@@ -39,10 +39,8 @@ func EffectiveSettings(s Snapshot) Settings {
 	return *s.Settings
 }
 
-// dangerousPorts is an admin-independent denylist of service ports that all_web
-// must never expose via CONNECT or HTTP fetch. SMTP 25 is included here too.
-// The list mirrors AGENTS.md ("dangerous ports") and complements the management
-// listener blacklist owned by the runtime (3128/3129/3130/3131/8443).
+// dangerousPorts are service ports all_web must never expose via CONNECT or
+// HTTP fetch, regardless of admin policy. SMTP 25 is included too.
 var dangerousPorts = map[int]bool{
 	22:   true, // ssh
 	23:   true, // telnet
@@ -120,8 +118,53 @@ func renderSettings(b *strings.Builder, v Settings) {
 
 var reservedName = regexp.MustCompile(`(?i)\bsc_[a-z0-9_]+\b`)
 
+// expertDirectiveToken matches the raw (pre-normalization) form a directive
+// token must take before it is ever consulted against the allowlist: lowercase
+// ASCII letters, digits and underscores only. Quotes, backslashes and upper
+// case are rejected so a quoted/continued token cannot slip past Squid's own
+// tokenizer.
+var expertDirectiveToken = regexp.MustCompile(`^[a-z0-9_]+$`)
+
+// expertDirectives is the exhaustive allowlist of directives the expert
+// configuration may use. Anything not listed here is rejected at draft save.
+var expertDirectives = map[string]bool{
+	"acl": true, "http_access": true, "http_reply_access": true, "miss_access": true,
+	"always_direct": true, "never_direct": true, "prefer_direct": true,
+	"nonhierarchical_direct": true, "cache": true, "send_hit": true, "store_miss": true,
+	"refresh_pattern": true, "cache_peer": true, "cache_peer_access": true,
+	"deny_info": true, "forwarded_for": true, "via": true,
+	"request_header_access": true, "request_header_replace": true,
+	"tcp_outgoing_address": true, "tcp_outgoing_tos": true, "tcp_outgoing_mark": true,
+	"dns_nameservers": true, "dns_timeout": true, "dns_retransmit_interval": true,
+	"positive_dns_ttl": true, "negative_dns_ttl": true, "connect_timeout": true,
+	"peer_connect_timeout": true, "read_timeout": true, "write_timeout": true,
+	"request_timeout": true, "request_start_timeout": true,
+	"client_idle_pconn_timeout": true, "server_idle_pconn_timeout": true,
+	"client_lifetime": true, "forward_timeout": true, "forward_max_tries": true,
+	"connect_retries": true, "happy_eyeballs_connect_timeout": true,
+	"cache_mem": true, "maximum_object_size_in_memory": true,
+	"memory_replacement_policy": true, "memory_cache_mode": true,
+	"request_body_max_size": true, "reply_body_max_size": true,
+	"request_header_max_size": true, "reply_header_max_size": true,
+	"quick_abort_min": true, "quick_abort_max": true, "quick_abort_pct": true,
+	"range_offset_limit": true, "collapsed_forwarding": true,
+	"client_persistent_connections": true, "server_persistent_connections": true,
+	"half_closed_clients": true, "detect_broken_pconn": true,
+	"pipeline_prefetch": true, "delay_pools": true, "delay_class": true,
+	"delay_access": true, "delay_parameters": true, "delay_initial_bucket_level": true,
+	"client_delay_pools": true, "client_delay_parameters": true,
+	"client_delay_access": true, "strip_query_terms": true, "uri_whitespace": true,
+	"httpd_suppress_version_string": true, "on_unsupported_protocol": true,
+	"if": true, "else": true, "endif": true,
+}
+
+// denyInfoTarget limits deny_info's first argument to an ERR_ template name, a
+// 3xx redirect URL or TCP_RESET — anything else (notably a bare path) would let
+// Squid read an arbitrary error page from disk.
+var denyInfoTarget = regexp.MustCompile(`^(ERR_[A-Z_]+|(30[1-8]:)?https?://[^\s"]+|TCP_RESET)$`)
+
 // Expert config owns the user section, never process lifecycle paths or command execution.
-func validateExpert(text string) error {
+func validateExpert(text string, allowPrivate bool) error {
 	if len(text) > 128*1024 || strings.ContainsAny(text, "\x00\r") {
 		return errors.New("expert config must be UTF-8 LF text, at most 128 KiB")
 	}
@@ -139,22 +182,33 @@ func validateExpert(text string) error {
 		return errors.New("unfinished expert continuation")
 	}
 	depth := 0
-	forbidden := map[string]bool{"cachemgr_passwd": true, "include": true, "pid_filename": true, "cache_log": true, "access_log": true, "cache_store_log": true, "logfile_daemon": true, "cache_effective_user": true, "cache_effective_group": true, "chroot": true, "chdir": true, "coredump_dir": true, "workers": true, "debug_options": true, "external_acl_type": true, "auth_param": true, "ecap_service": true, "loadable_modules": true, "reply_header_add": true, "reply_header_access": true, "reply_header_replace": true, "reply_header_remove": true, "request_header_add": true, "http_port": true, "https_port": true, "snmp_port": true, "icp_port": true, "htcp_port": true, "snmp_access": true, "icp_access": true, "htcp_access": true, "adaptation_access": true, "icap_service": true, "cache_dir": true, "mime_table": true, "error_directory": true}
 	for i, line := range strings.Split(logical, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
 		fields := strings.Fields(line)
-		directive := strings.ToLower(strings.Trim(strings.ReplaceAll(fields[0], "\\", ""), "\"'"))
-		managedPath := false
-		for _, suffix := range []string{"_log", "_file", "_filename", "_directory", "_dir", "_path", "_program", "_helper"} {
-			if strings.HasSuffix(directive, suffix) {
-				managedPath = true
+		directive := fields[0]
+		if !expertDirectiveToken.MatchString(directive) || !expertDirectives[directive] {
+			return fmt.Errorf("line %d: directive %q is not allowed in expert configuration", i+1, directive)
+		}
+		for _, tok := range fields[1:] {
+			if strings.HasPrefix(tok, "\"/") || strings.Contains(strings.ToLower(tok), "parameters(") {
+				return fmt.Errorf("line %d: file-backed parameters are not allowed in expert configuration", i+1)
 			}
 		}
-		if forbidden[directive] || managedPath || strings.HasPrefix(directive, "ssl_") || strings.HasPrefix(directive, "security_") {
-			return fmt.Errorf("line %d: %s is managed by runtime or requires a separately provisioned helper/storage profile", i+1, directive)
+		if directive == "deny_info" {
+			if len(fields) < 3 {
+				return fmt.Errorf("line %d: deny_info requires an ACL name", i+1)
+			}
+			if !denyInfoTarget.MatchString(fields[1]) {
+				return fmt.Errorf("line %d: deny_info target must be an ERR_ template, redirect URL or TCP_RESET", i+1)
+			}
+		}
+		if directive == "cache_peer" {
+			if e := validateCachePeer(fields, allowPrivate, i+1); e != nil {
+				return e
+			}
 		}
 		matches := reservedName.FindAllString(strings.ToLower(strings.ReplaceAll(line, "\\", "")), -1)
 		allowedRefs := directive == "http_access"
@@ -166,7 +220,6 @@ func validateExpert(text string) error {
 		if len(matches) > 0 && !allowedRefs {
 			return fmt.Errorf("line %d: sc_ names are reserved for runtime protection", i+1)
 		}
-
 		if directive == "if" {
 			depth++
 		}
@@ -184,4 +237,49 @@ func validateExpert(text string) error {
 		return errors.New("unclosed expert conditional")
 	}
 	return nil
+}
+
+// validateCachePeer enforces the security boundary that the public ACL list
+// applies to request destinations: a peer host is reachable as soon as Squid
+// forwards traffic to it, so the host itself must be statically inspectable
+// and outside protected/private ranges unless the operator opted in.
+func validateCachePeer(fields []string, allowPrivate bool, lineNo int) error {
+	if len(fields) < 5 {
+		return fmt.Errorf("line %d: cache_peer requires host type proxy-port icp-port", lineNo)
+	}
+	addr, e := netip.ParseAddr(fields[1])
+	if e != nil {
+		return fmt.Errorf("line %d: cache_peer host must be a literal IP address", lineNo)
+	}
+	if !peerAddrAllowed(addr, allowPrivate) {
+		return fmt.Errorf("line %d: cache_peer host is in a protected or private range", lineNo)
+	}
+	for _, opt := range fields[5:] {
+		if eq := strings.IndexByte(opt, '='); eq >= 0 && strings.HasPrefix(opt[eq+1:], "/") {
+			return fmt.Errorf("line %d: file-backed parameters are not allowed in expert configuration", lineNo)
+		}
+	}
+	return nil
+}
+
+// peerAddrAllowed rejects the address (or its unmapped IPv4 form) in protected
+// ranges always and in private ranges unless allowPrivate. The same prefix lists
+// render the runtime ACLs.
+func peerAddrAllowed(addr netip.Addr, allowPrivate bool) bool {
+	candidates := []netip.Addr{addr, addr.Unmap()}
+	for _, a := range candidates {
+		for _, cidr := range protectedDestinations {
+			if p, e := netip.ParsePrefix(cidr); e == nil && p.Contains(a) {
+				return false
+			}
+		}
+		if !allowPrivate {
+			for _, cidr := range privateDestinations {
+				if p, e := netip.ParsePrefix(cidr); e == nil && p.Contains(a) {
+					return false
+				}
+			}
+		}
+	}
+	return true
 }

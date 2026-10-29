@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"squid-control.local/squid/internal/policy"
+	"strings"
 	"testing"
 )
 
@@ -110,5 +112,55 @@ func TestDriftAndConcurrentGate(t *testing.T) {
 	Atomic(m.ActivePath(), []byte("manual change"))
 	if e = m.Recover(context.Background(), true); !errors.Is(e, ErrDrift) {
 		t.Fatalf("drift ignored: %v", e)
+	}
+}
+
+func writeFakeSquid(t *testing.T, body string) string {
+	t.Helper()
+	bin := filepath.Join(t.TempDir(), "fake-squid")
+	if e := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+body+"' >&2\nexit 1\n"), 0755); e != nil {
+		t.Fatal(e)
+	}
+	return bin
+}
+
+func TestParseErrorReportsLineWithoutOutput(t *testing.T) {
+	bin := writeFakeSquid(t, "FATAL: Bungled /x/candidate.conf line 42: SECRET_TOKEN_VALUE")
+	m := New(t.TempDir(), bin, "/dev/null", "", "", "")
+	m.Probe = func(context.Context, string) error { return nil }
+	m.Command = func(context.Context, ...string) error { return nil }
+	if e := m.Recover(context.Background(), true); e != nil {
+		t.Fatal(e)
+	}
+	m.Command = m.command
+	err := m.Validate(context.Background(), policy.Empty())
+	var pe *ParseError
+	if !errors.As(err, &pe) {
+		t.Fatalf("expected *ParseError, got %T %v", err, err)
+	}
+	if pe.Line != 42 {
+		t.Fatalf("expected line 42, got %d", pe.Line)
+	}
+	if strings.Contains(err.Error(), "SECRET_TOKEN_VALUE") {
+		t.Fatalf("error leaks squid output: %v", err)
+	}
+	if strings.Contains(pe.Error(), "SECRET_TOKEN_VALUE") {
+		t.Fatalf("ParseError leaks squid output: %v", pe)
+	}
+}
+
+func TestParseErrorWithoutLineNumber(t *testing.T) {
+	bin := writeFakeSquid(t, "FATAL: bungled without a line marker")
+	m := New(t.TempDir(), bin, "/dev/null", "", "", "")
+	m.Probe = func(context.Context, string) error { return nil }
+	m.Command = func(context.Context, ...string) error { return nil }
+	if e := m.Recover(context.Background(), true); e != nil {
+		t.Fatal(e)
+	}
+	m.Command = m.command
+	err := m.Validate(context.Background(), policy.Empty())
+	var pe *ParseError
+	if !errors.As(err, &pe) || pe.Line != 0 {
+		t.Fatalf("expected ParseError line 0, got %v", err)
 	}
 }

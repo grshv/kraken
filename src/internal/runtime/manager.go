@@ -15,6 +15,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -25,6 +27,16 @@ import (
 
 var ErrBusy = errors.New("runtime busy")
 var ErrDrift = errors.New("configuration drift detected")
+
+// ParseError reports the rendered-config line Squid rejected; Squid output is withheld.
+type ParseError struct{ Line int } // 1-based line of the rendered config, 0 if unknown
+
+func (e *ParseError) Error() string {
+	if e == nil || e.Line == 0 {
+		return "squid rejected configuration (output withheld)"
+	}
+	return fmt.Sprintf("squid rejected configuration at line %d (output withheld)", e.Line)
+}
 
 type Manifest struct {
 	Compiler    string          `json:"compiler_version,omitempty"`
@@ -133,10 +145,8 @@ func Atomic(path string, b []byte) error {
 		return e
 	}
 	name := f.Name()
-	// Track whether the staged temp has been promoted via rename. The deferred
-	// cleanup used to call os.Remove(name) unconditionally, which silently
-	// errored after a successful rename — harmless, but confusing when reading
-	// the code and noisy if anyone ever wires errno-level logging.
+	// Track whether the staged temp has been promoted via rename so the
+	// deferred cleanup only removes an unpromoted temp file.
 	renamed := false
 	defer func() {
 		if !renamed {
@@ -201,9 +211,40 @@ func (m *Manager) command(ctx context.Context, args ...string) error {
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	if e := cmd.Run(); e != nil {
+		if hasParseFlag(args) && ctx.Err() == nil {
+			return parseErrorFromOutput(out.String())
+		}
 		return fmt.Errorf("squid control failed: %w (configuration output withheld to avoid leaking credentials)", e)
 	}
 	return nil
+}
+
+// hasParseFlag reports whether argv represents the `squid -k parse` invocation
+// the runtime uses for validation, so a failing parse surfaces only the line
+// number Squid reports and never the redacted bungled-config body.
+func hasParseFlag(args []string) bool {
+	for i := 0; i+1 < len(args); i++ {
+		if args[i] == "-k" && args[i+1] == "parse" {
+			return true
+		}
+	}
+	return false
+}
+
+var parseLineRE = regexp.MustCompile(`line (\d+):`)
+
+// parseErrorFromOutput extracts the last `line N:` reference from captured
+// Squid output into a ParseError. Squid prints `FATAL: Bungled <path> line N:
+// <body>`; the body is never placed in the returned error.
+func parseErrorFromOutput(output string) *ParseError {
+	matches := parseLineRE.FindAllStringSubmatch(output, -1)
+	if len(matches) == 0 {
+		return &ParseError{Line: 0}
+	}
+	if n, e := strconv.Atoi(matches[len(matches)-1][1]); e == nil {
+		return &ParseError{Line: n}
+	}
+	return &ParseError{Line: 0}
 }
 
 type limitedBuffer struct{ bytes.Buffer }

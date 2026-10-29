@@ -172,3 +172,113 @@ func TestManagementListenerIsProtected(t *testing.T) {
 		t.Fatal("expert changed manager access")
 	}
 }
+
+func TestExpertAllowlistRejectsDangerousDirectives(t *testing.T) {
+	cases := []struct {
+		name   string
+		expert string
+	}{
+		{"err_page_stylesheet reads file", "err_page_stylesheet /x"},
+		{"ftp_port new listener", "ftp_port 2121"},
+		{"acl reads file via quoted path", "acl x src \"/etc/hosts\""},
+		{"acl parameters macro reads file", "acl x dstdomain parameters(\"/etc/hosts\")"},
+		{"deny_info bare path", "deny_info /x all"},
+		{"cache_peer link-local metadata", "cache_peer 169.254.169.254 parent 80 0 no-query originserver"},
+		{"cache_peer loopback", "cache_peer 127.0.0.1 parent 8443 0"},
+		{"cache_peer v4-mapped loopback", "cache_peer ::ffff:127.0.0.1 parent 80 0"},
+		{"cache_peer private when closed", "cache_peer 10.0.0.5 parent 3128 0"},
+		{"cache_peer hostname", "cache_peer peer.example parent 3128 0"},
+		{"cache_peer file option", "cache_peer 198.51.100.1 parent 3128 0 tls-cert=/run/secrets/proxy.key"},
+		{"directive uppercase token", "HTTP_ACCESS allow all"},
+		{"directive quoted token", "\"acl\" x src 1.2.3.4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fixture()
+			s.Mode = "expert"
+			s.Expert = tc.expert
+			if e := Validate(s, Options{}); e == nil {
+				t.Fatalf("accepted dangerous expert config: %q", tc.expert)
+			}
+		})
+	}
+}
+
+func TestExpertAllowlistAcceptsSafeDirectives(t *testing.T) {
+	cases := []struct {
+		name         string
+		expert       string
+		allowPrivate bool
+	}{
+		{"cache_peer private when allowed", "cache_peer 10.0.0.5 parent 3128 0 no-query", true},
+		{"cache_peer public host", "cache_peer 8.8.8.8 parent 3128 0", false},
+		{"deny_info ERR template", "deny_info ERR_ACCESS_DENIED office", false},
+		{"deny_info redirect", "deny_info 302:https://example.org/blocked office", false},
+		{"deny_info tcp reset", "deny_info TCP_RESET office", false},
+		{"delay_pools", "delay_pools 1", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fixture()
+			s.Mode = "expert"
+			settings := EffectiveSettings(s)
+			settings.AllowPrivateDestinations = tc.allowPrivate
+			s.Settings = &settings
+			s.Expert = tc.expert
+			if e := Validate(s, Options{StateDir: "/data", LogPath: "/data/log"}); e != nil {
+				t.Fatalf("rejected safe expert config: %v", e)
+			}
+		})
+	}
+}
+
+func TestProtectedDestinationsRenderedFromList(t *testing.T) {
+	s := Empty()
+	o := Options{StateDir: "/tmp/runtime", LogPath: "/tmp/access.log"}
+	config, err := Render(s, o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"2002::/16", "2001::/32", "64:ff9b:1::/48"} {
+		if !strings.Contains(config, "acl sc_protected_dst dst ") || !strings.Contains(config, want) {
+			t.Fatalf("protected ACL missing %s:\n%s", want, config)
+		}
+	}
+	idx := strings.Index(config, "acl sc_protected_dst dst ")
+	end := strings.Index(config[idx:], "\n")
+	line := config[idx : idx+end]
+	last := -1
+	for _, want := range []string{"2001::/32", "2002::/16", "64:ff9b:1::/48"} {
+		at := strings.Index(line, want)
+		if at < 0 || at < last {
+			t.Fatalf("protected ACL ordering broke for %s: %s", want, line)
+		}
+		last = at
+	}
+}
+
+func TestUserSectionLine(t *testing.T) {
+	config := "header\n# BEGIN user policy\nfirst\nsecond\n# END user policy\ntail\n"
+	cases := []struct {
+		name       string
+		configLine int
+		wantN      int
+		wantOK     bool
+	}{
+		{"first line of section", 3, 1, true},
+		{"second line of section", 4, 2, true},
+		{"begin marker", 2, 0, false},
+		{"end marker", 6, 0, false},
+		{"line before section", 1, 0, false},
+		{"line after end", 7, 0, false},
+		{"zero line", 0, 0, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			n, ok := UserSectionLine(config, tc.configLine)
+			if n != tc.wantN || ok != tc.wantOK {
+				t.Fatalf("UserSectionLine(%d) = (%d, %v), want (%d, %v)", tc.configLine, n, ok, tc.wantN, tc.wantOK)
+			}
+		})
+	}
+}

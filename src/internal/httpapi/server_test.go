@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"squid-control.local/squid/internal/policy"
 	local "squid-control.local/squid/internal/runtime"
 	"squid-control.local/squid/internal/store"
+	"strings"
 	"testing"
 )
 
@@ -117,5 +120,160 @@ func TestBootstrapIsNotPublicRegistration(t *testing.T) {
 	}
 	if h, e := PasswordHash("short"); e == nil || h != "" {
 		t.Fatal("weak password accepted")
+	}
+}
+
+func TestOperationFindsExpertParseLine(t *testing.T) {
+	s, h := fixtureServer(t)
+	cookie, csrf := loginTest(t, h)
+	w := request(h, "GET", "/configuration/draft", nil, cookie, "", "")
+	var d Draft
+	if e := json.Unmarshal(w.Body.Bytes(), &d); e != nil {
+		t.Fatal(e)
+	}
+	d.Snapshot.Mode = "expert"
+	d.Snapshot.Expert = "acl fixture_bad src not..an..address\nhttp_access allow fixture_bad\n"
+	w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": d.Version, "snapshot": d.Snapshot}, cookie, csrf, "https://panel.test")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var d2 Draft
+	json.Unmarshal(w.Body.Bytes(), &d2)
+	w = request(h, "POST", "/revisions", map[string]int{"expected_draft_version": d2.Version}, cookie, csrf, "https://panel.test")
+	if w.Code != 201 {
+		t.Fatal(w.Body.String())
+	}
+	var rev Revision
+	json.Unmarshal(w.Body.Bytes(), &rev)
+
+	rendered, rerr := policy.Render(rev.Snapshot, s.Runtime.Options)
+	if rerr != nil {
+		t.Fatal(rerr)
+	}
+	beginLine := 0
+	for i, ln := range strings.Split(rendered, "\n") {
+		if strings.TrimSpace(ln) == "# BEGIN user policy" {
+			beginLine = i + 1
+			break
+		}
+	}
+	if beginLine == 0 {
+		t.Fatal("no BEGIN marker in rendered config")
+	}
+	firstExpert := beginLine + 1
+
+	s.Runtime.Command = func(ctx context.Context, args ...string) error {
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "-k" && args[i+1] == "parse" {
+				return &local.ParseError{Line: firstExpert}
+			}
+		}
+		return nil
+	}
+
+	body := `{"action":"validate","revision_id":"` + rev.ID + `","expected_applied_revision":null}`
+	r := httptest.NewRequest("POST", "https://panel.test/api/v1/operations", strings.NewReader(body))
+	r.AddCookie(cookie)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "https://panel.test")
+	r.Header.Set("X-CSRF-Token", csrf)
+	r.Header.Set("Idempotency-Key", "test-parse-error-expert-line-001")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	if rec.Code != 202 {
+		t.Fatal(rec.Body.String())
+	}
+	var op Operation
+	json.Unmarshal(rec.Body.Bytes(), &op)
+	s.Wait()
+	w = request(h, "GET", "/operations/"+op.ID, nil, cookie, "", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var final Operation
+	json.Unmarshal(w.Body.Bytes(), &final)
+	if final.Status != "rejected" {
+		t.Fatalf("expected rejected, got %s", final.Status)
+	}
+	if len(final.Findings) == 0 || !strings.Contains(final.Findings[0], "строка 1 экспертной секции") {
+		t.Fatalf("unexpected findings: %v", final.Findings)
+	}
+}
+
+func TestOperationFindsTotalConfigParseLineWhenNotExpert(t *testing.T) {
+	s, h := fixtureServer(t)
+	cookie, csrf := loginTest(t, h)
+	w := request(h, "GET", "/configuration/draft", nil, cookie, "", "")
+	var d Draft
+	if e := json.Unmarshal(w.Body.Bytes(), &d); e != nil {
+		t.Fatal(e)
+	}
+	// A structured client puts lines into the user section; they must still be
+	// reported as rendered-config lines because only expert text is user-authored.
+	snapshot := d.Snapshot
+	snapshot.Policies = append(snapshot.Policies, policy.Policy{ID: "p1", Name: "web", Mode: "all_web", Destinations: []policy.Destination{}, TLSProfileID: snapshot.TLSProfiles[0].ID})
+	snapshot.Clients = append(snapshot.Clients, policy.Client{ID: "c1", Name: "office", Networks: []string{"192.0.2.0/24"}, Enabled: true, PolicyID: "p1"})
+	rendered, e := policy.Render(snapshot, s.Runtime.Options)
+	if e != nil {
+		t.Fatal(e)
+	}
+	userLine := 0
+	for i, ln := range strings.Split(rendered, "\n") {
+		if ln == "# BEGIN user policy" {
+			userLine = i + 2
+			break
+		}
+	}
+	if _, ok := policy.UserSectionLine(rendered, userLine); !ok {
+		t.Fatal("fixture has no structured line inside the user section")
+	}
+	w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": d.Version, "snapshot": snapshot}, cookie, csrf, "https://panel.test")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var d2 Draft
+	json.Unmarshal(w.Body.Bytes(), &d2)
+	w = request(h, "POST", "/revisions", map[string]int{"expected_draft_version": d2.Version}, cookie, csrf, "https://panel.test")
+	if w.Code != 201 {
+		t.Fatal(w.Body.String())
+	}
+	var rev Revision
+	json.Unmarshal(w.Body.Bytes(), &rev)
+
+	s.Runtime.Command = func(ctx context.Context, args ...string) error {
+		for i := 0; i+1 < len(args); i++ {
+			if args[i] == "-k" && args[i+1] == "parse" {
+				return &local.ParseError{Line: userLine}
+			}
+		}
+		return nil
+	}
+
+	body := `{"action":"validate","revision_id":"` + rev.ID + `","expected_applied_revision":null}`
+	r := httptest.NewRequest("POST", "https://panel.test/api/v1/operations", strings.NewReader(body))
+	r.AddCookie(cookie)
+	r.Header.Set("Content-Type", "application/json")
+	r.Header.Set("Origin", "https://panel.test")
+	r.Header.Set("X-CSRF-Token", csrf)
+	r.Header.Set("Idempotency-Key", "test-parse-error-total-line-001")
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, r)
+	if rec.Code != 202 {
+		t.Fatal(rec.Body.String())
+	}
+	var op Operation
+	json.Unmarshal(rec.Body.Bytes(), &op)
+	s.Wait()
+	w = request(h, "GET", "/operations/"+op.ID, nil, cookie, "", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var final Operation
+	json.Unmarshal(w.Body.Bytes(), &final)
+	if final.Status != "rejected" {
+		t.Fatalf("expected rejected, got %s", final.Status)
+	}
+	if len(final.Findings) == 0 || final.Findings[0] != fmt.Sprintf("Squid отклонил конфигурацию: строка %d итоговой конфигурации", userLine) {
+		t.Fatalf("unexpected findings: %v", final.Findings)
 	}
 }

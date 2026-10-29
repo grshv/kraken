@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "6"
+const CompilerVersion = "7"
 
 // Squid Basic TTL zero never becomes valid. A separate uncached generation
 // check on every allowed request enforces reset/disable despite Basic caching.
@@ -72,6 +72,22 @@ var idPattern = regexp.MustCompile(`^[a-zA-Z0-9-]{1,64}$`)
 var proxyUsernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
 var domainPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$`)
 
+// protectedDestinations and privateDestinations are the canonical destination
+// ranges the runtime denies. Both ACL lines and the cache_peer validator read
+// from these lists so a protected host cannot slip past either path.
+var protectedDestinations = []string{
+	"0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "240.0.0.0/4",
+	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b::/96", "100::/64",
+	"fe80::/10", "ff00::/8",
+	"2001::/32", "2002::/16", "64:ff9b:1::/48",
+}
+
+var privateDestinations = []string{
+	"10.0.0.0/8", "100.64.0.0/10", "172.16.0.0/12", "192.0.0.0/24",
+	"192.0.2.0/24", "192.168.0.0/16", "198.18.0.0/15", "198.51.100.0/24",
+	"203.0.113.0/24", "2001:db8::/32", "fc00::/7",
+}
+
 func Validate(s Snapshot, o Options) error {
 	if (o.ProxyCert == "") != (o.ProxyKey == "") {
 		return errors.New("both proxy certificate and key are required")
@@ -85,7 +101,7 @@ func Validate(s Snapshot, o Options) error {
 	if s.Mode != "" && s.Mode != "structured" && s.Mode != "expert" {
 		return errors.New("unknown configuration mode")
 	}
-	if e := validateExpert(s.Expert); e != nil {
+	if e := validateExpert(s.Expert, EffectiveSettings(s).AllowPrivateDestinations); e != nil {
 		return e
 	}
 	if len(s.Clients) > 1024 || len(s.Policies) > 1024 || len(s.TLSProfiles) > 16 {
@@ -233,8 +249,8 @@ func Render(s Snapshot, o Options) (string, error) {
 	fmt.Fprintf(&b, "access_log stdio:%s squid !sc_probe_source\ncache_store_log none\npinger_enable off\nshutdown_lifetime 2 seconds\n", o.LogPath)
 	renderSettings(&b, settings)
 	fmt.Fprintf(&b, "acl sc_safe_ports port %s\nacl sc_ssl_ports port %s\nacl sc_http_listener localport %d\nacl sc_tls_listener localport %d\n", portList(settings.SafePorts), portList(settings.ConnectPorts), settings.HTTPPort, settings.TLSPort)
-	b.WriteString("acl sc_protected_dst dst 0.0.0.0/8 127.0.0.0/8 169.254.0.0/16 224.0.0.0/4 240.0.0.0/4 ::/128 ::1/128 ::ffff:0:0/96 64:ff9b::/96 100::/64 fe80::/10 ff00::/8\n")
-	b.WriteString("acl sc_private_dst dst 10.0.0.0/8 100.64.0.0/10 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 2001:db8::/32 fc00::/7\n")
+	fmt.Fprintf(&b, "acl sc_protected_dst dst %s\n", strings.Join(protectedDestinations, " "))
+	fmt.Fprintf(&b, "acl sc_private_dst dst %s\n", strings.Join(privateDestinations, " "))
 	b.WriteString("acl sc_manager_listener localport 3131\nacl sc_manager_method method GET\nacl sc_manager_path urlpath_regex ^/squid-internal-mgr/(info|counters|5min|active_requests)$\ncachemgr_passwd none info counters 5min active_requests\ncachemgr_passwd disable all\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\nhttp_access deny sc_manager_listener\n")
 	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports\nhttp_access deny CONNECT !sc_ssl_ports\nhttp_access deny manager\nhttp_access deny sc_protected_dst\n")
 	if !settings.AllowPrivateDestinations {
@@ -338,4 +354,36 @@ func renderCacheFallback(b *strings.Builder, settings Settings) {
 	} else {
 		b.WriteString("cache deny all\n")
 	}
+}
+
+// UserSectionLine maps a rendered-config line to the 1-based line inside the
+// user policy section, if the line falls between the BEGIN/END markers. The
+// first line after "# BEGIN user policy" is 1. The marker lines themselves and
+// anything outside the section return (0, false).
+func UserSectionLine(config string, configLine int) (int, bool) {
+	if configLine < 1 {
+		return 0, false
+	}
+	lines := strings.Split(config, "\n")
+	begin := 0
+	for i, ln := range lines {
+		if strings.TrimSpace(ln) == "# BEGIN user policy" {
+			begin = i + 1
+			break
+		}
+	}
+	if begin == 0 || configLine <= begin {
+		return 0, false
+	}
+	end := len(lines) + 1
+	for i := begin; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "# END user policy" {
+			end = i + 1
+			break
+		}
+	}
+	if configLine >= end {
+		return 0, false
+	}
+	return configLine - begin, true
 }
