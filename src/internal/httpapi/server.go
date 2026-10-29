@@ -213,8 +213,8 @@ func (s *Server) Handler() http.Handler {
 	// No /api/ catch-all: a method-agnostic prefix pattern absorbs wrong-method
 	// requests and would surface them as 404 instead of the 405 Go 1.22 ServeMux
 	// returns when a path matches a registered pattern with a different method.
-	// Unknown /api/ paths fall through to the "/" handler below, which produces
-	// the same JSON 404 envelope legacy clients expect.
+	// Unknown /api/ paths fall through to the "/" handler below, which returns
+	// the JSON 404 envelope.
 	mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if strings.HasPrefix(r.URL.Path, "/api/") {
 			fail(w, 404, "not_found", "Неизвестный endpoint")

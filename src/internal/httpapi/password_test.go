@@ -11,7 +11,7 @@ import (
 	"golang.org/x/crypto/argon2"
 )
 
-func TestPasswordVerifierIsSaltedPHCAndLegacyCompatible(t *testing.T) {
+func TestPasswordVerifierIsSaltedPHCOnly(t *testing.T) {
 	password := "test-only-salted-password"
 	a, e := PasswordHash(password)
 	if e != nil {
@@ -29,9 +29,10 @@ func TestPasswordVerifierIsSaltedPHCAndLegacyCompatible(t *testing.T) {
 	}
 	salt := []byte("0123456789abcdef")
 	key := argon2.IDKey([]byte(password), salt, 2, 19*1024, 1, 32)
-	legacy := "argon2id$" + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key)
-	if !passwordMatches(legacy, password) {
-		t.Fatal("existing administrators cannot log in after upgrade")
+	// The pre-PHC "argon2id$salt$key" form is no longer accepted.
+	unversioned := "argon2id$" + base64.RawStdEncoding.EncodeToString(salt) + "$" + base64.RawStdEncoding.EncodeToString(key)
+	if passwordMatches(unversioned, password) {
+		t.Fatal("unversioned verifier accepted")
 	}
 	for _, bad := range []string{"plaintext", strings.Replace(a, "m=19456", "m=4294967295", 1), strings.Replace(a, "p=1", "p=0", 1), strings.Replace(a, "v=19", "v=16", 1), a + "$extra"} {
 		if passwordMatches(bad, password) {

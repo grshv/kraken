@@ -5,10 +5,7 @@ import (
 	"time"
 )
 
-// Session and user CRUD helpers. httpapi used to issue these statements
-// inline against *sql.DB / *sql.Tx, which leaked the sessions/users schema
-// into the HTTP layer. These methods are the stable surface; multi-step
-// transactions (e.g. NewSession's password-check-then-insert) take a *sql.Tx
+// Session and user CRUD helpers. Multi-step transactions (e.g. NewSession's password-check-then-insert) take a *sql.Tx
 // the caller has already started so the cross-statement atomicity is
 // preserved without exposing bare SQL to the caller.
 

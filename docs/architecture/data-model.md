@@ -116,7 +116,7 @@ holders в таблицу не записываются. Целостность 
 
 Client.kind: host/network/group, несколько source networks. settings и expert_config
 хранятся в immutable snapshot, исходный admin password туда не включается.
-users.password_hash хранит PHC или совместимый legacy verifier. CLI reset меняет
+users.password_hash хранит только Argon2id PHC verifier. CLI reset меняет
 его вместе с удалением sessions/audit в одной транзакции. Логическая схема выше
 не объявляет будущие tables/migration retention полностью реализованными.
 

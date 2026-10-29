@@ -124,20 +124,13 @@ func (s *Store) Put(key string, v any) error {
 	return e
 }
 
-// Audit stamps are stored as INTEGER unix seconds since migration 002; TEXT
-// RFC3339 was used in 001.sql but mixed-type comparisons (audit_events TEXT vs
-// sessions INTEGER) blocked range queries. inbound callers should pass a
-// pre-computed int64 instead of formatting a string.
-
+// Audit records an event stamped in INTEGER unix seconds.
 func (s *Store) Audit(actor, action, entity string) error {
 	_, e := s.DB.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
 	return e
 }
 
-// Operation CRUD: httpapi used to issue these INSERTs/UPDATEs/SELECTs inline,
-// which leaked the operations/audit_events schema into the HTTP layer and made
-// schema changes require touching every handler. The methods below are the
-// stable surface; bodies are opaque JSON strings so the Operation struct can
+// Operation CRUD. Bodies are opaque JSON strings so the Operation struct can
 // stay private to httpapi.
 
 // InsertOperation writes the operation row plus its audit event in one tx so a

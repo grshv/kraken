@@ -51,7 +51,7 @@ reset не создаёт. Невалидный пароль/ошибка DB о�
 
 ## Проверки
 
-Unit tests: salted PHC/legacy, неправильный пароль, malformed verifier, отсутствие
+Unit tests: salted PHC, отказ для формата без версии и параметров, неправильный пароль, malformed verifier, отсутствие
 plaintext в хранилище, отзыв сессий, гонка stale-login/reset и неизвестный username.
 Network suite выполняет настоящий CLI reset на отдельном тестовом volume, проверяет
 невалидность старой сессии/пароля и вход с новым. Password этой suite создаётся

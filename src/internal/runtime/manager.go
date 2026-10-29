@@ -157,11 +157,11 @@ func (m *Manager) lock() (func(), error) {
 	}
 	return func() { syscall.Flock(int(f.Fd()), syscall.LOCK_UN); f.Close(); m.mu.Unlock() }, nil
 }
+
+// Atomic writes a private (0600) file atomically.
 func Atomic(path string, b []byte) error { return AtomicMode(path, b, 0600) }
 
-// AtomicMode writes b atomically with the given file mode. Used for files Squid
-// reads (active.conf, manager-auth.conf), which must be group-readable so the
-// proxy user — sharing the runtime directory group — can open them.
+// AtomicMode writes b atomically with the given file mode.
 func AtomicMode(path string, b []byte, mode os.FileMode) error {
 	if e := os.MkdirAll(filepath.Dir(path), 0700); e != nil {
 		return e
@@ -204,15 +204,6 @@ func AtomicMode(path string, b []byte, mode os.FileMode) error {
 	return d.Sync()
 }
 
-// persistShared writes a Squid-readable file through Persist, keeping storage
-// injections effective; the chmod covers a Persist that creates 0600 files.
-func (m *Manager) persistShared(path string, b []byte) error {
-	if e := m.Persist(path, b); e != nil {
-		return e
-	}
-	return os.Chmod(path, 0640)
-}
-
 // ensureManagerAuth persists the manager token in <AppDir>/manager-token and
 // the included auth file <StateDir>/manager-auth.conf. The token is 32 random
 // bytes (hex) and never appears in Render, Manifest, errors or logs. The
@@ -227,7 +218,7 @@ func (m *Manager) ensureManagerAuth() error {
 	if b, e := os.ReadFile(path); e == nil && string(b) == want {
 		return nil
 	}
-	return m.persistShared(path, []byte(want))
+	return m.Persist(path, []byte(want))
 }
 
 var managerToken = regexp.MustCompile(`^[0-9a-f]{64}$`)
@@ -324,16 +315,7 @@ func (m *Manager) SquidReady() (bool, error) {
 	return false, nil
 }
 
-// writeShared persists a JSON Squid reads (lkg.json, journal.json) at 0640 so the
-// proxy user — sharing the runtime directory group — can open it for the
-// squid-start readiness check.
-func (m *Manager) writeShared(name string, v any) error {
-	b, e := json.Marshal(v)
-	if e != nil {
-		return e
-	}
-	return m.persistShared(filepath.Join(m.Dir, name), b)
-}
+// write persists JSON state; squid-start reads lkg.json and journal.json.
 func (m *Manager) write(name string, v any) error {
 	b, e := json.Marshal(v)
 	if e != nil {
@@ -486,16 +468,16 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		}
 		// Durable first_run marker records that init is in progress; a crash
 		// before lkg.json becomes a clean re-run of this same branch.
-		if e = m.writeShared("journal.json", Journal{Stage: "first_run", Candidate: prev}); e != nil {
+		if e = m.write("journal.json", Journal{Stage: "first_run", Candidate: prev}); e != nil {
 			return e
 		}
-		if e = m.persistShared(m.ActivePath(), []byte(c)); e != nil {
+		if e = m.Persist(m.ActivePath(), []byte(c)); e != nil {
 			return e
 		}
-		if e = m.writeShared("lkg.json", prev); e != nil {
+		if e = m.write("lkg.json", prev); e != nil {
 			return e
 		}
-		return m.writeShared("journal.json", Journal{Stage: "terminal", Outcome: "initialised", Candidate: prev})
+		return m.write("journal.json", Journal{Stage: "terminal", Outcome: "initialised", Candidate: prev})
 	}
 	if e != nil {
 		return e
@@ -514,7 +496,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 			return e
 		}
 		j.Stage, j.Outcome = "terminal", "initialised"
-		return m.writeShared("journal.json", j)
+		return m.write("journal.json", j)
 	}
 	if je == nil && j.Stage != "terminal" {
 		// The previous manifest in the durable journal is authoritative after a crash.
@@ -525,7 +507,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		if e = m.parse(ctx, prev.Config); e != nil {
 			return e
 		}
-		if e = m.persistShared(m.ActivePath(), []byte(prev.Config)); e != nil {
+		if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e != nil {
 			return e
 		}
 		if !offline {
@@ -535,7 +517,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 				return fmt.Errorf("recovery reload not verified: %w", e)
 			}
 		}
-		if e = m.writeShared("lkg.json", prev); e != nil {
+		if e = m.write("lkg.json", prev); e != nil {
 			return e
 		}
 		if offline {
@@ -545,7 +527,7 @@ func (m *Manager) Recover(ctx context.Context, offline bool) error {
 		}
 		j.Stage = "terminal"
 		j.Outcome = "rolled_back"
-		return m.writeShared("journal.json", j)
+		return m.write("journal.json", j)
 	}
 	return m.checkDrift(prev)
 }
@@ -586,19 +568,19 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	}
 	next := Manifest{Compiler: policy.CompilerVersion, ImageDigest: m.Image, Revision: revision, Hash: policy.Fingerprint(s, m.Options), Config: config, Snapshot: s}
 	j := Journal{Operation: id, Stage: "promoting", Previous: prev, Candidate: next}
-	if e = m.writeShared("journal.json", j); e != nil {
+	if e = m.write("journal.json", j); e != nil {
 		return "rejected", e
 	}
 	lkgPromoted := false
-	if e = m.persistShared(m.ActivePath(), []byte(config)); e == nil {
+	if e = m.Persist(m.ActivePath(), []byte(config)); e == nil {
 		j.Stage = "reloading"
-		e = m.writeShared("journal.json", j)
+		e = m.write("journal.json", j)
 	}
 	if e == nil {
 		e = m.reloadVerify(ctx, next.Hash)
 	}
 	if e == nil {
-		e = m.writeShared("lkg.json", next)
+		e = m.write("lkg.json", next)
 		if e == nil {
 			lkgPromoted = true
 		}
@@ -606,7 +588,7 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	if e == nil {
 		j.Stage = "terminal"
 		j.Outcome = "succeeded"
-		e = m.writeShared("journal.json", j)
+		e = m.write("journal.json", j)
 		if e == nil {
 			return "succeeded", nil
 		}
@@ -624,24 +606,24 @@ func (m *Manager) Apply(ctx context.Context, id, revision, expected string, s po
 	rollbackCtx, cancelRollback := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 	defer cancelRollback()
 	j.Stage = "rolling_back"
-	if e = m.writeShared("journal.json", j); e != nil {
+	if e = m.write("journal.json", j); e != nil {
 		// Avoid triple-wrapping the original "configuration output withheld"
 		// message; surface a single rolled-back summary plus the rollback step
 		// error without repeating the redaction phrase.
 		return "degraded", fmt.Errorf("apply failed: %w; rollback journal write failed: %v", original, e)
 	}
-	if e = m.persistShared(m.ActivePath(), []byte(prev.Config)); e == nil {
+	if e = m.Persist(m.ActivePath(), []byte(prev.Config)); e == nil {
 		e = m.reloadVerify(rollbackCtx, prev.Hash)
 	}
 	if e == nil {
-		e = m.writeShared("lkg.json", prev)
+		e = m.write("lkg.json", prev)
 	}
 	if e != nil {
 		return "degraded", fmt.Errorf("apply failed: %w; rollback failed: %v", original, e)
 	}
 	j.Stage = "terminal"
 	j.Outcome = "rolled_back"
-	if e = m.writeShared("journal.json", j); e != nil {
+	if e = m.write("journal.json", j); e != nil {
 		return "degraded", fmt.Errorf("apply failed: %w; terminal journal write failed: %v", original, e)
 	}
 	return "rolled_back", original
@@ -668,52 +650,13 @@ const (
 // Verify reads a header on a mandatory-denied loopback destination. It never fetches a user URL.
 func (m *Manager) Verify(ctx context.Context, hash string) error { return m.Probe(ctx, hash) }
 
-// probeTargetFor extracts the diagnostic http_port listener that the policy
-// compiler emits for the canary probe. The directive is always written by
-// policy.Render as a literal line; comments are skipped so a "# http_port
-// 127.0.0.1:3130" annotation cannot shadow the real target.
-func probeTargetFor(config string) (string, bool) {
-	for _, raw := range strings.Split(config, "\n") {
-		line := strings.TrimSpace(raw)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[0] == "http_port" && strings.HasPrefix(fields[1], "127.0.0.1:3130") {
-			return "127.0.0.1:3130", true
-		}
-	}
-	return "", false
-}
-
 func (m *Manager) verify(ctx context.Context, hash string) error {
 	deadline := time.Now().Add(m.VerifyBudget)
 	var last error
 	for {
 		d := net.Dialer{Timeout: time.Second}
-		// Default probe target is the canonical 3130 listener emitted by
-		// policy.Render (`http_port 127.0.0.1:3130`). probeTargetFor matches
-		// that literal structurally — a `# http_port 127.0.0.1:3130` comment
-		// cannot shadow it. The fallback only matters during bootstrap when
-		// active.conf has been written but lkg.json hasn't, or after a corrupt
-		// active.conf. Always probing 3130 means a misconfigured active.conf
-		// without the probe listener fails fast (no listener) instead of
-		// accidentally hitting the user's http_port (e.g. 3128) which would
-		// return a misleading 403 with the canary header but without the
-		// probe-only localport ACL.
-		target := "127.0.0.1:3130"
-		if manifest, e := m.ReadManifest(); e == nil {
-			if probe, ok := probeTargetFor(manifest.Config); ok {
-				target = probe
-			}
-		} else if cfg, e := os.ReadFile(m.ActivePath()); e == nil {
-			// Fallback: only used when lkg.json is missing (bootstrap). Match
-			// the listener directive literally, not inside a comment.
-			if probe, ok := probeTargetFor(string(cfg)); ok {
-				target = probe
-			}
-		}
-		c, e := d.DialContext(ctx, "tcp", target)
+		// policy.Render always emits the probe-only listener on 127.0.0.1:3130.
+		c, e := d.DialContext(ctx, "tcp", "127.0.0.1:3130")
 		if e == nil {
 			c.SetDeadline(time.Now().Add(time.Second))
 			_, e = io.WriteString(c, "GET http://127.0.0.1/ HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n")

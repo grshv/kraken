@@ -22,7 +22,7 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `store` | Миграции и их атомарность при отказе; сессии и reset; события, checkpoint, cursor, фильтры, retention |
 | `events` | Чтение access log: частичные/битые строки, rotation, truncation, возврат файла |
 | `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
-| `credentials` | Argon2id PHC и чтение legacy hashes |
+| `credentials` | Argon2id PHC; отказ для verifier без версии и параметров |
 
 ## Integration smoke
 

@@ -27,31 +27,24 @@ func Matches(encoded, password string) bool {
 	if len(password) > 1024 {
 		return false
 	}
-	var saltText, keyText string
-	var memory uint32 = 19456
-	var iterations uint32 = 2
-	var parallel uint8 = 1
 	parts := strings.Split(encoded, "$")
-	if len(parts) == 3 && parts[0] == "argon2id" {
-		saltText, keyText = parts[1], parts[2]
-	} else {
-		if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != "v=19" {
-			return false
-		}
-		var trailing string
-		if n, e := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d%s", &memory, &iterations, &parallel, &trailing); n != 3 || e != io.EOF {
-			return false
-		}
-		if memory < 8192 || memory > 38912 || iterations < 1 || iterations > 4 || parallel < 1 || parallel > 2 {
-			return false
-		}
-		saltText, keyText = parts[4], parts[5]
+	if len(parts) != 6 || parts[0] != "" || parts[1] != "argon2id" || parts[2] != "v=19" {
+		return false
 	}
-	salt, e := base64.RawStdEncoding.DecodeString(saltText)
+	var memory, iterations uint32
+	var parallel uint8
+	var trailing string
+	if n, e := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d%s", &memory, &iterations, &parallel, &trailing); n != 3 || e != io.EOF {
+		return false
+	}
+	if memory < 8192 || memory > 38912 || iterations < 1 || iterations > 4 || parallel < 1 || parallel > 2 {
+		return false
+	}
+	salt, e := base64.RawStdEncoding.DecodeString(parts[4])
 	if e != nil || len(salt) != 16 {
 		return false
 	}
-	key, e := base64.RawStdEncoding.DecodeString(keyText)
+	key, e := base64.RawStdEncoding.DecodeString(parts[5])
 	if e != nil || len(key) != 32 {
 		return false
 	}

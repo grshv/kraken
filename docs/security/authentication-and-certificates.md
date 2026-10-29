@@ -54,10 +54,11 @@ CLI password-reset, с audit и атомарным отзывом сессий.
 ### Параметры Argon2id
 
 `PasswordHash` использует Argon2id `m=19456 KiB, t=2, p=1`, 16-байтный salt из
-`crypto/rand`, 32-байтный output; PHC-формат хранится в `users.password_hash`.
+`crypto/rand`, 32-байтный output; PHC-формат хранится в `users.password_hash`,
+другие форматы verifier не принимаются.
 Verifier в `passwordMatches` сужает допустимые параметры PHC: `memory` до 38912
 KiB (2× номинал), `iterations` ≤ 4, `parallel` ≤ 2. Это закрывает OOM-вектор,
-когда злоумышленник с доступом к БД подсовывает легаси verifier с аномальным
+когда злоумышленник с доступом к БД подсовывает verifier с аномальным
 `memory=262144` и заставляет панель выделять 256 MiB на одну попытку входа.
 
 ## Серверные сертификаты
