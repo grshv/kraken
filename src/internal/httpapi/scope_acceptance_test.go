@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"kraken.local/kraken/internal/policy"
+	"kraken.local/kraken/internal/store"
 )
 
 const origin = "https://panel.test"
@@ -290,5 +291,14 @@ func TestAcceptManagerEventsForeignClientIsNotFound(t *testing.T) {
 	w := request(h, "GET", "/events/clients", nil, mgr, "", "")
 	if w.Code != 200 || strings.Contains(w.Body.String(), "bravo-secret") || strings.Contains(w.Body.String(), "delta-secret") {
 		t.Fatalf("event clients leak: %s", w.Body.String())
+	}
+}
+
+func TestNetworkInScopeRejectsWiderPrefixSharingBase(t *testing.T) {
+	scope := store.Scope{Networks: []string{"10.0.0.0/16"}}
+	for raw, want := range map[string]bool{"10.0.0.0/8": false, "10.0.0.0/15": false, "10.0.0.0/16": true, "10.0.5.0/24": true, "10.0.0.7": true, "10.1.0.0/24": false} {
+		if got := networkInScope(scope, raw); got != want {
+			t.Fatalf("%s: got %v want %v", raw, got, want)
+		}
 	}
 }
