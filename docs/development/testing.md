@@ -1,241 +1,67 @@
-# Проверки и CI
+# Проверки
 
-## Что проверяется уже сейчас
+## Команды
 
-`make docs-check`: существование локальных Markdown links, синтаксис JSON,
-внутренние `$ref`, базовая структура API, policy example и текстовый whitespace.
-`make check`: docs, npm typecheck/build, Go race tests, vet и `git diff --check`.
-`make integration`: real-image smoke из src/tests/integration/.
-Docs-check не является полноценной валидацией OpenAPI. Сетевой smoke проверяет
-реальный Squid; ни одна из этих команд не заменяет security audit.
-CI документации запускает тот же target, без деплоя и секретов.
-
-Unit/HTTP/runtime fault tests и сетевой smoke реализованы. Остальные пункты
-ниже — целевая матрица; её наличие не означает выполнения каждого сценария.
-
-## Целевая пирамида
-
-| Уровень | Что проверять | Среда |
+| Команда | Что проверяет | Когда обязательна |
 | --- | --- | --- |
-| Unit | CIDR intersections, domain normalization, deterministic compiler, enums | Go, без Docker |
-| Property/fuzz | CRLF/config injection, Unicode, nested domains, parser bounds | Fuzz corpus, ограниченное время CI |
-| Store | Concurrent draft writes, rollback migrations, session revocation | Temp SQLite local disk |
-| Contract | OpenAPI request/response и внутренний runtime interface | Generated validator + fake Squid adapter |
-| Integration | Настоящий parse/reload/ACL/TLS на pinned image | Изолированная Linux CI-среда с Docker |
-| Recovery | Crash на каждой durable границе, restart и idempotency | Fault injection + filesystem |
-| E2E | Login, client policy, preview, apply, conflict, diagnostics | Браузер + backend + fake origins |
-| Client | APT/curl, TLS trust, direct-egress controls | Изолированные клиентские VM/namespaces |
+| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, whitespace | Любое изменение |
+| `make check` | docs-check, typecheck и сборка web, `go test -race ./...`, `go vet`, `git diff --check` | Любое изменение кода |
+| `make integration` | Реальный Squid в образе `squid-control:dev`, локальные fake origins | Изменения policy, runtime, deploy, auth |
+| `npm --prefix src/web run test:e2e` | Playwright в отдельном контейнере | Изменения UI; нужен `make image` и Chromium |
 
-## Обязательные policy fixtures
+docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
+CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` — verify-сборку и smoke.
 
-Неизвестный src → deny; выключенный client → deny; обе policy modes;
-точный домен/поддомены/похожее имя; пустой allowlist; raw IP и PTR;
-private/loopback/link-local/metadata; IPv6 и IPv4-mapped;
-CONNECT к 25/22 и чужому port → deny; manager недоступен клиенту;
-DNS rebinding не открывает private destination; CIDR overlaps отклоняются.
-Изменение профиля одного клиента не расширяет доступ другой.
+## Go-тесты по пакетам
 
-Нужны отдельные сетевые источники. Запрос только с localhost доказывает
-исключение localhost, а не правила пользовательских устройств.
+| Пакет | Что покрыто |
+| --- | --- |
+| `policy` | Валидация CIDR, доменов, портов, settings; детерминированный рендер; порядок защитных ACL; expert allowlist, файлы-параметры, deny_info, cache_peer; эквивалентность разбора строк валидатором и Squid; proxy auth ACL |
+| `runtime` | Parse/reload/verify, fingerprint, journal, LKG, recovery, rollback, drift, lock; ENOSPC на каждой записи; SIGKILL отдельного процесса на durable-границах; номер строки parse без вывода Squid; manager reports |
+| `httpapi` | Auth, CSRF, Origin, throttle, роли и last-admin; stale draft conflict; идемпотентность операций; preview без ревизий; service-update из LKG; статистика и события; findings операции |
+| `store` | Миграции и их атомарность при отказе; сессии и reset; события, checkpoint, cursor, фильтры, retention |
+| `events` | Чтение access log: частичные/битые строки, rotation, truncation, возврат файла |
+| `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
+| `credentials` | Argon2id PHC и чтение legacy hashes |
 
-## Apply и failures
+## Integration smoke
 
-Invalid syntax/semantic guard; missing cert/helper; disk full; Squid control недоступен;
-parse success + reload failure; reload exit 0 + runtime не обновился;
-Go crash до/после сохранения intent и перед/после rename/LKG;
-повтор idempotency key с тем же и другим payload; два apply;
-rollback failure; drift; VM/container restart с pending candidate;
-независимый restart Squid в Pebble, startup gate и гонка с worker lock;
-restart только Go без разрыва существующего CONNECT.
-Проверяется фактический доступ, а не только статус operation в DB.
+`src/tests/integration/smoke.py` создаёт отдельные контейнеры, сеть и volume,
+пароли передаёт только через stdin. Проверяет:
 
-## TLS matrix
+- неизвестный source, all_web, allowlist, raw IP, защитные запреты loopback/metadata;
+- HTTPS CONNECT с проверкой сертификата origin; TLS к прокси, отказ plaintext downgrade;
+- proxy auth: 407/403, разные identities за NAT, reset/disable на живом соединении;
+- визуальные настройки и expert ACL на реальном трафике; отказ запрещённых
+  expert-директив при сохранении черновика; отказ Squid parse с номером строки;
+- apply, idempotency, rollback, восстановление pending journal после restart;
+- неизменность listeners через draft и старые ревизии;
+- CLI password-reset с отзывом сессий; отсутствие plaintext паролей в volume.
 
-- Панель: SAN/chain/expiry, cookies, invalid origin/CSRF.
-- VM → proxy TLS: валидное доверие, неизвестный CA, wrong SAN, expiry.
-- HTTPS CONNECT: исходный issuer сайта сохраняется, URL-path не «наблюдается».
-- APT: update + download тестового пакета, signature/hash checks включены,
-  Range/redirect/metadata freshness при включении cache.
+## Обязательные сценарии
 
-## Безопасность процессов внутри контейнера
+Изменение затронутой области требует негативных тестов:
 
-Unauthorized endpoints, CSRF, login throttling, session expiry/reset,
-escaped XSS logs, limits на request/log records, path traversal и произвольные
-process command/path attempts. В единственном контейнере отсутствуют Docker socket,
-privileged/host namespaces. Проверить UID/GID, права на PID/reload/config и ключи;
-локальный parse не меняет live cache/log/PID. Проверить, что Go не root
-ради reload и private keys доступны только нужным процессам.
+- **Политика:** неизвестный и выключенный source → deny; точный домен, поддомен и
+  похожее имя; пустой allowlist; raw IP; private/loopback/link-local/metadata; IPv6,
+  IPv4-mapped, 6to4, Teredo; CONNECT на 22/25 и чужой порт; manager недоступен
+  клиенту; overlap CIDR отклоняется; правка одного клиента не расширяет доступ другого.
+- **Expert:** директива вне allowlist, файл-параметр, peer во внутреннюю сеть,
+  попытка сослаться на `sc_` имена отклоняются до parse.
+- **Apply:** invalid config, parse ok + reload fail, reload ok + не тот fingerprint,
+  crash до и после каждой durable записи, повтор idempotency key с другим payload,
+  rollback failure, drift, restart с pending candidate. Проверяется фактический
+  доступ, а не только статус операции.
+- **Вход:** нет сессии/CSRF/Origin → mutation отклонена; reset и блокировка отзывают сессии.
 
-## Источники тестов
+Сетевые правила проверяются с отдельных source-адресов: запрос с localhost
+доказывает только исключение localhost.
 
-Primary integration suite использует локальные origin HTTP/HTTPS/DNS с test-only
-сертификатами, чтобы интернет и сторонние mirrors не делали CI случайным.
-Отдельный необязательный smoke подтверждает реальный внешний ресурс и
-подписывается как network-dependent. Нельзя подменить deterministic suite им.
+## Демонстрационный трафик
 
-## Проверки по объёму поставки
-
-Матрица выше — перечень рисков, не бесконечная задача проверить все сочетания.
-Для текущего среза сохраняются make check, real-image и критические browser/recovery
-сценарии. IPv6/mapped, DNS rebinding и private destination tests обязательны перед
-соответствующим обещанием защиты; непроверенное не объявляется Supported.
-Проверка APT требует самого APT, а не успешного Python HTTP запроса.
-
-Перед распространяемым релизом: выбранная целевая архитектура, pinned image,
-короткие release notes, dependency/container/secret scans с разбором результатов,
-одно изолированное восстановление остановленной копии состояния. Для локальной
-установки отдельная платформа SBOM/signing/provenance не требуется; такие артефакты
-добавляются под требования распространения/CI. Полноценный schema validator можно
-подключить готовым инструментом при необходимости, без генерации всей платформы.
-Существующий runtime workflow уже строит verify/image и запускает smoke; его
-наличие не означает подтверждённый успешный CI run. Browser/scans jobs в нём пока нет.
-GitHub Actions pin по полному commit SHA, минимальные permissions; не выполнять
-недоверенный PR-код в workflow с secrets или `pull_request_target` mutation.
-
-Не требовать бессмысленного 100% coverage. Требовать проверку важных инвариантов
-и реальных отказов. Добавлять pipeline jobs только когда есть исполняемые команды.
-
-## Расширение панели и восстановления
-
-Go race suite проверяет PHC и legacy hashes, атомарный reset/revoke, гонку входа
-со сменой пароля, настройки и expert guard. Fault tests инъецируют ENOSPC при
-записи candidate/journal/active/LKG и убивают отдельный test process через SIGKILL
-на durable границах. Проверяется rollback после отмены forward context и блокировка
-новых операций при ошибке сохранения terminal outcome. Реальный полный диск и
-отключение питания этим не воспроизводятся.
-
-`make integration` проверяет визуальные настройки/expert ACL на настоящем трафике,
-перенос listener с сохранением private probe, отказ parse без изменения active
-и CLI password-reset с отзывом старых сессий.
-
-Браузер: `npm --prefix src/web run test:e2e` после `make image` и установки
-совместимого Chromium (`npx playwright install chromium` из src/web). При необходимости
-`SC_CHROMIUM_PATH` указывает исполняемый файл браузера. Fixture сам создаёт отдельные
-контейнер/volume и случайный пароль в памяти; credentials files/env не используются.
-Он проверяет клиента, настройки, экспертный шаблон, diff/apply/rollback и mobile
-overflow. Self-signed доверие отключено только в этом disposable browser fixture;
-сетевая suite отдельно проверяет TLS chain.
-
-## Регрессии повторного ревью
-
-Сценарии и результаты: [review reliability](../plans/completed/review-reliability.md).
-HTTP suite проверяет stateless anonymous CSRF, целостность/expiry/смену ключа,
-вход после потока anonymous GET и отсутствие deadlock при полном DB pool.
-Migration suite инъецирует ошибку перед version insert после переноса данных:
-проверяет rollback схемы/данных и успешный повтор. Runtime tests покрывают каждую
-запись first_run и сохранение pending journal при отказе reload/verify.
-Real-image suite восстанавливает previous ACL из pending journal после restart
-контейнера и проверяет фактические запросы. Browser suite проверяет GET/mutation
-expiry, обновление CSRF holder и вход после неверного пароля без reload страницы.
-
-## История диагностики
-
-[Критерии](../plans/completed/diagnostics-history.md). Reader tests проверяют bounded
-batch/record, частичные строки, oversized/malformed/invalid UTF-8, rename rotation,
-truncation/anchor rewrite и возвращение временно исчезнувшего файла без replay.
-Store tests проверяют общую транзакцию событий/checkpoint с injected failure,
-reopen, дедупликацию, cursor при новых строках, client/failure/audit filters,
-некорректные/cross-filter cursors и retention по TTL/количеству.
-HTTP tests подтверждают auth, privacy, неподменяемые старые client labels,
-неизвестную историческую revision и stale/unavailable при отказе источника.
-Real-image suite проверяет ingestion настоящих Squid logs, cursor/client filter,
-rotation, отдельный restart control и сохранённый audit reset. Browser suite
-добавляет клиентский фильтр, более ранние записи, audit, безопасный текст вместо
-HTML и сохранение строк с предупреждением при API 503, desktop/mobile screenshots.
-
-## Users/roles, proxy passwords и shadcn/ui
-
-Migration/HTTP/store tests проверяют сохранение прежнего admin/hash/sessions,
-viewer/API403, last-admin guard при конкурентных demotions, атомарный audit/revoke,
-password work slots. Credential Hash/Matches сохраняют PHC/legacy совместимость.
-Helper tests проверяют Basic encoding/limits, read-only missing DB, recheck после
-Argon при reset/disable и generation state guard против старых кешированных creds.
-Generated config parse отдельно проверен на Squid 6.13; это не заменяет HTTP smoke.
-
-Real-image suite выполняет verified TLS proxy login, 407, plaintext403, NAT с
-разными policies, exact REQUIRED/case-sensitive username, пароль с пробелом/+/%
-и reset/disable на повторно используемом TLS connection. Отдельный viewer login
-проверяет 403 и отзыв sessions. Пароли передаются fixture только stdin; проверяется
-отсутствие plaintext/Basic values в persistent volume. Browser suite расширена
-users/roles и proxy accounts, новая компоновка shadcn/ui проверяется на 1440/390 px.
-Мобильные переходы открывают Sheet и закрывают его после выбора; повторный вход
-проверяется и при скрытой боковой панели. Вкладки и диалог используют Radix.
-
-## Согласованность UI-потоков (0.7.0)
-
-`workflow.spec.ts` использует отдельный real-image fixture на сценарий. Проверяет
-начальную светлую тему независимо от OS и сохранение ручного выбора после reload, расположение
-sidebar trigger и mobile Sheet, реальные /statistics из логов, network abort/recovery,
-единые Dialog/focus/password clearing/no-op submit, fixed listener UI, загрузку
-expert template и полного config, read-only preview без POST revisions, dirty
-navigation confirm и восстановление polling без повторной операции. Дополнительно
-проверяет реальный /squid/metrics, переход к отфильтрованным ошибкам и DOM coordinates
-для paired fields с разными descriptions. Все 17 browser cases вместе с
-`panel.spec.ts` пройдены 28.10.2026.
-
-Go tests покрывают bounded статистику/временные границы/DB errors, no-op/default
-normalization, runtime-only delta и guards listeners в draft/revision operations.
-Native smoke проверяет не только HTTP422, но и сохранение actual traffic/canary.
-[Критерии, найденные расхождения и результат](../plans/completed/ui-workflows.md).
-
-Runtime metrics tests проверяют bounded reports, числа/nullable значения,
-manager self/idle/CONNECT, original timestamp при stale, old config update-required.
-HTTP/service-update tests подтверждают источник LKG вместо dirty draft,
-revision/operation/audit/journal consistency и parse failure. Native case сначала
-открывает старый bundle, сохраняет dirty draft, запускает CLI upgrade и сравнивает
-его полное содержимое до/после; проверяет публичный manager403, HTTP origin delta,
-idle polling без origin delta и реальный held CONNECT. Источники/форматы —
-[live research](../research/squid-live-metrics.md), граница — ADR0013.
-
-## Наполнение локальной истории реальными запросами
-
-`python3 src/tools/demo_traffic.py` из корня создаёт HTTP/HTTPS origins и клиентов
-в отдельной внутренней Docker-сети. Нужны Go, Python, OpenSSL и запущенный локальный
-Compose `squid-control-squid-control-1` с volume `squid-control_control-data`.
-Сценарий предназначен для ручного наполнения демонстрационной установки;
-во время прогона не редактируйте и не применяйте конфигурацию параллельно.
-Expert mode не поддерживается, близкая к retention cap история отклоняется.
-
-Dev-only helper из `src/tools/demo-traffic/` временно добавляет demo-клиентов
-в confirmed snapshot через штатные revision/audit/runtime apply и затем
-восстанавливает исходный snapshot тем же путём. Черновик и пароли не меняются.
-Временные marked записи `/etc/hosts` обеспечивают адреса fixture без изменения
-системного DNS/VPN. После завершения удаляются записи hosts, контейнеры и сеть;
-реальные события и операции применения намеренно остаются в SQLite.
-При ошибке восстановления helper и `/data/runtime/.demo-traffic-original.json`
-сохраняются для повторного `restore`; сообщение содержит путь helper.
-
-Проверяются HTTP GET/HEAD, доверенный HTTPS CONNECT, 200/206/302/304/404/503,
-отказы domain/source ACL и запрещённый metadata address. Временный origin CA
-используется только клиентами fixture и не устанавливается в панель или Squid.
-Это синтетический трафик через настоящий Squid, не прямые вставки событий в БД
-и не подтверждение реальной работы APT. Сценарий ждёт сохранения событий
-коллектором и сравнивает исходную политику и черновик после прогона.
-
-28.10.2026 проверено на локальном Linux/arm64 контейнере: один полный прогон
-сохранил 421 событие, включая 11 завершённых HTTPS-туннелей. Проверены возврат
-исходной политики, неизменность черновика, удаление fixtures и `squid-control check`.
-
-Повторные проверки после наполнения журнала: Go tests проверяют точность diff
-при изменении fingerprint/добавлении ACL, несколько hunks, повторяющиеся строки,
-empty input и ограничения памяти/вывода. Event tests проверяют фильтры до LIMIT,
-привязку cursor, буквальный поиск без SQL wildcards, timezone и exclusive to;
-невалидные IP/диапазоны отклоняются HTTP400. Browser suite включает раскрытие
-доменов, точный +3/-0, отмену подтверждения без mutation, apply ровно один раз,
-полнотекстовый поиск назначения за пределами первой страницы и reset pagination.
-
-Рабочий обзор доступа: `RecentActivity` tests проверяют окно15/60мин и exclusive
-верхнюю границу, разделение DENIED/ошибок ответа/успешного CONNECT, группировку
-повторов, NAT username identities, top10+общий размер и storage errors. HTTP tests
-проверяют confirmed snapshot при другом draft, отсутствие checkpoint paths/anchors,
-анонимный401, viewer read и invalid window400. Browser проверяет компактный статус,
-свёрнутые технические показатели, отсутствие графиков/суточных карточек, одну группу
-для повторных отказов и переход в журнал с IP/destination/result/time filters.
-
-Стандартизация: browser сценарий проверяет реальные day/week/month windows на
-событиях разного возраста, Select portal/Escape/focus, единую гарнитуру и множество
-допустимых размеров текста во всех разделах, одинаковый размер sidebar labels и
-menu items и координаты icons после collapse. Существующие тесты выбора работают
-через видимые Radix options, а не скрытый native select. Store tests проверяют
-сохранение29-дневной записи и удаление31-дневной при retention30; API принимает
-все пять окон и отвергает произвольное значение.
+`python3 src/tools/demo_traffic.py` наполняет локальную Compose-установку
+синтетическими HTTP/HTTPS-запросами через настоящий Squid в отдельной Docker-сети.
+Временно добавляет demo-клиентов в confirmed snapshot штатным apply и затем
+восстанавливает исходный snapshot; черновик и пароли не меняются. Нужны Go, Python,
+OpenSSL и запущенный контейнер `squid-control-squid-control-1`. Expert mode не
+поддерживается. Это не проверка APT.

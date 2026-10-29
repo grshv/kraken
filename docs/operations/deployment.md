@@ -2,7 +2,7 @@
 
 Практические команды запуска — в [local development](local-development.md).
 Здесь требования к установке на выбранном узле, не отдельный deployment product.
-Минимальный остаток и необязательные функции — в [roadmap](../plans/roadmap.md).
+Остаток проверок перед установкой — в [status](../status.md).
 Один собственный image на базе
 `ubuntu/squid`; один Compose service. Внутри Pebble запускает Squid и Go-приложение
 со встроенным UI. Host runner и отдельный reverse proxy не устанавливаются.

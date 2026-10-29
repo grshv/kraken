@@ -132,17 +132,25 @@ body limit и rotation. По умолчанию private destinations запре�
 allow_private_destinations открывает их для внутренних ресурсов, но не loopback
 или link-local/metadata. Source kind — метаданные, фактическая идентичность IP.
 
-Expert mode заменяет визуальный ACL-блок. Служебные paths, executables и
-защитные sc_ ACL не передаются редактору. Подробнее — ADR 0007.
+Expert mode заменяет визуальный ACL-блок; защитные `http_access deny` рендерятся
+до него и не переопределяются. Валидатор (`validateExpert`) принимает только
+директивы из `expertDirectives` ([ADR 0007](../adr/0007-general-clients-expert-configuration.md)):
 
-Директивы владения listeners (`http_port`, `https_port`, `snmp_port`, `icp_port`,
-`htcp_port`) и связанные с ними access-правила (`snmp_access`, `icp_access`,
-`htcp_access`, `adaptation_access`, `icap_service`) запрещены в expert mode —
-приложение сохраняет единственное владение listener ports согласно ADR 0006/0007.
-`reply_header_add` runtime вешает canary `X-Squid-Control-Revision`, поэтому
-`reply_header_access`/`reply_header_replace`/`reply_header_remove` также закрыты,
-как и `request_header_add` — чтобы эксперт не мог изменить заголовки, влияющие на
-detect probe или скрыть canary из ответов.
+- токен директивы — строго `[a-z0-9_]+`, без кавычек и экранирования;
+- параметры из файлов (`"/…"`, `parameters(…)`) запрещены во всех директивах;
+- `deny_info` — только `ERR_*`, `http(s)://` URL (опционально с кодом 30x) или `TCP_RESET`;
+- `cache_peer` — IP-литерал вне `protectedDestinations`; адрес из
+  `privateDestinations` только при `allow_private_destinations`; опции-пути запрещены;
+- `sc_` имена допустимы только как `sc_http_listener`/`sc_tls_listener` в `http_access`.
+
+Listeners, пути, helpers, заголовки ответа (canary `X-Squid-Control-Revision`) и
+manager в allowlist не входят. Ошибка `squid -k parse` возвращается как номер
+строки экспертной секции или итогового конфига, без текста Squid.
+
+Защищённые назначения (всегда): `0.0.0.0/8`, loopback, link-local/metadata,
+multicast, reserved, IPv4-mapped `::ffff:0:0/96`, NAT64 `64:ff9b::/96` и
+`64:ff9b:1::/48`, discard `100::/64`, Teredo `2001::/32`, 6to4 `2002::/16`.
+6to4 и Teredo закрыты целиком: в них кодируются произвольные IPv4, включая внутренние.
 
 ## Парольные клиенты proxy
 

@@ -53,6 +53,9 @@ web-сессии или HTTP сервера. При незавершённой �
 Stable codes: invalid_policy, unsupported_capability, busy, revision_conflict,
 missing_secret, parse_failed, reload_failed, verification_failed, rollback_failed,
 drift_detected, storage_unavailable. Safe findings не содержат ключи/stack traces.
+Отказ `squid -k parse` возвращается как `*runtime.ParseError{Line}` — номер строки
+итогового конфига без вывода Squid; HTTP API переводит его в строку экспертной секции,
+если ошибка внутри неё.
 Status различает доступность runtime module, процесс Squid, проверенную ревизию
 и внешний ресурс. Невозможность observe означает unknown, а не доказанный down.
 См. [lifecycle](../docs/architecture/configuration-lifecycle.md).

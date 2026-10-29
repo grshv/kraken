@@ -3,9 +3,9 @@
 Статус: упаковка в один контейнер согласована владельцем 27.10.2026;
 реализованы Go/UI, SQLite, Squid/Pebble и диагностика. Проверенная архитектура
 локального runtime — Linux/arm64; остальные среды не объявляются проверенными.
-Оставшийся объём — [roadmap](../plans/roadmap.md), без новых сервисов по умолчанию.
+Объём и остаток — [status](../status.md); новых сервисов по умолчанию нет.
 Решение: [ADR 0006](../adr/0006-single-container.md).
-Первый срез реализован; измерения: [capability report](../research/image-compatibility.md).
+Статус — [status](../status.md); измерения образа — [image report](../research/image-compatibility.md).
 
 ## Контекст и процессы
 

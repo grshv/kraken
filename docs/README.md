@@ -1,53 +1,41 @@
 # Карта документации
 
-Документы разделены по вопросам читателя. Требования отвечают «что нужно»,
-архитектура — «как устроено», ADR — «почему так», runbooks — «что делать».
-Это адаптация C4, ADR и Diátaxis для небольшого инфраструктурного продукта;
-формальное соблюдение отдельного стандарта не является целью.
+Каждый документ отвечает на один вопрос и описывает текущее состояние.
+Статус реализации ведётся только в [status](status.md). Какой документ обновлять
+при изменении кода — таблица в [AGENTS.md](../AGENTS.md#что-обновлять-вместе-с-кодом).
+Каждый Markdown-файл в `docs/` должен быть указан здесь: это проверяет `make docs-check`.
 
-| Файл | Содержание | Когда обновлять |
-| --- | --- | --- |
-| [requirements](product/requirements.md) | Сценарии, границы MVP, критерии приёмки | Меняется ожидаемое поведение |
-| [decisions-and-questions](product/decisions-and-questions.md) | Подтверждённые вводные, предложения, открытые вопросы | После обсуждений |
-| [interface](product/interface.md) | Страницы, состояния, визуальная система | Изменяются UI и пользовательские потоки |
-| [overview](architecture/overview.md) | Контекст, компоненты, deployment, структура кода | Меняются связи и сервисы |
-| [policies-and-tls](architecture/policies-and-tls.md) | ACL, идентификация клиентов, CONNECT и TLS к прокси | Меняются сетевые правила |
-| [configuration-lifecycle](architecture/configuration-lifecycle.md) | Apply, проверка, аварии, rollback | Любое изменение применения |
-| [data-model](architecture/data-model.md) | Таблицы, инварианты, retention, миграции | Меняются данные |
-| [OpenAPI](../api/openapi.json) | Начальный API критичного пути | До изменения обработчика |
-| [runtime contract](../api/runtime-contract.md) | Внутренний модуль Go, без IPC | Меняются операции управления Squid |
-| [threat-model](security/threat-model.md) | Активы, границы доверия, меры защиты | Новая поверхность атаки |
-| [authentication-and-certificates](security/authentication-and-certificates.md) | Вход, сессии, TLS, CA lifecycle | Меняются секреты и доверие |
-| [deployment](operations/deployment.md) | Целевая установка и prerequisites | Реализуется установка |
-| [runbooks](operations/runbooks.md) | Аварии, backup, restore, обновления | Обнаружен новый отказ |
-| [observability](operations/observability.md) | Логи, метрики, диагностика | Меняются источники сигналов |
-| [agent-workflow](development/agent-workflow.md) | Как агент получает задачу и передаёт результат | Меняются команды и процесс |
-| [testing](development/testing.md) | Проверки, фикстуры, CI, критерии релиза | Меняются риски и тестовые средства |
-| [repository-files](development/repository-files.md) | Что необходимо сейчас и позже, без лишних файлов | Появляются инструменты |
-| [roadmap](plans/roadmap.md) | Текущий объём: необходимые проверки, простые процедуры и функции по потребности | Меняются приоритеты |
-| [image-compatibility](plans/image-compatibility.md) | Обязательное исследование образа | Проверен digest |
-| [research](research/2026-10-27.md) | Актуальные первичные источники | Новое исследование |
-| [ADR](adr/README.md) | Реестр архитектурных решений и предложений | Меняется существенное решение |
+| Документ | Вопрос |
+| --- | --- |
+| [status](status.md) | Что реализовано, проверено, осталось и исключено |
+| [requirements](product/requirements.md) | Что должно работать; критерии приёмки AC-* |
+| [decisions](product/decisions.md) | Что подтвердил владелец; открытые вопросы |
+| [interface](product/interface.md) | Страницы, состояния и визуальная система UI |
+| [overview](architecture/overview.md) | Процессы, компоненты, порты, структура кода |
+| [policies-and-tls](architecture/policies-and-tls.md) | ACL, идентификация клиентов, expert-секция, CONNECT и TLS |
+| [configuration-lifecycle](architecture/configuration-lifecycle.md) | Apply, проверка, аварии, rollback |
+| [data-model](architecture/data-model.md) | Таблицы, инварианты, retention, миграции |
+| [threat-model](security/threat-model.md) | Активы, границы доверия, меры защиты |
+| [authentication-and-certificates](security/authentication-and-certificates.md) | Вход, сессии, TLS-сертификаты |
+| [password-lifecycle](security/password-lifecycle.md) | Хранение пароля и локальный reset |
+| [deployment](operations/deployment.md) | Целевая установка и prerequisites |
+| [local-development](operations/local-development.md) | Локальный запуск и сертификаты |
+| [runbooks](operations/runbooks.md) | Аварии, копия данных, восстановление, обновление |
+| [observability](operations/observability.md) | Логи, метрики, диагностика |
+| [testing](development/testing.md) | Какие проверки есть и что они покрывают |
+| [image-compatibility](research/image-compatibility.md) | Факты о базовом образе и матрица возможностей |
+| [squid-live-metrics](research/squid-live-metrics.md) | Источники и формат live-метрик Squid |
+| [2026-10-27](research/2026-10-27.md) | Исходное исследование с первичными источниками |
+| [ADR](adr/README.md) | Почему принято каждое существенное решение |
 
-Завершённые срезы находятся в [plans/completed](plans/completed/): первый запуск,
-клиенты/настройки/recovery, сквозной HTTPS, кодовое ревью, история и
-[UI-потоки](plans/completed/ui-workflows.md). Это архив критериев и результатов;
-текущие задачи ведутся только в roadmap.
+Контракты: [OpenAPI](../api/openapi.json), [runtime contract](../api/runtime-contract.md),
+[пример политики](../examples/policy.json).
 
-Шаблоны: [задача](templates/task.md), [план исполнения](templates/execution-plan.md),
-[ADR](templates/adr.md), [передача контекста](templates/handoff.md).
+## Правила
 
-Реализованный запуск: [local development](operations/local-development.md).
-Измеренные возможности/ограничения: [image report](research/image-compatibility.md).
-Источники и реальные показания Squid reports: [live metrics](research/squid-live-metrics.md).
-
-Пароль и локальный reset: [password lifecycle](security/password-lifecycle.md).
-Экспертная конфигурация: [ADR 0007](adr/0007-general-clients-expert-configuration.md).
-
-## Правила достоверности
-
-Документы требований являются спецификацией будущего поведения. Runbooks и
-архитектурные команды, обозначенные как целевые, ещё не являются работающей
-инструкцией установки. Реализованный статус фиксируется по проверкам и коммиту,
-а не по появлению документа. Внешние ссылки проверялись исследованием; локальный
-проверяющий скрипт не обращается в интернет и не подтверждает актуальность сайтов.
+- Требования описывают ожидаемое поведение; архитектура — как устроено;
+  ADR — почему; runbooks — что делать оператору.
+- История изменений — в git log, а не в документах. Даты допустимы в decisions,
+  ADR и research.
+- Новый внешний факт сопровождается первичной ссылкой и датой проверки.
+- `make docs-check` не обращается в интернет и не подтверждает актуальность внешних ссылок.

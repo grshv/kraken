@@ -110,6 +110,54 @@ def check_policy_example(policy: dict, errors: list[str]) -> None:
         errors.append(f"examples/policy.json: invalid example: {exc}")
 
 
+ADR_STATUS = re.compile(r"Статус:\s*\**(Proposed|Accepted|Superseded|Deprecated)\b")
+DATED_HEADING = re.compile(r"^#+ .*(\d{2}\.\d{2}\.\d{4}|\d{4}-\d{2}-\d{2}|\(\d+\.\d+\.\d+\))")
+# Descriptive documents state the current behaviour; history belongs in git log.
+UNDATED_PREFIXES = ("docs/architecture/", "docs/operations/", "docs/development/", "docs/security/")
+UNDATED_FILES = {"docs/status.md", "docs/README.md", "docs/product/requirements.md", "docs/product/interface.md"}
+
+
+def linked_targets(path: Path, content: str) -> set[Path]:
+    targets = set()
+    for match in LINK.finditer(content):
+        parts = urlsplit(match.group(1).strip("<>"))
+        if not parts.scheme and not parts.netloc and parts.path:
+            targets.add((path.parent / unquote(parts.path)).resolve())
+    return targets
+
+
+def check_structure(files: list[Path], errors: list[str]) -> None:
+    markdown = {str(p.relative_to(ROOT)): p for p in files if p.suffix == ".md"}
+    for label in markdown:
+        if Path(label).name == "AGENTS.md" and label != "AGENTS.md":
+            errors.append(f"{label}: nested AGENTS.md is not allowed; use root AGENTS.md")
+    docs_map = ROOT / "docs/README.md"
+    adr_index = ROOT / "docs/adr/README.md"
+    mapped = linked_targets(docs_map, docs_map.read_text(encoding="utf-8")) if docs_map.exists() else set()
+    adr_text = adr_index.read_text(encoding="utf-8") if adr_index.exists() else ""
+    indexed = linked_targets(adr_index, adr_text)
+    for label, path in markdown.items():
+        if not label.startswith("docs/") or path in (docs_map, adr_index):
+            continue
+        if label.startswith("docs/adr/"):
+            if path not in indexed:
+                errors.append(f"{label}: ADR is missing from docs/adr/README.md")
+                continue
+            status = ADR_STATUS.search(path.read_text(encoding="utf-8"))
+            if not status:
+                errors.append(f"{label}: missing 'Статус: <Proposed|Accepted|Superseded|Deprecated>'")
+                continue
+            row = next((line for line in adr_text.splitlines() if f"]({path.name})" in line), "")
+            if not row.rstrip().rstrip("|").strip().endswith(status.group(1)):
+                errors.append(f"{label}: registry status differs from file status {status.group(1)}")
+        elif path not in mapped:
+            errors.append(f"{label}: document is not listed in docs/README.md")
+        if label in UNDATED_FILES or label.startswith(UNDATED_PREFIXES):
+            for line_no, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+                if DATED_HEADING.match(line):
+                    errors.append(f"{label}:{line_no}: dated heading looks like a session log; describe current state")
+
+
 def main() -> int:
     errors: list[str] = []
     files = repo_files()
@@ -145,6 +193,7 @@ def main() -> int:
                 errors.append(f"{label}: local link escapes repository: {raw}")
             elif not target.exists():
                 errors.append(f"{label}: broken local link: {raw}")
+    check_structure(files, errors)
     api = documents.get("api/openapi.json")
     operation_count = check_api(api, errors) if isinstance(api, dict) else 0
     if not api:
@@ -159,7 +208,7 @@ def main() -> int:
         for error in errors:
             print(f"- {error}", file=sys.stderr)
         return 1
-    print(f"OK: {markdown_count} Markdown files, {link_count} local links, {json_count} JSON files, {operation_count} API operations; refs, example and whitespace checked.")
+    print(f"OK: {markdown_count} Markdown files, {link_count} local links, {json_count} JSON files, {operation_count} API operations; refs, ADR registry, docs map, headings, example and whitespace checked.")
     print("Scope: local checks only; not full OpenAPI validation, remote link validation or runtime tests.")
     return 0
 
