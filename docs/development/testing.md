@@ -4,13 +4,14 @@
 
 | Команда | Что проверяет | Когда обязательна |
 | --- | --- | --- |
-| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace | Любое изменение |
+| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace — реализован на Go (`src/tools/docs-check`) | Любое изменение |
 | `make check` | docs-check, typecheck и сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` | Любое изменение кода |
 | `make integration` | `smoke.py`, `network.py`, `apt.py`, `ops.py`: реальный Squid в образе `kraken:dev`/`kraken:ops`, локальные fixtures | Изменения policy, runtime, deploy, auth |
-| `make integration-ops` | `ops.py`: эксплуатационные процедуры runbook на образе `kraken:ops` — копия/восстановление `/data`, замена сертификата, обновление образа, заполненный диск | Изменения deploy, runbook, runtime/recovery |
 | `npm --prefix src/web run test` | vitest: чистая логика каркаса (пределы панелей, навигация по ролям, конечный автомат применения) | Изменения логики в `src/web/src/shell` и `src/web/src/draft` |
 
 docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
+docs-check портирован с Python на Go (`src/tools/docs-check`); поведение и сообщения
+совпадают, тесты пакета покрывают ошибку каждого вида на фикстурах.
 CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` — verify-сборку и smoke.
 
 ## Go-тесты по пакетам
@@ -21,6 +22,8 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `runtime` | Parse/reload/verify, fingerprint, journal, LKG, recovery, rollback, drift, lock; ENOSPC на каждой записи; SIGKILL отдельного процесса на durable-границах; номер строки parse без вывода Squid; manager reports |
 | `httpapi` | Auth, CSRF, Origin, throttle, роли и last-admin; stale draft conflict; идемпотентность операций; preview без ревизий; service-update из LKG; статистика и события; findings операции; индекс и статья справки (401 анонимно, 404 неизвестный slug); `GET /configuration/active` (admin/manager/anonymous); `DELETE /configuration/draft` (успех, 409, менеджер с чужими изменениями → 403 без изменения, менеджер со своими → 200); `GET /audit?entity_id=` (только свои записи, пустой список для чужого клиента менеджера, фильтр длиннее 256 → 400) |
 | `store` | Миграции: атомарность при отказе, отказ для несовместимой БД; FK сессий; сессии и reset; события, checkpoint, cursor, фильтры, retention; `ChangeDraft`/`DiscardDraft` с per-entity audit по `changedEntityIDs` |
+| `admin` | CLI last-admin (блокировка/понижение), отзыв сессий одного пользователя и всех, audit на каждое изменение; backup: состав архива (VACUUM INTO без -wal/-shm, runtime/**, certs/**, rollups), консистентность копии при параллельной записи, отказ перезаписи, права 0600, симлинки не следовать за пределы dataDir |
+| `cmd/control` | Выбор сброса привилегий: squid-start/proxy-auth не сбрасывают root, остальные команды сбрасывают |
 | `events` | Чтение access log: частичные/битые строки, rotation, truncation, возврат файла |
 | `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
 | `credentials` | Argon2id PHC; отказ для verifier без версии и параметров |
@@ -60,20 +63,20 @@ E2e (Playwright) на ключевые потоки — отдельный ср�
 - CLI password-reset с отзывом сессий; отсутствие plaintext паролей в volume;
 - изоляция UID: от `proxy` недоступны SQLite, ключ панели и токен manager.
 
-`network.py` (`make integration-network`) с отдельного all_web-клиента и своим
+`network.py` (часть `make integration`) с отдельного all_web-клиента и своим
 DNS-сервером проверяет отказ по ACL (403, `ERR_ACCESS_DENIED`) для IPv4/IPv6
 loopback, link-local, metadata, IPv4-mapped, 6to4, Teredo, NAT64 и private, для имён,
 резолвящихся в них, для CONNECT; DNS rebinding после истечения TTL; поведение
 `allow_private_destinations`; origin получает только контрольные запросы.
 
-`apt.py` (`make integration-apt`) поднимает подписанный локальный репозиторий:
+`apt.py` (часть `make integration`) поднимает подписанный локальный репозиторий:
 `apt-get update/install` через прокси по HTTP и через CONNECT, отказ без политики и
 без домена в allowlist, ошибка подписи при подменённом `InRelease`. Блок с настоящим
 архивом Ubuntu включается `KRAKEN_TEST_REAL_APT=1` и использует DNS 1.1.1.1/8.8.8.8;
 DNS Docker Desktop/OrbStack отвечает адресами `198.18.0.0/15`, которые прокси
 закрывает как private, поэтому там блок не проходит.
 
-`ops.py` (`make integration-ops`) исполняет процедуры runbook на образе `kraken:ops`
+`ops.py` (часть `make integration`) исполняет процедуры runbook на образе `kraken:ops`
 (тег параметризуется через `KRAKEN_TEST_IMAGE`; образ собирается
 `docker build -f deploy/Dockerfile -t kraken:ops .`). Создаёт только уникально
 именованные disposable контейнеры/сети/volumes во временных подсетях `11.253.x.0/24`
@@ -121,9 +124,9 @@ DNS Docker Desktop/OrbStack отвечает адресами `198.18.0.0/15`, �
 
 ## Демонстрационный трафик
 
-`python3 src/tools/demo_traffic.py` наполняет локальную Compose-установку
-синтетическими HTTP/HTTPS-запросами через настоящий Squid в отдельной Docker-сети.
-Временно добавляет demo-клиентов в confirmed snapshot штатным apply и затем
-восстанавливает исходный snapshot; черновик и пароли не меняются. Нужны Go, Python,
-OpenSSL и запущенный контейнер `kraken-kraken-1`. Expert mode не
-поддерживается. Это не проверка APT.
+Go-бинарник `src/tools/demo-traffic` (`go run ./tools/demo-traffic start|restore`
+из `src/`) временно добавляет demo-клиентов в confirmed snapshot штатным apply и
+затем восстанавливает исходный snapshot; черновик и пароли не меняются. Expert mode
+не поддерживается. Это не проверка APT и не генератор трафика: запуск и снятие
+демо-политики — единственная операция, оставшаяся от прежнего демонстрационного
+скрипта.

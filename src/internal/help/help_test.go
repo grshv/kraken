@@ -61,7 +61,7 @@ func TestSlugsUnique(t *testing.T) {
 	}
 }
 
-// TestHelpLinksResolve guards the same invariant as scripts/check_docs.py:
+// TestHelpLinksResolve guards the same invariant as src/tools/docs-check:
 // every [text](help:slug) reference points to a real article. A broken
 // link would render as a dead end in the help UI.
 func TestHelpLinksResolve(t *testing.T) {

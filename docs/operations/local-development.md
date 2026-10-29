@@ -5,26 +5,43 @@
 
 ## Сборка и первый вход
 
-Из корня: `make image`, `make dev-cert`, `make bootstrap`, `make up`.
+Из корня: `make image`, затем `docker compose -f deploy/compose.yaml up -d`.
 Compose service/image: `kraken`, `kraken:dev`.
 Панель публикуется на `127.0.0.1:8443`, HTTP proxy на `127.0.0.1:3128`.
 Изначально Squid закрыт для всех неизвестных клиентов; регистрация через браузер отсутствует.
-Пользователь/пароль задаются интерактивно bootstrap-командой. Она работает только
-при отсутствии admin и запускает бинарник от UID/GID 10013:10013.
+Первого администратора создаёт CLI внутри контейнера, пароль вводится без echo
+или передаётся по `--password-stdin`, никогда аргументом/env:
 
-Frontend, backend и Squid в одном контейнере. Go/Python/Node на host не нужны
-для runtime; Python нужен host helper для скрытого ввода bootstrap password.
-В контейнере Squid работает от `proxy` (13:13), панель — от `kraken` (10013:10013),
-Pebble — supervisor ([ADR 0015](../adr/0015-separate-squid-uid.md)).
+```sh
+docker exec -it kraken kraken bootstrap --username admin
+# или автоматизация:
+printf 'пароль-не-менее-12-байт\n' | docker exec -i kraken kraken bootstrap --username admin --password-stdin
+```
+
+Frontend, backend и Squid в одном контейнере. Node и Go на host не нужны
+для runtime. В контейнере Squid работает от `proxy` (13:13), панель — от
+`kraken` (10013:10013), Pebble — supervisor ([ADR 0015](../adr/0015-separate-squid-uid.md)).
+Оператор обращается к экземпляру через `docker exec -it kraken kraken …`
+(пользователи, сессии, бэкап, состояние); Makefile — только для разработки
+(проверки, сборка образа, integration).
 
 ## Данные
 
 Compose named volume `/data`: `app/` (SQLite), `runtime/` (LKG/journal/active config),
-`logs/` и `certs/`. `make down` сохраняет volume. Не используйте `down -v`, если
-данные нужны. Cache отключён. Секреты в volume не являются резервной копией.
+`logs/` и `certs/`. `docker compose -f deploy/compose.yaml down` сохраняет volume.
+Не используйте `down -v`, если данные нужны. Cache отключён. Секреты в volume не
+являются резервной копией.
 
-`dev-cert` не заменяет существующие ключи; создаёт development-сертификаты панели
-(`panel.*`, только для 10013) и прокси (`proxy.*`, SAN `proxy`, `localhost`, читает группа `proxy`). Public certificate можно получить командой:
+`kraken dev-cert` (внутри контейнера) не заменяет существующие ключи; создаёт
+development-сертификаты панели (`panel.*`, только для 10013) и прокси (`proxy.*`,
+SAN `proxy`, `localhost`, читает группа `proxy`). Для первого запуска без своих
+сертификатов выполните:
+
+```sh
+docker exec -it kraken kraken dev-cert
+```
+
+Public certificate панели можно получить командой:
 
 ```sh
 docker compose -f deploy/compose.yaml cp kraken:/data/certs/panel.crt /tmp/kraken-panel.crt
@@ -69,7 +86,8 @@ Loopback source — внутренняя диагностика, её запро
 ```sh
 docker compose -f deploy/compose.yaml exec kraken pebble services
 docker compose -f deploy/compose.yaml exec kraken pebble logs -n 50
-docker compose -f deploy/compose.yaml exec --user 10013:10013 kraken kraken check
+docker compose -f deploy/compose.yaml exec kraken kraken check
+docker compose -f deploy/compose.yaml exec kraken kraken status
 docker compose -f deploy/compose.yaml exec kraken pebble restart control
 ```
 
@@ -87,9 +105,9 @@ containers/network/volume и удаляет их в finally, не трогая �
 Web unit-тесты (`npm --prefix src/web run test`) гоняют vitest без браузера и
 образа; e2e на ключевые потоки — отдельный срез.
 
-`make integration-ops` (`src/tests/integration/ops.py`) поднимает отдельные
-disposable контейнеры/сети/volumes с уникальным префиксом и проверяет
-процедуры runbook на образе `kraken:ops` (`docker build -f deploy/Dockerfile
+`src/tests/integration/ops.py` (запускается `make integration`, отдельной make-цели
+нет) поднимает отдельные disposable контейнеры/сети/volumes с уникальным префиксом и
+проверяет процедуры runbook на образе `kraken:ops` (`docker build -f deploy/Dockerfile
 -t kraken:ops .`, тег параметризуется через `KRAKEN_TEST_IMAGE`): копия и
 восстановление `/data`, замена серверного сертификата панели и прокси, обновление
 образа на том же volume, поведение при заполненном диске (tmpfs-backed `/data`).
@@ -98,15 +116,16 @@ disposable контейнеры/сети/volumes с уникальным пре�
 ## Новые настройки и сброс
 
 [Настройки и экспертная граница](../adr/0007-general-clients-expert-configuration.md).
-[Пароль и CLI reset](../security/password-lifecycle.md). Внутренние HTTP/TLS ports
+[Пароли и сброс](../security/authentication-and-certificates.md#пароли-и-сброс). Внутренние HTTP/TLS ports
 редактируются в Settings; публикацию Docker нужно менять отдельно. Диагностический
 3130 привязан к loopback и не публикуется; verify использует этот listener.
 
 ## Пользователи и логины прокси
 
 Раздел «Пользователи» доступен admin: две роли, блокировка и смена пароля.
-Viewer видит только состояние и журналы. CLI password-reset --username работает
-с выбранным пользователем и отзывает его sessions.
+Manager видит только свою область. CLI `kraken password-reset --username <имя>`
+работает с выбранным пользователем и отзывает его sessions; `kraken user list`,
+`user enable|disable`, `user role` и `sessions revoke` — те же операции, что в API.
 
 Для парольного клиента сначала установите server cert/key для proxy TLS через
 имеющийся compose.tls.yaml, затем создайте отдельный proxy login в панели и
@@ -133,7 +152,7 @@ host mapping не означает редактирование внутренн
 listener для метрик. В локальном контейнере выполните:
 
 ```sh
-docker compose -f deploy/compose.yaml exec --user 10013:10013 kraken kraken service-update
+docker compose -f deploy/compose.yaml exec kraken kraken service-update
 ```
 
 Команда создаёт ревизию из подтверждённого LKG, журналируемую операцию и audit

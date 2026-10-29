@@ -10,25 +10,24 @@ Node и Go toolchain нужны только при сборке. Docker socket 
 
 ## Локальный запуск
 
-Нужны Docker Engine/Compose, Python 3.10+ для безопасного ввода пароля; свободные
-localhost:8443 и localhost:3128. Из корня:
+Нужны Docker Engine/Compose и свободные localhost:8443 и localhost:3128. Из корня:
 
 ```sh
 make image
-make dev-cert
-make bootstrap
-make up
+docker compose -f deploy/compose.yaml up -d
+docker exec -it kraken-kraken-1 kraken dev-cert
+docker exec -it kraken-kraken-1 kraken bootstrap --username admin
 ```
 
 Панель: [https://localhost:8443](https://localhost:8443).
-`dev-cert` создаёт самоподписанный localhost-сертификат на 30 дней только для
+`kraken dev-cert` создаёт самоподписанный localhost-сертификат на 30 дней только для
 разработки. Браузеру нужно доверие к этому сертификату; для реальной установки
 подключите свой сертификат. Пароль bootstrap вводится без echo и передаётся по stdin,
 без argv/env; default password нет. В БД только salted Argon2id PHC hash. Повторный bootstrap отклоняется.
 
 ```sh
 docker compose -f deploy/compose.yaml logs -f
-make down
+docker compose -f deploy/compose.yaml down
 ```
 
 `down` сохраняет named volume. Адреса публикуются только на loopback; для клиентов
@@ -38,9 +37,14 @@ make down
 ## Пароль и сброс
 
 Исходный пароль не сохраняется; hash односторонний, старый пароль из него
-не восстанавливается. `make password-reset` задаёт новый через local CLI,
-атомарно отзывает sessions и работает также при остановленной панели.
-[Подробности и прямой CLI](docs/security/password-lifecycle.md).
+не восстанавливается. Сменить пароль и отозвать сессии — командой внутри контейнера:
+
+```sh
+docker exec -it <контейнер> kraken password-reset --username admin
+```
+
+Атомарно отзывает sessions и работает также при остановленной панели.
+[Подробности](docs/security/authentication-and-certificates.md#пароли-и-сброс).
 
 ## Разработка и проверки
 

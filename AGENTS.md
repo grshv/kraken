@@ -19,11 +19,18 @@ Kraken — web-панель управления исходящим доступ
 
 | Команда | Что делает |
 | --- | --- |
-| `make docs-check` | Ссылки, реестр ADR, структура docs, OpenAPI, пример политики |
+| `make docs-check` | Ссылки, реестр ADR, структура docs, OpenAPI, пример политики, статьи справки (Go: `src/tools/docs-check`) |
 | `make check` | docs-check, сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` |
 | `make image` / `make integration` | Сборка контейнера / smoke, network, apt и ops на реальном Squid (нужен image) |
-| `make integration-ops` | Эксплуатационные проверки: копия/восстановление /data, замена сертификата, обновление образа, заполненный диск (нужен `kraken:ops`) |
-| `make build`, `make dev-cert`, `make bootstrap`, `make up`, `make down`, `make password-reset` | Локальная сборка и запуск |
+
+Оператор управляет экземпляром через CLI `kraken` внутри контейнера
+(`docker exec -it <контейнер> kraken …`): первый администратор, сброс пароля,
+пользователи (`user list|enable|disable|role`), отзыв сессий (`sessions revoke`),
+состояние (`status`), бэкап (`backup`), сертификат (`dev-cert`), проверка
+(`check`, `service-update`). `serve` и `squid-start` запускаются под Pebble.
+`make` — только разработка: проверки, сборка образа, integration. `make docs-check`
+переписан на Go (`src/tools/docs-check`); integration-тесты (`src/tests/integration/*.py`)
+остаются на Python до перевода отдельной задачей — цель `make integration` не меняется.
 
 Go module — `src/` (`kraken.local/kraken`), npm — `src/web/`.
 `src/web/dist` — результат сборки, не редактировать. Новая проверка добавляется
