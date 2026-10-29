@@ -8,16 +8,17 @@ import (
 )
 
 type ProxyAccount struct {
-	Username  string `json:"username"`
-	Enabled   bool   `json:"enabled"`
-	CreatedAt string `json:"created_at"`
-	UpdatedAt string `json:"updated_at"`
+	Username  string  `json:"username"`
+	Enabled   bool    `json:"enabled"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at"`
+	Owner     *string `json:"owner,omitempty"`
 }
 
 var ErrProxyAccountExists = errors.New("proxy account already exists")
 
 func (s *Store) ProxyAccounts() ([]ProxyAccount, error) {
-	rows, e := s.DB.Query("SELECT username,enabled,created_at,updated_at FROM proxy_accounts ORDER BY username LIMIT 1024")
+	rows, e := s.DB.Query("SELECT username,enabled,created_at,updated_at,owner FROM proxy_accounts ORDER BY username LIMIT 1024")
 	if e != nil {
 		return nil, e
 	}
@@ -26,7 +27,7 @@ func (s *Store) ProxyAccounts() ([]ProxyAccount, error) {
 	for rows.Next() {
 		var v ProxyAccount
 		var created, updated int64
-		if e = rows.Scan(&v.Username, &v.Enabled, &created, &updated); e != nil {
+		if e = rows.Scan(&v.Username, &v.Enabled, &created, &updated, &v.Owner); e != nil {
 			return nil, e
 		}
 		v.CreatedAt = time.Unix(created, 0).UTC().Format(time.RFC3339)
@@ -35,7 +36,7 @@ func (s *Store) ProxyAccounts() ([]ProxyAccount, error) {
 	}
 	return out, rows.Err()
 }
-func (s *Store) CreateProxyAccount(username, hash, actor string) error {
+func (s *Store) CreateProxyAccount(username, hash, owner, actor string) error {
 	tx, e := s.DB.Begin()
 	if e != nil {
 		return e
@@ -55,7 +56,11 @@ func (s *Store) CreateProxyAccount(username, hash, actor string) error {
 		return errors.New("proxy account capacity reached")
 	}
 	now := time.Now().Unix()
-	if _, e = tx.Exec("INSERT INTO proxy_accounts(username,password_hash,enabled,created_at,updated_at) VALUES(?,?,1,?,?)", username, hash, now, now); e != nil {
+	ownerArg := interface{}(nil)
+	if owner != "" {
+		ownerArg = owner
+	}
+	if _, e = tx.Exec("INSERT INTO proxy_accounts(username,password_hash,enabled,created_at,updated_at,owner) VALUES(?,?,1,?,?,?)", username, hash, now, now, ownerArg); e != nil {
 		return e
 	}
 	if e = s.AuditTx(tx, actor, "create_proxy_account", username); e != nil {
@@ -95,7 +100,7 @@ func (s *Store) ChangeProxyAccount(username string, enabled *bool, hash *string,
 func (s *Store) ProxyAccount(username string) (ProxyAccount, error) {
 	var v ProxyAccount
 	var created, updated int64
-	e := s.DB.QueryRow("SELECT username,enabled,created_at,updated_at FROM proxy_accounts WHERE username=?", username).Scan(&v.Username, &v.Enabled, &created, &updated)
+	e := s.DB.QueryRow("SELECT username,enabled,created_at,updated_at,owner FROM proxy_accounts WHERE username=?", username).Scan(&v.Username, &v.Enabled, &created, &updated, &v.Owner)
 	if e != nil {
 		return v, e
 	}

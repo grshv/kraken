@@ -124,6 +124,19 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 400, "invalid_filter", "Проверьте IP, длину фильтров и диапазон времени")
 		return
 	}
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		// Manager cannot query a foreign client_id directly: treat as not found.
+		if filter.ClientID != "" && !inScope(scope, filter.ClientID) {
+			fail(w, 404, "not_found", "Клиент не найден")
+			return
+		}
+		filter.Scope = &store.EventScope{ClientIDs: scope.ClientIDs, Networks: scope.Networks}
+	}
 	p, e := s.Store.EventPage(filter)
 	if e != nil {
 		queryFailure(w, e)
@@ -142,10 +155,25 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 	respond(w, 200, map[string]any{"items": p.Items, "next_cursor": p.NextCursor, "gap": p.Gap, "observed_at": p.ObservedAt, "ingestion": map[string]any{"observed_at": cp.ObservedAt, "stale": stale, "source_available": cp.SourceAvailable, "backlog": cp.Backlog, "dropped_records": cp.Dropped}, "retention_days": store.EventRetentionDays, "record_limit": store.EventLimit})
 }
 func (s *Server) eventClients(w http.ResponseWriter, r *http.Request, v session) {
-	items, e := s.Store.EventClients()
-	if e != nil {
-		queryFailure(w, e)
-		return
+	var items []map[string]string
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		items, e = s.Store.EventClientsScope(scope.ClientIDs)
+		if e != nil {
+			queryFailure(w, e)
+			return
+		}
+	} else {
+		var e error
+		items, e = s.Store.EventClients()
+		if e != nil {
+			queryFailure(w, e)
+			return
+		}
 	}
 	respond(w, 200, map[string]any{"items": items})
 }
@@ -159,7 +187,16 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, v session) 
 		fail(w, 400, "invalid_filter", "Некорректный фильтр аудита")
 		return
 	}
-	p, e := s.Store.AuditPage(store.AuditQuery{Actor: q.Get("actor"), Action: q.Get("action"), Cursor: q.Get("cursor"), Limit: limit})
+	aq := store.AuditQuery{Actor: q.Get("actor"), Action: q.Get("action"), Cursor: q.Get("cursor"), Limit: limit}
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		aq.Scope = &store.AuditScope{ClientIDs: scope.ClientIDs, Networks: scope.Networks, Actor: v.User}
+	}
+	p, e := s.Store.AuditPage(aq)
 	if e != nil {
 		queryFailure(w, e)
 		return

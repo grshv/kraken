@@ -262,7 +262,7 @@ test("all entity editors use dialogs and passwords clear on dismissal and reopen
     {
       section: "Пользователи",
       add: "Добавить пользователя",
-      username: "workflow-viewer",
+      username: "workflow-manager",
     },
     {
       section: "Логины прокси",

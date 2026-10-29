@@ -19,7 +19,7 @@ import type { ApiRequest, PanelRole } from "./model";
 type Account = { username: string; enabled: boolean; role?: PanelRole };
 export const roleNames: Record<PanelRole, string> = {
   admin: "Администратор",
-  viewer: "Наблюдатель",
+  manager: "Менеджер",
 };
 
 export function AccountsPanel({
@@ -41,7 +41,7 @@ export function AccountsPanel({
     [editing, setEditing] = useState<string | null>(null);
   const [username, setUsername] = useState(""),
     [password, setPassword] = useState(""),
-    [role, setRole] = useState<PanelRole>("viewer");
+    [role, setRole] = useState<PanelRole>("manager");
   const unchanged =
     editing !== null &&
     password === "" &&
@@ -86,7 +86,7 @@ export function AccountsPanel({
     setEditing(account?.username ?? null);
     setUsername(account?.username ?? "");
     setPassword("");
-    setRole(account?.role ?? "viewer");
+    setRole(account?.role ?? "manager");
     setOpen(true);
     setError("");
   }
@@ -263,7 +263,7 @@ export function AccountsPanel({
                   )}
                 </TableCell>
                 {kind === "users" && (
-                  <TableCell>{roleNames[account.role ?? "viewer"]}</TableCell>
+                  <TableCell>{roleNames[account.role ?? "manager"]}</TableCell>
                 )}
                 <TableCell>
                   <span

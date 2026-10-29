@@ -9,9 +9,11 @@ SQLite и journal обслуживает один Go executable, но транз
 
 | Таблица | Что хранит | Инвариант |
 | --- | --- | --- |
-| users | username, password_hash, role, enabled | Только verifier; admin/viewer, последний active admin защищён |
+| users | username, password_hash, role, enabled | Только verifier; admin/manager, последний active admin защищён |
 | sessions | token_hash, username, csrf, expires_at, last_seen_at | Cookie token хранится только как hash, password/role/disable mutation отзывает sessions |
-| proxy_accounts | username, password_hash, enabled, created_at, updated_at | Отдельные credentials proxy, без прав в панели |
+| manager_networks | username, cidr | Сети менеджера; FK на users ON DELETE CASCADE, PK по паре |
+| manager_clients | username, client_id | Назначенные клиенты менеджера; FK на users ON DELETE CASCADE, PK по паре; висячие удаляются при обслуживании |
+| proxy_accounts | username, password_hash, enabled, created_at, updated_at, owner | Отдельные credentials proxy; owner = username панели или NULL (admin). Менеджер видит свои и логины только его клиентов |
 | kv | key, value | Draft/revisions/checkpoint как JSON; optimistic version и validation на уровне приложения |
 | operations | id, idempotency_key, request_hash, body | Один key — один payload; outcome операции хранится отдельно от draft |
 | audit_events | id, actor, action, entity_id, created_at | Без паролей/ключей/config body, mutation и audit атомарны |
@@ -134,12 +136,18 @@ Client labels фиксируются при сборе; revision_id null. См. 
 
 ## Учётные записи
 
-users хранит role (admin/viewer) и enabled. Серверный readSession читает актуальное состояние user.
-Role/enabled/password mutation и удаление его sessions/audit атомарны. Проверка
-последнего active admin входит в ту же transaction. Имена неизменяемы; вместо
-удаления используется блокировка с сохранением audit identity.
+users хранит role (admin/manager) и enabled. Серверный readSession читает актуальное состояние user.
+Role/enabled/password mutation и удаление его sessions/audit атомарны. Смена роли отзывает
+сессии; смена области менеджера — нет. Проверка последнего active admin входит в ту же
+transaction. Имена неизменяемы; вместо удаления используется блокировка с сохранением audit
+identity.
 
-proxy_accounts — отдельная таблица username/password_hash/enabled/created_at/updated_at.
+manager_networks и manager_clients — назначения области менеджера, данные панели, а не
+конфигурации Squid. Область читается из БД на каждом запросе, как role и enabled.
+
+proxy_accounts — отдельная таблица username/password_hash/enabled/created_at/updated_at/owner.
+owner — username менеджера или NULL (admin). Менеджер видит и меняет свои логины (owner = он)
+и логины, которыми пользуются только его клиенты; созданный менеджером логин принадлежит ему.
 Пароль не входит в snapshot; Client.proxy_username — только ссылка. Фиксированные
 helper режимы читают не БД, а экспорт `/data/runtime/proxy-accounts.json`
 (username и verifier включённых аккаунтов, 0640), который Go атомарно перезаписывает

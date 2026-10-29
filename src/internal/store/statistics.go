@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -37,7 +38,9 @@ type StatisticHour struct {
 // read preserves the existing flat-body schema and makes no external log reads.
 // At the retention cap, statistics explicitly describe a potentially incomplete
 // retained sample; they never pretend to count records no longer in SQLite.
-func (s *Store) EventStatistics(ctx context.Context, now time.Time) (Statistics, error) {
+// When scope is non-nil, only events for the manager's clients (or unmatched
+// sources inside his networks) are counted.
+func (s *Store) EventStatistics(ctx context.Context, now time.Time, scope *EventScope) (Statistics, error) {
 	now = now.UTC()
 	from := now.Add(-24 * time.Hour)
 	format := func(t time.Time) string { return t.UTC().Format(time.RFC3339Nano) }
@@ -53,6 +56,20 @@ func (s *Store) EventStatistics(ctx context.Context, now time.Time) (Statistics,
 	defer rows.Close()
 	sources := map[string]struct{}{}
 	read := 0
+	clientSet := map[string]bool{}
+	nets := []netip.Prefix{}
+	if scope != nil {
+		for _, id := range scope.ClientIDs {
+			clientSet[id] = true
+		}
+		for _, raw := range scope.Networks {
+			if n, e := netip.ParsePrefix(raw); e == nil {
+				nets = append(nets, n.Masked())
+			} else if a, e := netip.ParseAddr(raw); e == nil {
+				nets = append(nets, netip.PrefixFrom(a, a.BitLen()))
+			}
+		}
+	}
 	for rows.Next() {
 		var body string
 		if err = rows.Scan(&body); err != nil {
@@ -62,6 +79,26 @@ func (s *Store) EventStatistics(ctx context.Context, now time.Time) (Statistics,
 		var event events.Event
 		if err = json.Unmarshal([]byte(body), &event); err != nil {
 			return out, errors.New("invalid stored event")
+		}
+		if scope != nil {
+			if event.ClientID != nil && *event.ClientID != "" {
+				if !clientSet[*event.ClientID] {
+					continue
+				}
+			} else {
+				matched := false
+				if ip, e := netip.ParseAddr(event.SourceIP); e == nil {
+					for _, n := range nets {
+						if n.Contains(ip) {
+							matched = true
+							break
+						}
+					}
+				}
+				if !matched {
+					continue
+				}
+			}
 		}
 		timestamp, err := time.Parse(time.RFC3339Nano, event.Timestamp)
 		if err != nil {

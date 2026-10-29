@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"math"
+	"net/netip"
 	"sort"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ type Activity struct {
 	RetentionLimited bool             `json:"retention_limited"`
 }
 
-func (s *Store) RecentActivity(ctx context.Context, now time.Time, minutes int) (Activity, error) {
+func (s *Store) RecentActivity(ctx context.Context, now time.Time, minutes int, scope *EventScope) (Activity, error) {
 	from := now.Add(-time.Duration(minutes) * time.Minute)
 	out := Activity{From: from.UTC().Format(time.RFC3339Nano), To: now.UTC().Format(time.RFC3339Nano), Sources: []ActivitySource{}, Issues: []ActivityIssue{}}
 	rows, err := s.DB.QueryContext(ctx, "SELECT body FROM proxy_events ORDER BY seq DESC LIMIT ?", EventLimit)
@@ -54,6 +55,20 @@ func (s *Store) RecentActivity(ctx context.Context, now time.Time, minutes int) 
 	sources := map[string]*ActivitySource{}
 	issues := map[string]*ActivityIssue{}
 	read := 0
+	clientSet := map[string]bool{}
+	nets := []netip.Prefix{}
+	if scope != nil {
+		for _, id := range scope.ClientIDs {
+			clientSet[id] = true
+		}
+		for _, raw := range scope.Networks {
+			if n, e := netip.ParsePrefix(raw); e == nil {
+				nets = append(nets, n.Masked())
+			} else if a, e := netip.ParseAddr(raw); e == nil {
+				nets = append(nets, netip.PrefixFrom(a, a.BitLen()))
+			}
+		}
+	}
 	for rows.Next() {
 		var body string
 		if err = rows.Scan(&body); err != nil {
@@ -63,6 +78,26 @@ func (s *Store) RecentActivity(ctx context.Context, now time.Time, minutes int) 
 		var event events.Event
 		if err = json.Unmarshal([]byte(body), &event); err != nil {
 			return out, errors.New("invalid stored event")
+		}
+		if scope != nil {
+			if event.ClientID != nil && *event.ClientID != "" {
+				if !clientSet[*event.ClientID] {
+					continue
+				}
+			} else {
+				matched := false
+				if ip, e := netip.ParseAddr(event.SourceIP); e == nil {
+					for _, n := range nets {
+						if n.Contains(ip) {
+							matched = true
+							break
+						}
+					}
+				}
+				if !matched {
+					continue
+				}
+			}
 		}
 		stamp, err := time.Parse(time.RFC3339Nano, event.Timestamp)
 		if err != nil {

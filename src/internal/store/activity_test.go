@@ -36,7 +36,7 @@ func TestRecentActivityGroupsIssuesAndPreservesMeaning(t *testing.T) {
 	if err := s.SaveEvents(records, events.Checkpoint{}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.RecentActivity(context.Background(), now, 15)
+	got, err := s.RecentActivity(context.Background(), now, 15, nil)
 	if err != nil || len(got.Sources) != 1 || len(got.Issues) != 2 {
 		t.Fatalf("%+v %v", got, err)
 	}
@@ -47,7 +47,7 @@ func TestRecentActivityGroupsIssuesAndPreservesMeaning(t *testing.T) {
 	if got.Issues[0].Count != 2 || got.Issues[0].Result != "TCP_DENIED/403" {
 		t.Fatal(got.Issues)
 	}
-	hour, err := s.RecentActivity(context.Background(), now, 60)
+	hour, err := s.RecentActivity(context.Background(), now, 60, nil)
 	if err != nil || hour.TotalSources != 2 {
 		t.Fatal(hour, err)
 	} // Separate unauthenticated source identity.
@@ -66,12 +66,12 @@ func TestRecentActivityLimitsAndStorageErrors(t *testing.T) {
 	if err := s.SaveEvents(records, events.Checkpoint{}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.RecentActivity(context.Background(), now, 60)
+	got, err := s.RecentActivity(context.Background(), now, 60, nil)
 	if err != nil || got.TotalSources != 12 || got.TotalIssues != 12 || len(got.Sources) != 10 || len(got.Issues) != 10 {
 		t.Fatal(got, err)
 	}
 	s.DB.Close()
-	if _, err = s.RecentActivity(context.Background(), now, 60); err == nil {
+	if _, err = s.RecentActivity(context.Background(), now, 60, nil); err == nil {
 		t.Fatal("storage failure hidden")
 	}
 }
@@ -89,7 +89,7 @@ func TestActivityDayWeekMonthWindows(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range []struct{ minutes, want int }{{1440, 1}, {10080, 2}, {43200, 3}} {
-		got, err := s.RecentActivity(context.Background(), now, c.minutes)
+		got, err := s.RecentActivity(context.Background(), now, c.minutes, nil)
 		if err != nil || len(got.Sources) != 1 || got.Sources[0].Requests != c.want {
 			t.Fatal(c, got, err)
 		}

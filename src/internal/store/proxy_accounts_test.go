@@ -19,14 +19,14 @@ func TestProxyAccountsHashOnlyAndAtomicAudit(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = s.CreateProxyAccount("build", hash, "admin"); e != nil {
+	if e = s.CreateProxyAccount("build", hash, "", "admin"); e != nil {
 		t.Fatal(e)
 	}
 	rows, e := s.ProxyAccounts()
 	if e != nil || len(rows) != 1 || rows[0].Username != "build" || !rows[0].Enabled {
 		t.Fatal("public list failed", e)
 	}
-	if e = s.CreateProxyAccount("build", hash, "admin"); !errors.Is(e, ErrProxyAccountExists) {
+	if e = s.CreateProxyAccount("build", hash, "", "admin"); !errors.Is(e, ErrProxyAccountExists) {
 		t.Fatal("duplicate accepted")
 	}
 	_, e = s.DB.Exec(`CREATE TRIGGER fail_proxy_audit BEFORE INSERT ON audit_events WHEN NEW.action='reset_proxy_password' BEGIN SELECT RAISE(ABORT,'injected audit failure'); END;`)
@@ -77,7 +77,7 @@ func TestEnabledProxyAccountsExcludeDisabled(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, name := range []string{"build", "ci"} {
-		if e = s.CreateProxyAccount(name, hash, "admin"); e != nil {
+		if e = s.CreateProxyAccount(name, hash, "", "admin"); e != nil {
 			t.Fatal(e)
 		}
 	}

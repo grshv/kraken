@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -67,10 +68,25 @@ type EventQuery struct {
 	Failures                                        bool
 	Cursor                                          string
 	Limit                                           int
+	// Scope filters events to a manager's view: his client IDs and unmatched
+	// source IPs within his networks. Empty for admin (no filtering).
+	Scope *EventScope
+}
+type EventScope struct {
+	ClientIDs []string
+	Networks  []string
 }
 type AuditQuery struct {
 	Actor, Action, Cursor string
 	Limit                 int
+	// Scope filters audit to a manager's view: his actor records and entities
+	// in his scope. Empty for admin.
+	Scope *AuditScope
+}
+type AuditScope struct {
+	ClientIDs []string
+	Networks  []string
+	Actor     string
 }
 type AuditEvent struct {
 	ID        string `json:"id"`
@@ -112,6 +128,14 @@ func nextCursor(c cursor, id int64) *string {
 	return &v
 }
 
+// scopeFilter returns a static hashable representation of the scope used to
+// bind cursor stability: a change in scope invalidates an old cursor.
+func scopeFingerprint(s any) string {
+	b, _ := json.Marshal(s)
+	h := sha256.Sum256(b)
+	return hex.EncodeToString(h[:])
+}
+
 func (s *Store) EventPage(q EventQuery) (Page[events.Event], error) {
 	p := Page[events.Event]{Items: []events.Event{}, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if q.Limit < 1 || q.Limit > 200 {
@@ -121,12 +145,29 @@ func (s *Store) EventPage(q EventQuery) (Page[events.Event], error) {
 	filter.Cursor = ""
 	filter.Limit = 0
 	encoded, _ := json.Marshal(filter)
-	c, e := pageStart(q.Cursor, "events\x00"+string(encoded))
+	scopeFP := ""
+	if q.Scope != nil {
+		scopeFP = scopeFingerprint(*q.Scope)
+	}
+	c, e := pageStart(q.Cursor, "events\x00"+string(encoded)+"\x00"+scopeFP)
 	if e != nil {
 		return p, e
 	}
 	clause := "seq<?"
 	args := []any{c.Before}
+	if q.Scope != nil {
+		// Manager sees: events with his client_id, or unmatched (client_id IS NULL)
+		// events whose source_ip is inside his networks.
+		if len(q.Scope.ClientIDs) == 0 {
+			clause += " AND client_id IS NULL"
+		} else {
+			ph := placeholdersStr(len(q.Scope.ClientIDs))
+			clause += " AND (client_id IN (" + ph + ") OR client_id IS NULL)"
+			for _, id := range q.Scope.ClientIDs {
+				args = append(args, id)
+			}
+		}
+	}
 	if q.ClientID != "" {
 		clause += " AND client_id=?"
 		args = append(args, q.ClientID)
@@ -160,11 +201,26 @@ func (s *Store) EventPage(q EventQuery) (Page[events.Event], error) {
 		return p, e
 	}
 	var last int64
+	rowsToClose := rows
+	defer func() { rowsToClose.Close() }()
+	clientSet := map[string]bool{}
+	nets := []netip.Prefix{}
+	if q.Scope != nil {
+		for _, id := range q.Scope.ClientIDs {
+			clientSet[id] = true
+		}
+		for _, raw := range q.Scope.Networks {
+			if n, e := netip.ParsePrefix(raw); e == nil {
+				nets = append(nets, n.Masked())
+			} else if a, e := netip.ParseAddr(raw); e == nil {
+				nets = append(nets, netip.PrefixFrom(a, a.BitLen()))
+			}
+		}
+	}
 	for rows.Next() {
 		var id int64
 		var body string
 		if e = rows.Scan(&id, &body); e != nil {
-			rows.Close()
 			return p, e
 		}
 		if len(p.Items) == q.Limit {
@@ -173,8 +229,27 @@ func (s *Store) EventPage(q EventQuery) (Page[events.Event], error) {
 		}
 		var v events.Event
 		if e = json.Unmarshal([]byte(body), &v); e != nil {
-			rows.Close()
 			return p, e
+		}
+		if q.Scope != nil && v.ClientID != nil {
+			// His clients pass; unmatched fall through to IP check below.
+			if !clientSet[*v.ClientID] {
+				continue
+			}
+		}
+		if q.Scope != nil && (v.ClientID == nil || *v.ClientID == "") {
+			matched := false
+			if ip, e := netip.ParseAddr(v.SourceIP); e == nil {
+				for _, n := range nets {
+					if n.Contains(ip) {
+						matched = true
+						break
+					}
+				}
+			}
+			if !matched {
+				continue
+			}
 		}
 		p.Items = append(p.Items, v)
 		last = id
@@ -196,7 +271,11 @@ func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
 	if q.Limit < 1 || q.Limit > 200 {
 		return p, errors.New("invalid limit")
 	}
-	c, e := pageStart(q.Cursor, "audit\x00"+q.Actor+"\x00"+q.Action)
+	scopeFP := ""
+	if q.Scope != nil {
+		scopeFP = scopeFingerprint(*q.Scope)
+	}
+	c, e := pageStart(q.Cursor, "audit\x00"+q.Actor+"\x00"+q.Action+"\x00"+scopeFP)
 	if e != nil {
 		return p, e
 	}
@@ -209,6 +288,28 @@ func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
 	if q.Action != "" {
 		clause += " AND action=?"
 		args = append(args, q.Action)
+	}
+	// Manager sees audit where actor = him OR entity in his scope (client IDs).
+	if q.Scope != nil {
+		if q.Scope.Actor != "" {
+			clause += " AND (actor=?"
+			args = append(args, q.Scope.Actor)
+			if len(q.Scope.ClientIDs) == 0 {
+				clause += ")"
+			} else {
+				ph := placeholdersStr(len(q.Scope.ClientIDs))
+				clause += " OR entity_id IN (" + ph + "))"
+				for _, id := range q.Scope.ClientIDs {
+					args = append(args, id)
+				}
+			}
+		} else if len(q.Scope.ClientIDs) > 0 {
+			ph := placeholdersStr(len(q.Scope.ClientIDs))
+			clause += " AND entity_id IN (" + ph + ")"
+			for _, id := range q.Scope.ClientIDs {
+				args = append(args, id)
+			}
+		}
 	}
 	args = append(args, q.Limit+1)
 	rows, e := s.DB.Query("SELECT id,actor,action,entity_id,created_at FROM audit_events WHERE "+clause+" ORDER BY id DESC LIMIT ?", args...)
@@ -244,8 +345,44 @@ func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
 	p.Gap = (floor > 1 || (floor == 0 && high > 0)) && p.NextCursor == nil
 	return p, nil
 }
+
+func placeholdersStr(n int) string {
+	if n <= 0 {
+		return "''"
+	}
+	out := strings.Repeat("?,", n)
+	return out[:len(out)-1]
+}
 func (s *Store) EventClients() ([]map[string]string, error) {
 	rows, e := s.DB.Query("SELECT client_id,client_name FROM proxy_events WHERE seq IN (SELECT MAX(seq) FROM proxy_events WHERE client_id IS NOT NULL GROUP BY client_id) ORDER BY seq DESC LIMIT 200")
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	items := []map[string]string{}
+	for rows.Next() {
+		var id, name string
+		if e = rows.Scan(&id, &name); e != nil {
+			return nil, e
+		}
+		items = append(items, map[string]string{"id": id, "name": name})
+	}
+	return items, rows.Err()
+}
+
+// EventClientsScope returns the latest label per client id, filtered to the
+// manager's assigned clients.
+func (s *Store) EventClientsScope(clientIDs []string) ([]map[string]string, error) {
+	if len(clientIDs) == 0 {
+		return []map[string]string{}, nil
+	}
+	ph := placeholdersStr(len(clientIDs))
+	query := "SELECT client_id,client_name FROM proxy_events WHERE seq IN (SELECT MAX(seq) FROM proxy_events WHERE client_id IS NOT NULL AND client_id IN (" + ph + ") GROUP BY client_id) ORDER BY seq DESC LIMIT 200"
+	args := make([]any, len(clientIDs))
+	for i, id := range clientIDs {
+		args[i] = id
+	}
+	rows, e := s.DB.Query(query, args...)
 	if e != nil {
 		return nil, e
 	}

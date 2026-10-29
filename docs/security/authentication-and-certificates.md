@@ -87,12 +87,17 @@ strings, Authorization, cookies и payload не сохранять; даже п�
 
 ## Локальные пользователи и proxy accounts
 
-Реализованы две роли по выбору владельца: admin и viewer. Admin управляет
-конфигурацией/применением/users/proxy accounts; viewer читает состояние, события,
-аудит и публичные metadata сертификатов. Draft/raw expert/revisions и учётные
-записи viewer не получает. Permissions проверяются на сервере, не только в UI.
-Role/enabled/password changes атомарно отзывают sessions. Последний активный admin
-защищён от блокировки/понижения. CLI password-reset работает для указанного user.
+Реализованы две роли: admin и manager. Admin управляет всем: конфигурацией,
+применением, users, proxy accounts, областью менеджеров, ревизиями и откатом.
+Manager работает в своей области: его клиенты и сети, политики без чужих
+клиентов, свои и разделяемые только его клиентами логины прокси; черновик
+виден по области, settings/expert/TLS берутся из текущего черновика.
+Endpoint'ы только для admin (users, scope, preview, expert-template, revisions,
+rollback, сертификаты при изменении) возвращают 403 admin_required. Объект вне
+области — 404. Permissions проверяются на сервере, не только в UI.
+Role/enabled/password changes атомарно отзывают sessions; смена области — нет.
+Последний активный admin защищён от блокировки/понижения. CLI password-reset
+работает для указанного user.
 
 Proxy login/password — отдельные учётные данные в proxy_accounts. В БД только
 Argon2id PHC verifier, никогда raw password. Выдачи прежнего пароля нет. Basic

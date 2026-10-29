@@ -190,22 +190,24 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/squid/metrics", s.authorized("read", s.squidMetrics))
 	mux.HandleFunc("GET /api/v1/activity", s.authorized("read", s.activity))
 	mux.HandleFunc("GET /api/v1/statistics", s.authorized("read", s.statistics))
-	mux.HandleFunc("GET /api/v1/revisions", s.authorized("configure", s.listRevisions))
-	mux.HandleFunc("GET /api/v1/configuration/preview", s.authorized("configure", s.configurationPreview))
-	mux.HandleFunc("GET /api/v1/configuration/expert-template", s.authorized("configure", s.expertTemplate))
+	mux.HandleFunc("GET /api/v1/revisions", s.adminOnly(s.listRevisions))
+	mux.HandleFunc("GET /api/v1/configuration/preview", s.adminOnly(s.configurationPreview))
+	mux.HandleFunc("GET /api/v1/configuration/expert-template", s.adminOnly(s.expertTemplate))
 	mux.HandleFunc("GET /api/v1/configuration/draft", s.authorized("configure", s.getDraft))
 	mux.HandleFunc("PUT /api/v1/configuration/draft", s.authorized("configure", s.updateDraft))
 	mux.HandleFunc("POST /api/v1/revisions", s.authorized("configure", s.createRevision))
-	mux.HandleFunc("GET /api/v1/revisions/{id}", s.authorized("configure", s.getRevision))
-	mux.HandleFunc("GET /api/v1/revisions/{id}/preview", s.authorized("configure", s.preview))
+	mux.HandleFunc("GET /api/v1/revisions/{id}", s.adminOnly(s.getRevision))
+	mux.HandleFunc("GET /api/v1/revisions/{id}/preview", s.adminOnly(s.preview))
 	mux.HandleFunc("POST /api/v1/operations", s.authorized("configure", s.createOperation))
 	mux.HandleFunc("GET /api/v1/operations/{id}", s.authorized("configure", s.getOperation))
 	mux.HandleFunc("GET /api/v1/events", s.authorized("read", s.events))
 	mux.HandleFunc("GET /api/v1/events/clients", s.authorized("read", s.eventClients))
 	mux.HandleFunc("GET /api/v1/audit", s.authorized("audit", s.auditEvents))
-	mux.HandleFunc("GET /api/v1/users", s.authorized("users", s.listUsers))
-	mux.HandleFunc("POST /api/v1/users", s.authorized("users", s.createUser))
-	mux.HandleFunc("PATCH /api/v1/users/{username}", s.authorized("users", s.updateUser))
+	mux.HandleFunc("GET /api/v1/users", s.adminOnly(s.listUsers))
+	mux.HandleFunc("POST /api/v1/users", s.adminOnly(s.createUser))
+	mux.HandleFunc("PATCH /api/v1/users/{username}", s.adminOnly(s.updateUser))
+	mux.HandleFunc("GET /api/v1/users/{username}/scope", s.adminOnly(s.getScope))
+	mux.HandleFunc("PUT /api/v1/users/{username}/scope", s.adminOnly(s.updateScope))
 	mux.HandleFunc("GET /api/v1/proxy-accounts", s.authorized("configure", s.listProxyAccounts))
 	mux.HandleFunc("POST /api/v1/proxy-accounts", s.authorized("proxy_accounts", s.createProxyAccount))
 	mux.HandleFunc("PATCH /api/v1/proxy-accounts/{username}", s.authorized("proxy_accounts", s.updateProxyAccount))
@@ -268,6 +270,16 @@ func (s *Server) getDraft(w http.ResponseWriter, r *http.Request, v session) {
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		d.Snapshot = managerDraftView(d.Snapshot, scope)
+		// Manager view drops expert_config; settings are visible but edits ignored.
+		d.Snapshot.Expert = ""
+	}
 	respond(w, 200, d)
 }
 func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) {
@@ -292,16 +304,62 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 		fail(w, 503, "runtime_unavailable", "Действующая конфигурация недоступна")
 		return
 	}
-	if !sameInstallationPorts(manifest.Snapshot, input.Snapshot) {
+	// Manager: merge their visible slice onto the current full draft, then
+	// enforce scope invariants. Admin: validate the input directly.
+	finalSnapshot := input.Snapshot
+	var newIDs []string
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		var current Draft
+		if e := s.Store.Get("draft", &current); e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		// Compute new client IDs: present in input, absent from current draft.
+		// Used both to expand the scope for source validation (the assignment
+		// is not yet persisted) and to assign the new clients atomically.
+		currentIDs := map[string]bool{}
+		for _, c := range current.Snapshot.Clients {
+			currentIDs[c.ID] = true
+		}
+		newIDs = nil
+		expandedScope := scope
+		for _, c := range input.Snapshot.Clients {
+			if !currentIDs[c.ID] {
+				newIDs = append(newIDs, c.ID)
+				expandedScope.ClientIDs = append(expandedScope.ClientIDs, c.ID)
+			}
+		}
+		finalSnapshot = mergeManagerDraft(current.Snapshot, input.Snapshot, scope)
+		// Source checks first (422) so client network errors are not masked by
+		// a policy-edit error when the manager did not change any policy.
+		if code, msg, ok := validateManagerDraft(finalSnapshot, expandedScope); !ok {
+			fail(w, 422, code, msg)
+			return
+		}
+		if code, msg, ok := validateManagerPolicyEdits(current.Snapshot, input.Snapshot, scope); !ok {
+			fail(w, 403, code, msg)
+			return
+		}
+	}
+	if !sameInstallationPorts(manifest.Snapshot, finalSnapshot) {
 		fail(w, 422, "installation_setting", "Порты подключения к прокси задаются при установке и не изменяются из панели")
 		return
 	}
-	if e := policy.Validate(input.Snapshot, s.Runtime.Options); e != nil {
+	if e := policy.Validate(finalSnapshot, s.Runtime.Options); e != nil {
 		fail(w, 422, "invalid_policy", e.Error())
 		return
 	}
-	d := Draft{Version: input.Expected + 1, Snapshot: input.Snapshot, Updated: stamp()}
-	e = s.Store.Change("draft", d, v.User, "update_draft", input.Expected)
+	d := Draft{Version: input.Expected + 1, Snapshot: finalSnapshot, Updated: stamp()}
+	if v.Role == "manager" {
+		e = s.Store.ChangeDraftWithAssignments(d, v.User, "update_draft", input.Expected, v.User, newIDs)
+	} else {
+		e = s.Store.Change("draft", d, v.User, "update_draft", input.Expected)
+	}
 	if errors.Is(e, store.ErrConflict) {
 		fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")
 		return
@@ -310,7 +368,13 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
-	respond(w, 200, d)
+	out := d
+	if v.Role == "manager" {
+		scope, _ := s.managerScope(v)
+		out.Snapshot = managerDraftView(d.Snapshot, scope)
+		out.Snapshot.Expert = ""
+	}
+	respond(w, 200, out)
 }
 func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v session) {
 	var input struct {
@@ -329,6 +393,19 @@ func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v sessio
 	if d.Version != input.Expected {
 		fail(w, 409, "revision_conflict", "Черновик уже изменён")
 		return
+	}
+	// Manager may create a revision only if every changed object is in scope.
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		active, _ := s.activeRevisionSnapshot()
+		if draftChangesOutOfScope(d.Snapshot, active, scope) {
+			fail(w, 403, "draft_out_of_scope", "Черновик содержит изменения вне вашей области")
+			return
+		}
 	}
 	rev := Revision{ID: store.ID(), DraftVersion: d.Version, Hash: policy.Hash(d.Snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: d.Snapshot}
 	b, _ := json.Marshal(rev)
@@ -414,6 +491,12 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 	}
 	if input.Action != "validate" && input.Action != "apply" && input.Action != "rollback" {
 		fail(w, 400, "invalid_action", "Неизвестное действие")
+		return
+	}
+	// Rollback is admin-only; validate and apply are available to managers,
+	// but apply additionally requires every changed object to be in scope.
+	if input.Action == "rollback" && v.Role != "admin" {
+		fail(w, 403, "admin_required", "Откат доступен только администратору")
 		return
 	}
 	if input.Action != "validate" && !hasPermission(v, "apply") {
@@ -512,6 +595,20 @@ func (s *Server) createOperation(w http.ResponseWriter, r *http.Request, v sessi
 		if e != nil || validation.Action != "validate" || validation.Revision != rev.ID || validation.Status != "validated" {
 			fail(w, 422, "validation_required", "Сначала проверьте эту ревизию")
 			return
+		}
+		// Manager apply: every changed client must be his, and a changed policy
+		// must not be referenced by a foreign client (in draft or active).
+		if v.Role == "manager" {
+			scope, e := s.managerScope(v)
+			if e != nil {
+				fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+				return
+			}
+			active, _ := s.activeRevisionSnapshot()
+			if draftChangesOutOfScope(rev.Snapshot, active, scope) {
+				fail(w, 403, "draft_out_of_scope", "Черновик содержит изменения вне вашей области")
+				return
+			}
 		}
 	}
 	if input.Action == "rollback" {

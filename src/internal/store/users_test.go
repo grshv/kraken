@@ -17,7 +17,7 @@ func TestConcurrentDemotionsKeepOneAdmin(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	role := "viewer"
+	role := "manager"
 	var wg sync.WaitGroup
 	errs := make(chan error, 2)
 	for _, name := range []string{"one", "two"} {

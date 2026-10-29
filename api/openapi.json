@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Kraken API",
-    "version": "0.9.0",
-    "description": "Critical-path API implemented in the first development slice. Draft editing, local users/admin-viewer roles, separate proxy accounts, bounded event history and retained 24-hour statistics are implemented. Listener ports are installation settings and cannot change via draft/revision operations. Draft preview is read-only. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
+    "version": "0.10.0",
+    "description": "Critical-path API implemented in the first development slices. Draft editing, local users/admin-manager roles with manager scope, separate proxy accounts, bounded event history and retained 24-hour statistics are implemented. Listener ports are installation settings and cannot change via draft/revision operations. Draft preview is read-only. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization (admin_required, policy_shared_out_of_scope, draft_out_of_scope), 404 unknown resource (or out-of-scope object), 409 conflict/busy (username_taken), 422 policy/capability failure (source_outside_scope, source_overlap, not_manager), 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and manager (scoped to assigned clients and networks; can edit draft within scope, validate/apply own changes, manage own proxy logins). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
   },
   "servers": [
     {
@@ -156,7 +156,7 @@
           }
         },
         "parameters": [],
-        "description": "Available to admin and viewer."
+        "description": "Available to admin and manager (manager sees only his scope)."
       }
     },
     "/configuration/draft": {
@@ -186,7 +186,7 @@
           }
         },
         "parameters": [],
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       },
       "put": {
         "operationId": "updateDraft",
@@ -235,7 +235,7 @@
             }
           }
         },
-        "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes. Admin role required; viewer receives 403. HTTP/TLS listener changes are rejected with 422 installation_setting; existing installed custom ports are preserved."
+        "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes. Admin-only; manager receives 403 admin_required. HTTP/TLS listener changes are rejected with 422 installation_setting; existing installed custom ports are preserved."
       }
     },
     "/revisions": {
@@ -286,7 +286,7 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       },
       "get": {
         "operationId": "listRevisions",
@@ -315,7 +315,7 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       }
     },
     "/revisions/{id}": {
@@ -355,7 +355,7 @@
             }
           }
         ],
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       }
     },
     "/revisions/{id}/preview": {
@@ -395,7 +395,7 @@
             }
           }
         ],
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       }
     },
     "/operations": {
@@ -456,7 +456,7 @@
             }
           }
         },
-        "description": "Creates a durable SQLite operation intent before the in-process worker runs. 409 for conflicting key/revision; busy is explicit. Apply requires validated exact inputs. Rollback uses the local Squid adapter and is verified. No separate runner or Docker API. Admin role required; viewer receives 403. Revision operations cannot change installation-owned HTTP/TLS listeners, including rollback to old revisions."
+        "description": "Creates a durable SQLite operation intent before the in-process worker runs. 409 for conflicting key/revision; busy is explicit. Apply requires validated exact inputs. Rollback uses the local Squid adapter and is verified. No separate runner or Docker API. Admin-only; manager receives 403 admin_required. Revision operations cannot change installation-owned HTTP/TLS listeners, including rollback to old revisions."
       }
     },
     "/operations/{id}": {
@@ -496,7 +496,7 @@
             }
           }
         ],
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       }
     },
     "/events": {
@@ -618,7 +618,7 @@
             }
           }
         ],
-        "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Thirty days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic. Available to admin and viewer."
+        "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Thirty days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic. Available to admin and manager (manager sees only his scope)."
       }
     },
     "/certificates": {
@@ -651,7 +651,7 @@
           }
         },
         "parameters": [],
-        "description": "Returns installed inventory metadata, never private keys; local provisioning only in first version. Available to admin and viewer."
+        "description": "Returns installed inventory metadata, never private keys; local provisioning only in first version. Available to admin and manager (manager sees only his scope)."
       }
     },
     "/configuration/expert-template": {
@@ -679,14 +679,14 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403. Empty client rules generate fail-closed http_access deny all, rather than an empty editor."
+        "description": "Admin-only; manager receives 403 admin_required. Empty client rules generate fail-closed http_access deny all, rather than an empty editor."
       }
     },
     "/audit": {
       "get": {
         "operationId": "listAuditEvents",
         "summary": "Read administrative audit history",
-        "description": "Admin-only. Exact actor/action filters, stable earlier-page cursor. Retention 90 days and 5000 rows. Audit records accepted administrative actions; operation outcome is read from its operation object. No raw configuration, password, token or key bodies. Available to admin and viewer.",
+        "description": "Admin-only. Exact actor/action filters, stable earlier-page cursor. Retention 90 days and 5000 rows. Audit records accepted administrative actions; operation outcome is read from its operation object. No raw configuration, password, token or key bodies. Available to admin and manager (manager sees only his scope).",
         "parameters": [
           {
             "name": "cursor",
@@ -751,7 +751,7 @@
       "get": {
         "operationId": "listEventClients",
         "summary": "List up to 200 most recently observed client labels",
-        "description": "One latest label per stored client ID; names are source labels, not historical ACL matches. Available to admin and viewer.",
+        "description": "One latest label per stored client ID; names are source labels, not historical ACL matches. Available to admin and manager (manager sees only his scope).",
         "responses": {
           "200": {
             "description": "Success",
@@ -836,7 +836,7 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       },
       "post": {
         "operationId": "createPanelUser",
@@ -885,14 +885,14 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       }
     },
     "/users/{username}": {
       "patch": {
         "operationId": "updatePanelUser",
         "summary": "Update PanelUser; admin only",
-        "description": "Panel role/password/enabled mutations revoke sessions atomically; last active admin cannot be disabled/demoted. Admin role required; viewer receives 403.",
+        "description": "Panel role/password/enabled mutations revoke sessions atomically; last active admin cannot be disabled/demoted. Admin-only; manager receives 403 admin_required.",
         "parameters": [
           {
             "name": "username",
@@ -987,7 +987,7 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       },
       "post": {
         "operationId": "createProxyAccount",
@@ -1036,14 +1036,14 @@
             }
           }
         },
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       }
     },
     "/proxy-accounts/{username}": {
       "patch": {
         "operationId": "updateProxyAccount",
         "summary": "Update ProxyAccount; admin only",
-        "description": "Update dedicated proxy verifier/enabled state; an uncached verifier-generation ACL rejects old cached Basic credentials on new requests. Existing CONNECT is not forcibly closed. Admin role required; viewer receives 403.",
+        "description": "Update dedicated proxy verifier/enabled state; an uncached verifier-generation ACL rejects old cached Basic credentials on new requests. Existing CONNECT is not forcibly closed. Admin-only; manager receives 403 admin_required.",
         "parameters": [
           {
             "name": "username",
@@ -1128,13 +1128,13 @@
           }
         },
         "parameters": [],
-        "description": "Admin role required; viewer receives 403."
+        "description": "Admin-only; manager receives 403 admin_required."
       }
     },
     "/statistics": {
       "get": {
         "operationId": "getStatistics",
-        "summary": "Retained request statistics for the last 24 hours; admin/viewer read permission",
+        "summary": "Retained request statistics for the last 24 hours; admin/manager read permission",
         "responses": {
           "200": {
             "description": "Rolling statistics",
@@ -1161,7 +1161,7 @@
     "/squid/metrics": {
       "get": {
         "operationId": "getSquidMetrics",
-        "summary": "Live Squid aggregate metrics (admin/viewer)",
+        "summary": "Live Squid aggregate metrics (admin/manager)",
         "description": "Bounded fixed loopback manager reports only. Last successful sample is retained in memory on failure, marked unavailable/stale with original observed_at. Unsupported or unmeasured values are null. No raw URLs, usernames or manager reports. Five-minute metrics are null until Squid has a sampling interval. Origin traffic and request rate exclude manager polling and cache hits. Old active configs require a separate service configuration update; GET never applies drafts.",
         "responses": {
           "200": {
@@ -1208,7 +1208,7 @@
             "description": "Statistics unavailable; never fake zero counters on storage error"
           }
         },
-        "description": "Admin/viewer read-only operational view over retained completed access-log events in [from,to). minutes=15, 60 (default), 1440 (day), 10080 (week) or 43200 (rolling 30 days). Sources grouped by IP and proxy username; issues additionally by sanitized destination and exact Squid result. Denied means DENIED; errors count other >=400/FAIL/ABORTED results. At most 10 rows per group, sorted by frequency; totals expose omissions. No inference of client availability, matched ACL or live tunnel contents. Applied policy counts come from confirmed runtime manifest, never draft. Ingestion exposes public quality fields only. 503 on storage error.",
+        "description": "Admin/manager read-only operational view over retained completed access-log events in [from,to). minutes=15, 60 (default), 1440 (day), 10080 (week) or 43200 (rolling 30 days). Sources grouped by IP and proxy username; issues additionally by sanitized destination and exact Squid result. Denied means DENIED; errors count other >=400/FAIL/ABORTED results. At most 10 rows per group, sorted by frequency; totals expose omissions. No inference of client availability, matched ACL or live tunnel contents. Applied policy counts come from confirmed runtime manifest, never draft. Ingestion exposes public quality fields only. 503 on storage error.",
         "parameters": [
           {
             "name": "minutes",
@@ -1226,6 +1226,115 @@
             }
           }
         ]
+      }
+    },
+    "/users/{username}/scope": {
+      "get": {
+        "operationId": "getManagerScope",
+        "summary": "Get manager scope (admin only)",
+        "description": "Returns the manager networks and assigned client IDs. Admin-only; manager receives 403 admin_required. Non-manager user returns 422 not_manager.",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagerScope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "operationId": "updateManagerScope",
+        "summary": "Replace manager scope (admin only)",
+        "description": "Replaces networks and assigned client IDs. CIDR are normalized. Admin-only; manager receives 403 admin_required. Non-manager user returns 422 not_manager. Invalid CIDR returns 422.",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            }
+          },
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManagerScope"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated scope",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManagerScope"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     }
   },
@@ -1310,7 +1419,7 @@
             ],
             "enum": [
               "admin",
-              "viewer",
+              "manager",
               null
             ]
           },
@@ -1327,6 +1436,11 @@
                 "audit"
               ]
             }
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ManagerScope",
+            "nullable": true,
+            "description": "Manager scope (networks and client_ids); null/absent for admin."
           }
         }
       },
@@ -2464,7 +2578,7 @@
             "type": "string",
             "enum": [
               "admin",
-              "viewer"
+              "manager"
             ]
           },
           "enabled": {
@@ -2495,6 +2609,11 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "owner": {
+            "type": "string",
+            "nullable": true,
+            "description": "Panel username owning the login, or null for admin."
           }
         }
       },
@@ -2524,7 +2643,7 @@
             "type": "string",
             "enum": [
               "admin",
-              "viewer"
+              "manager"
             ]
           }
         }
@@ -2538,7 +2657,7 @@
             "type": "string",
             "enum": [
               "admin",
-              "viewer"
+              "manager"
             ]
           },
           "enabled": {
@@ -3118,6 +3237,29 @@
           "exclusive": {
             "type": "boolean",
             "description": "true: never_direct allow all; false: direct fallback"
+          }
+        }
+      },
+      "ManagerScope": {
+        "type": "object",
+        "required": [
+          "networks",
+          "client_ids"
+        ],
+        "properties": {
+          "networks": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "CIDR networks assigned to the manager."
+          },
+          "client_ids": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Client IDs assigned to the manager."
           }
         }
       }
