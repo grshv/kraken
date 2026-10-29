@@ -1,9 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
-  History,
   KeyRound,
-  Activity,
   SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +28,8 @@ import { HelpView } from "./help/HelpView";
 import { PlaceholderSection } from "./sections/PlaceholderSection";
 import { ClientsSection } from "./clients/ClientsSection";
 import { PoliciesSection } from "./policies/PoliciesSection";
+import { LogSection } from "./log/LogSection";
+import { AuditSection } from "./audit/AuditSection";
 import type { CommitResult } from "./sections/sectionProps";
 import { ErrorState } from "./shell/ErrorState";
 import "./theme.css";
@@ -483,11 +483,37 @@ function App() {
       );
     if (navId === "log")
       return (
-        <PlaceholderSection title="Журнал" icon={<Activity aria-hidden />} />
+        <LogSection
+          request={request}
+          draft={draft}
+          active={active}
+          session={session!}
+          onCommit={commitDraft}
+          onDiscard={async () => {
+            await discardDraftNow();
+            return { ok: true };
+          }}
+          onToast={showToast}
+          onNavigate={setNavId}
+          onConfirm={(o) => setConfirm(o)}
+        />
       );
     if (navId === "audit")
       return (
-        <PlaceholderSection title="Аудит" icon={<History aria-hidden />} />
+        <AuditSection
+          request={request}
+          draft={draft}
+          active={active}
+          session={session!}
+          onCommit={commitDraft}
+          onDiscard={async () => {
+            await discardDraftNow();
+            return { ok: true };
+          }}
+          onToast={showToast}
+          onNavigate={setNavId}
+          onConfirm={(o) => setConfirm(o)}
+        />
       );
     if (navId === "accounts")
       return (

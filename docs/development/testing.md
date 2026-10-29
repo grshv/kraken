@@ -29,8 +29,9 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 ## Web unit-тесты
 
 `npm --prefix src/web run test` (vitest) покрывает чистую логику каркаса и
-экранов в `src/web/src/shell`, `src/web/src/draft`, `src/web/src/clients` и
-`src/web/src/policies`, без браузера и DOM:
+экранов в `src/web/src/shell`, `src/web/src/draft`, `src/web/src/clients`,
+`src/web/src/policies`, `src/web/src/log` и `src/web/src/audit`, без
+браузера и DOM:
 
 | Модуль | Что покрыто |
 | --- | --- |
@@ -41,6 +42,8 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `policies/domains` | `parseDomainInput`: схема, путь, порт, завершающая точка, `*.x`/`.x`; IP-литералы, пробелы, `_` → null; `mergeDestinations`: дедуп по domain, OR `include_subdomains`, без мутации |
 | `draft/marks` | `entityMarks`: new/changed/deleted по глубокому равенству, неизменённые пропущены, порядок ключей не важен |
 | `draft/edits` | `addDomainToClientPolicy`, `changeClientPolicy`, `createClientFromIP` (включая fresh own-policy из неописанного IP), `clientsOfPolicy`, no-op на missing inputs, без мутации |
+| `log/query` | `parseLogQuery`: все токены (`client:`, `host:`, `method:`, `ip:`/`source:`, `result:`/`результат:` с `allowed|разрешено|denied|отказ`), пустое значение игнорируется, остальное — `free`, повтор выигрывает последний; `isDenied` (DENIED/FAIL, status ≥ 400); `facetCounts` (клиент группируется по `client_id`, без `client_id` под `""`, неуникальные имена и null-name при наличии id); `minuteHistogram` (пограничные минуты, события вне окна игнорируются, пустой ввод); `buildEventsParams` (client→client_id по резолверу, denied→failures_only, host/free→destination, сериализация) |
+| `audit/actions` | каждый `action`, записываемый Go (`login`, `login_failed`, `logout`, `csrf_failed`, `rate_limited`, `session_capacity_reached`, `password_reset`, `create_user`, `update_user`, `update_scope`, `create_proxy_account`, `update_proxy_account`, `reset_proxy_password`, `update_draft`, `discard_draft`, `create_revision`), имеет русское название; категории (apply/login/account/draft/other) и фильтры (все/применения/входы/учётки); неизвестный action — fallback на код |
 
 E2e (Playwright) на ключевые потоки — отдельный срез; `@playwright/test` и
 `tests/*.spec.ts` удалены вместе со старыми экранами.

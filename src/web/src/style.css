@@ -1314,3 +1314,203 @@ textarea.in {
     grid-template-columns: 1fr;
   }
 }
+
+/* ---------- log screen ---------- */
+.log-section {
+  display: grid;
+  grid-template-columns:
+    var(--list-w, 300px) minmax(0, 1fr) var(--detail-w, 400px);
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+}
+.log-facets {
+  border-right: 1px solid var(--border);
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 12px;
+  overflow-y: auto;
+  min-height: 0;
+}
+.facet-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.facet-group h4 {
+  font-size: var(--text-sm);
+  font-weight: 600;
+  margin: 0 0 4px;
+}
+.facet-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--text-base);
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 1px 0;
+  color: inherit;
+  font: inherit;
+}
+button.facet-item {
+  cursor: pointer;
+}
+.facet-item:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.facet-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.facet-note {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+.log-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+}
+.log-head {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  flex: none;
+}
+.log-chart {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  flex: none;
+}
+.legend {
+  display: flex;
+  gap: 12px;
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+  margin-bottom: 6px;
+}
+.legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.log-bars {
+  display: flex;
+  gap: 1px;
+  align-items: flex-end;
+  height: 48px;
+}
+.log-bar-col {
+  flex: 1;
+  min-width: 1px;
+  background: var(--s-allow);
+  opacity: 0.7;
+  border-radius: 1px 1px 0 0;
+  position: relative;
+}
+.log-bar-denied {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  background: var(--s-deny);
+  opacity: 0.95;
+  border-radius: 1px 1px 0 0;
+}
+.log-table-wrap {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+}
+.log-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+.log-table thead th {
+  position: sticky;
+  top: 0;
+  background: var(--card);
+  border-bottom: 1px solid var(--border);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: var(--muted-foreground);
+  text-align: left;
+  padding: 8px 12px;
+}
+.log-table tbody tr {
+  cursor: pointer;
+  border-bottom: 1px solid var(--border);
+}
+.log-table tbody tr:hover {
+  background: var(--muted);
+}
+.log-table tbody tr.selected {
+  background: var(--muted);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+.log-table td {
+  padding: 8px 12px;
+  vertical-align: top;
+}
+.log-dest {
+  overflow-wrap: anywhere;
+}
+.log-detail-pane {
+  position: relative;
+  border-left: 1px solid var(--border);
+  background: var(--card);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  overflow-y: auto;
+  min-height: 0;
+}
+/* The detail pane's PaneResizer sits on its LEFT edge (the prototype anchored
+   the splitter between the table and the detail column). */
+.log-detail-pane > .pane-resizer {
+  left: -5px;
+  right: auto;
+}
+@media (max-width: 1180px) {
+  .log-section {
+    grid-template-columns:
+      min(var(--list-w, 300px), 220px)
+      minmax(0, 1fr)
+      min(var(--detail-w, 400px), 320px);
+  }
+}
+@media (max-width: 820px) {
+  .log-section {
+    grid-template-columns: 1fr;
+    grid-template-rows: auto auto auto;
+  }
+  .log-facets,
+  .log-detail-pane {
+    border: 0;
+    border-bottom: 1px solid var(--border);
+    max-height: 36dvh;
+  }
+}
+
+/* ---------- audit list ---------- */
+.audit-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
