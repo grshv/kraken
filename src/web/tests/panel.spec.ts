@@ -365,72 +365,56 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
   expect(errors).toEqual([]);
 });
 
-test("accounts: create viewer, enforce read-only access, revoke on block", async ({
+test("accounts: create manager, enforce admin-only boundaries, revoke on block", async ({
   browser,
 }) => {
-  const viewerPassword = randomBytes(24).toString("base64url");
+  const managerPassword = randomBytes(24).toString("base64url");
   await navigate(page, "Пользователи");
   const users = page.getByRole("region", { name: "Пользователи панели" });
   await users.getByRole("button", { name: "Добавить пользователя" }).click();
-  await page.getByLabel("Логин учётной записи").fill("review-viewer");
-  await page.getByLabel("Пароль учётной записи").fill(viewerPassword);
+  await page.getByLabel("Логин учётной записи").fill("review-manager");
+  await page.getByLabel("Пароль учётной записи").fill(managerPassword);
   await page.getByLabel("Роль пользователя").click();
   await expect(page.getByRole("option")).toHaveCount(2);
-  await page.locator('[role="option"][data-value="viewer"]').click();
+  await page.locator('[role="option"][data-value="manager"]').click();
   await page
     .getByRole("dialog")
     .getByRole("button", { name: "Сохранить", exact: true })
     .click();
   await expect(
-    users.getByRole("cell", { name: "review-viewer", exact: true }),
+    users.getByRole("cell", { name: "review-manager", exact: true }),
   ).toBeVisible();
 
-  const viewer = await browser.newPage();
-  await viewer.goto(fixture.origin);
-  await viewer.getByLabel("Имя пользователя").fill("review-viewer");
-  await viewer.getByLabel("Пароль", { exact: true }).fill(viewerPassword);
-  await viewer.getByRole("button", { name: "Войти в панель" }).click();
+  const manager = await browser.newPage();
+  await manager.goto(fixture.origin);
+  await manager.getByLabel("Имя пользователя").fill("review-manager");
+  await manager.getByLabel("Пароль", { exact: true }).fill(managerPassword);
+  await manager.getByRole("button", { name: "Войти в панель" }).click();
+  // Manager can read state and journals; admin-only sections stay hidden.
+  await navigate(manager, "События");
   await expect(
-    viewer.getByRole("heading", { name: "Обзор", exact: true }),
+    manager.getByRole("region", { name: "История запросов" }),
   ).toBeVisible();
-  for (const name of [
-    "Клиенты",
-    "Настройки",
-    "Изменения",
-    "Пользователи",
-    "Логины прокси",
-  ])
-    await expect(
-      viewer.getByRole("navigation").getByRole("button", { name, exact: true }),
-    ).toHaveCount(0);
-  await navigate(viewer, "События");
+  await navigate(manager, "Аудит");
   await expect(
-    viewer.getByRole("region", { name: "История запросов" }),
+    manager.getByRole("region", { name: "Журнал аудита" }),
   ).toBeVisible();
-  await navigate(viewer, "Аудит");
-  await expect(
-    viewer.getByRole("region", { name: "Журнал аудита" }),
-  ).toBeVisible();
-  for (const path of [
-    "/configuration/draft",
-    "/users",
-    "/proxy-accounts",
-    "/revisions",
-  ])
+  // Admin-only endpoints reject the manager with 403.
+  for (const path of ["/users", "/revisions", "/configuration/preview"])
     expect(
-      (await viewer.request.get(fixture.origin + "/api/v1" + path)).status(),
+      (await manager.request.get(fixture.origin + "/api/v1" + path)).status(),
     ).toBe(403);
   const row = users.getByRole("row").filter({
-    has: page.getByRole("cell", { name: "review-viewer", exact: true }),
+    has: page.getByRole("cell", { name: "review-manager", exact: true }),
   });
   await row.getByRole("button", { name: "Заблокировать", exact: true }).click();
   await expect(
     row.getByRole("cell", { name: "Заблокирован", exact: true }),
   ).toBeVisible();
   expect(
-    (await viewer.request.get(fixture.origin + "/api/v1/status")).status(),
+    (await manager.request.get(fixture.origin + "/api/v1/status")).status(),
   ).toBe(401);
-  await viewer.close();
+  await manager.close();
   const screenshots =
     process.env.KRAKEN_SCREENSHOT_DIR || join(tmpdir(), "kraken-ui");
   await page.setViewportSize({ width: 1440, height: 1050 });

@@ -448,21 +448,45 @@ for line in sys.stdin:
         api('/proxy-accounts/REQUIRED','PATCH',{'enabled':True})
         assert proxy_request('REQUIRED',new_proxy_password)==200
         assert proxy_request('admin',replacement)==407
-        # New panel users have server-enforced read-only scope and revoked sessions when blocked.
-        viewer_password=secrets.token_urlsafe(24)
-        api('/users','POST',{'username':'observer','password':viewer_password,'role':'viewer'})
-        viewer_opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPSHandler(context=context),urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
-        def viewer_api(path,method='GET',body=None,token=''):
+        # New panel users have server-enforced manager scope and revoked sessions when blocked.
+        manager_password=secrets.token_urlsafe(24)
+        api('/users','POST',{'username':'observer','password':manager_password,'role':'manager'})
+        manager_opener=urllib.request.build_opener(urllib.request.ProxyHandler({}),urllib.request.HTTPSHandler(context=context),urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
+        def manager_api(path,method='GET',body=None,token=''):
             req=urllib.request.Request(origin+'/api/v1'+path,data=None if body is None else json.dumps(body).encode(),method=method,headers={'Content-Type':'application/json','Origin':origin,'X-CSRF-Token':token})
-            with viewer_opener.open(req,timeout=15) as response:return json.load(response)
-        anon=viewer_api('/session')
-        viewer_session=viewer_api('/session','POST',{'username':'observer','password':viewer_password},anon['csrf_token'])
-        assert viewer_session['role']=='viewer' and viewer_api('/status')['squid']['state']=='up'
-        for restricted in ['/configuration/draft','/users','/proxy-accounts','/revisions']:
-            try:viewer_api(restricted);raise AssertionError('viewer crossed role boundary')
-            except urllib.error.HTTPError as exc:assert exc.code==403
+            with manager_opener.open(req,timeout=15) as response:return json.load(response)
+        anon=manager_api('/session')
+        manager_session=manager_api('/session','POST',{'username':'observer','password':manager_password},anon['csrf_token'])
+        assert manager_session['role']=='manager' and manager_api('/status')['squid']['state']=='up'
+        # Manager sees his scope in /session.
+        assert 'scope' in manager_session, manager_session
+        # Admin-only endpoints remain forbidden for manager (admin_required).
+        for restricted in ['/users','/revisions','/configuration/preview','/configuration/expert-template']:
+            try:manager_api(restricted);raise AssertionError('manager crossed admin boundary')
+            except urllib.error.HTTPError as exc:assert exc.code==403,restricted
+        # Admin assigns the existing client fixture to the manager.
+        existing_client=snap['clients'][0]['id']
+        api('/users/observer/scope','PUT',{'networks':['11.250.17.0/24'],'client_ids':[existing_client]})
+        # Manager draft view hides the other (foreign) client.
+        draft_view=manager_api('/configuration/draft')
+        view_ids={c['id'] for c in draft_view['snapshot']['clients']}
+        assert existing_client in view_ids, view_ids
+        assert snap['clients'][1]['id'] not in view_ids, view_ids
+        # Manager cannot create a revision when the draft contains a foreign
+        # change: admin changes the foreign client, then manager POST /revisions
+        # must return 403 draft_out_of_scope.
+        admin_draft=api('/configuration/draft')
+        admin_draft['snapshot']['clients'][1]['source_networks']=['11.250.17.99']
+        api('/configuration/draft','PUT',{'expected_version':admin_draft['version'],'snapshot':admin_draft['snapshot']})
+        mgr_draft=manager_api('/configuration/draft')
+        try:
+            manager_api('/revisions','POST',{'expected_draft_version':mgr_draft['version']},token=manager_session['csrf_token'])
+            raise AssertionError('manager applied foreign draft change')
+        except urllib.error.HTTPError as exc:
+            body=exc.read().decode()
+            assert exc.code==403 and json.loads(body).get('code')=='draft_out_of_scope', f'{exc.code} {body}'
         api('/users/observer','PATCH',{'enabled':False})
-        try:viewer_api('/status');raise AssertionError('disabled session survived')
+        try:manager_api('/status');raise AssertionError('disabled session survived')
         except urllib.error.HTTPError as exc:assert exc.code==401
         scan_code="""import base64,json,pathlib,sys
 values=json.load(sys.stdin)
@@ -474,8 +498,8 @@ for path in pathlib.Path('/state').rglob('*'):
   assert not any(marker in data for marker in markers), 'credential persisted in '+str(path)
 print('OK')
 """
-        assert docker('run','--rm','-i','--network','none','-v',volume+':/state:ro',PYTHON,'python','-c',scan_code,input=json.dumps([proxy_password,new_proxy_password,other_password,viewer_password]))=='OK'
-        print('PASS: password proxy auth over verified TLS, NAT identities, literal/case-sensitive users, live reset/disable cache invalidation, panel roles/session revocation')
+        assert docker('run','--rm','-i','--network','none','-v',volume+':/state:ro',PYTHON,'python','-c',scan_code,input=json.dumps([proxy_password,new_proxy_password,other_password,manager_password]))=='OK'
+        print('PASS: password proxy auth over verified TLS, NAT identities, literal/case-sensitive users, live reset/disable cache invalidation, manager scope/session revocation')
         print('ALL REAL-IMAGE SMOKE CHECKS PASSED')
     except Exception:
         if name+'-proxy' in containers:

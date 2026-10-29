@@ -215,7 +215,12 @@ func run() error {
 					prune := func() error {
 						// 90 days of audit events, last 20 unreferenced revisions.
 						// Matches docs/architecture/data-model.md retention.
-						return st.Prune(time.Now().Add(-90*24*time.Hour), 20)
+						if e := st.Prune(time.Now().Add(-90*24*time.Hour), 20); e != nil {
+							return e
+						}
+						// Drop manager-client assignments for clients removed
+						// from both draft and active revision.
+						return s.PruneManagerClients()
 					}
 					if e := m.Maintain(maintenanceCtx, prune); e != nil {
 						slog.Warn("maintenance tick failed", "error", e)

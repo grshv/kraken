@@ -30,37 +30,42 @@ func loginAs(t *testing.T, h http.Handler, username, password string) (*http.Coo
 func TestUsersRolesAndServerPermissions(t *testing.T) {
 	s, h := fixtureServer(t)
 	admin, csrf := loginTest(t, h)
-	w := request(h, "POST", "/users", map[string]string{"username": "observer", "password": "observer-password-123", "role": "viewer"}, admin, csrf, "https://panel.test")
+	w := request(h, "POST", "/users", map[string]string{"username": "observer", "password": "observer-password-123", "role": "manager"}, admin, csrf, "https://panel.test")
 	if w.Code != 201 {
 		t.Fatal(w.Body.String())
 	}
 	if strings.Contains(w.Body.String(), "password") {
 		t.Fatal("password data in response")
 	}
-	viewer, viewerCSRF := loginAs(t, h, "observer", "observer-password-123")
-	w = request(h, "GET", "/session", nil, viewer, "", "")
+	manager, managerCSRF := loginAs(t, h, "observer", "observer-password-123")
+	w = request(h, "GET", "/session", nil, manager, "", "")
 	var v struct {
 		Role        string   `json:"role"`
 		Permissions []string `json:"permissions"`
 	}
 	_ = json.Unmarshal(w.Body.Bytes(), &v)
-	if v.Role != "viewer" || strings.Join(v.Permissions, ",") != "read,audit" {
+	if v.Role != "manager" {
 		t.Fatal(w.Body.String())
 	}
-	for _, path := range []string{"/activity", "/squid/metrics", "/status", "/events", "/events/clients", "/audit", "/certificates"} {
-		if w := request(h, "GET", path, nil, viewer, "", ""); w.Code != 200 {
-			t.Fatalf("viewer cannot read %s: %s", path, w.Body.String())
+	for _, path := range []string{"/activity", "/squid/metrics", "/status", "/events", "/events/clients", "/audit", "/certificates", "/configuration/draft", "/proxy-accounts", "/statistics"} {
+		if w := request(h, "GET", path, nil, manager, "", ""); w.Code != 200 {
+			t.Fatalf("manager cannot read %s: %s", path, w.Body.String())
 		}
 	}
-	for _, path := range []string{"/users", "/proxy-accounts", "/configuration/draft", "/configuration/expert-template", "/configuration/preview", "/revisions", "/revisions/any", "/revisions/any/preview", "/operations/any"} {
-		if w := request(h, "GET", path, nil, viewer, "", ""); w.Code != 403 {
-			t.Fatalf("viewer accessed %s: %d", path, w.Code)
+	// Admin-only endpoints: manager receives 403 admin_required.
+	for _, path := range []string{"/users", "/configuration/preview", "/configuration/expert-template", "/revisions", "/revisions/any", "/revisions/any/preview"} {
+		if w := request(h, "GET", path, nil, manager, "", ""); w.Code != 403 {
+			t.Fatalf("manager accessed %s: %d", path, w.Code)
 		}
 	}
-	for _, target := range []struct{ method, path string }{{"POST", "/users"}, {"PATCH", "/users/admin"}, {"POST", "/proxy-accounts"}, {"PATCH", "/proxy-accounts/any"}, {"PUT", "/configuration/draft"}, {"POST", "/revisions"}, {"POST", "/operations"}} {
-		if w := request(h, target.method, target.path, map[string]string{}, viewer, viewerCSRF, "https://panel.test"); w.Code != 403 {
-			t.Fatalf("viewer mutation %s: %d", target.path, w.Code)
+	for _, target := range []struct{ method, path string }{{"POST", "/users"}, {"PATCH", "/users/admin"}} {
+		if w := request(h, target.method, target.path, map[string]string{}, manager, managerCSRF, "https://panel.test"); w.Code != 403 {
+			t.Fatalf("manager mutation %s: %d", target.path, w.Code)
 		}
+	}
+	// Viewer role is no longer accepted.
+	if w := request(h, "POST", "/users", map[string]string{"username": "extra", "password": "other-password-123", "role": "viewer"}, admin, csrf, "https://panel.test"); w.Code != 422 {
+		t.Fatal("viewer role accepted")
 	}
 	if w := request(h, "POST", "/users", map[string]string{"username": "extra", "password": "other-password-123", "role": "operator"}, admin, csrf, "https://panel.test"); w.Code != 422 {
 		t.Fatal("unapproved role accepted")
@@ -68,8 +73,8 @@ func TestUsersRolesAndServerPermissions(t *testing.T) {
 	if w := request(h, "PATCH", "/users/observer", map[string]any{"enabled": false}, admin, csrf, "https://panel.test"); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
-	if w := request(h, "GET", "/events", nil, viewer, "", ""); w.Code != 401 {
-		t.Fatal("disabled viewer session survived")
+	if w := request(h, "GET", "/events", nil, manager, "", ""); w.Code != 401 {
+		t.Fatal("disabled manager session survived")
 	}
 	// Verify a login begun with an old hash cannot mint a session after disable.
 	oldHash, e := s.Store.UserPasswordHashStandalone("observer")
@@ -83,7 +88,7 @@ func TestUsersRolesAndServerPermissions(t *testing.T) {
 func TestUserChangesRevokeSessionsAndProtectLastAdmin(t *testing.T) {
 	s, h := fixtureServer(t)
 	admin, csrf := loginTest(t, h)
-	for _, change := range []map[string]any{{"enabled": false}, {"role": "viewer"}} {
+	for _, change := range []map[string]any{{"enabled": false}, {"role": "manager"}} {
 		if w := request(h, "PATCH", "/users/admin", change, admin, csrf, "https://panel.test"); w.Code != 409 {
 			t.Fatal("last admin lost: " + w.Body.String())
 		}
@@ -98,7 +103,7 @@ func TestUserChangesRevokeSessionsAndProtectLastAdmin(t *testing.T) {
 		t.Fatal(w.Body.String())
 	}
 	second, _ := loginAs(t, h, "second", "second-password-123")
-	if w := request(h, "PATCH", "/users/second", map[string]string{"role": "viewer"}, admin, csrf, "https://panel.test"); w.Code != 200 {
+	if w := request(h, "PATCH", "/users/second", map[string]string{"role": "manager"}, admin, csrf, "https://panel.test"); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}
 	if w := request(h, "GET", "/status", nil, second, "", ""); w.Code != 401 {

@@ -229,7 +229,45 @@ func (s *Store) ListOperationBodies() ([]struct{ ID, Body string }, error) {
 	return out, rows.Err()
 }
 
-// Prune applies the retention policy documented in docs/architecture/data-model.md:
+// ChangeDraftWithAssignments writes the draft and assigns new manager clients
+// in one transaction so a crash cannot leave a created client unassigned.
+func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected int, username string, newClientIDs []string) error {
+	tx, e := s.DB.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	var raw string
+	e = tx.QueryRow("SELECT value FROM kv WHERE key='draft'").Scan(&raw)
+	if e != nil {
+		return e
+	}
+	var old struct {
+		Version int `json:"version"`
+	}
+	if e = json.Unmarshal([]byte(raw), &old); e != nil {
+		return e
+	}
+	if old.Version != expected {
+		return ErrConflict
+	}
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
+		return e
+	}
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", time.Now().Unix()); e != nil {
+		return e
+	}
+	for _, id := range newClientIDs {
+		if _, e = tx.Exec("INSERT OR IGNORE INTO manager_clients(username,client_id) VALUES(?,?)", username, id); e != nil {
+			return e
+		}
+	}
+	return tx.Commit()
+}
 // audit events older than the cutoff are deleted, and revision blobs that are
 // neither the current LKG nor among the most recent N are dropped. Callers run
 // this from the periodic maintenance loop so the database cannot grow without

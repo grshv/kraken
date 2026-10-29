@@ -1,8 +1,10 @@
 package httpapi
 
 import (
+	"database/sql"
 	"errors"
 	"net/http"
+	"net/netip"
 
 	"kraken.local/kraken/internal/store"
 )
@@ -11,8 +13,8 @@ func permissions(role string) []string {
 	if role == "admin" {
 		return []string{"read", "configure", "apply", "users", "proxy_accounts", "audit"}
 	}
-	if role == "viewer" {
-		return []string{"read", "audit"}
+	if role == "manager" {
+		return []string{"read", "configure", "apply", "proxy_accounts", "audit"}
 	}
 	return []string{}
 }
@@ -23,6 +25,18 @@ func hasPermission(v session, permission string) bool {
 		}
 	}
 	return false
+}
+
+// adminOnly gates endpoints restricted to the admin role. Managers receive
+// 403 admin_required rather than the generic forbidden code.
+func (s *Server) adminOnly(next func(http.ResponseWriter, *http.Request, session)) http.HandlerFunc {
+	return s.authenticated(func(w http.ResponseWriter, r *http.Request, v session) {
+		if v.Role != "admin" {
+			fail(w, 403, "admin_required", "Требуется роль администратора")
+			return
+		}
+		next(w, r, v)
+	})
 }
 func (s *Server) authorized(permission string, next func(http.ResponseWriter, *http.Request, session)) http.HandlerFunc {
 	return s.authenticated(func(w http.ResponseWriter, r *http.Request, v session) {
@@ -120,4 +134,92 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, v session) {
 		return
 	}
 	respond(w, 200, item)
+}
+
+// getScope returns the manager scope for one user. Admin-only.
+func (s *Server) getScope(w http.ResponseWriter, r *http.Request, v session) {
+	username := r.PathValue("username")
+	tx, e := s.Store.BeginTx()
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	defer tx.Rollback()
+	user, e := s.Store.User(tx, username)
+	if errors.Is(e, sql.ErrNoRows) {
+		fail(w, 404, "not_found", "Пользователь не найден")
+		return
+	}
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	if user.Role != "manager" {
+		fail(w, 422, "not_manager", "Область есть только у менеджера")
+		return
+	}
+	scope, e := s.Store.UserScope(tx, username)
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	respond(w, 200, scope)
+}
+
+// updateScope replaces the manager scope. Admin-only. CIDR are normalized.
+func (s *Server) updateScope(w http.ResponseWriter, r *http.Request, v session) {
+	username := r.PathValue("username")
+	var input struct {
+		Networks  []string `json:"networks"`
+		ClientIDs []string `json:"client_ids"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	normalized := []string{}
+	for _, raw := range input.Networks {
+		prefix, e := netip.ParsePrefix(raw)
+		if e != nil {
+			if addr, ae := netip.ParseAddr(raw); ae == nil {
+				prefix = netip.PrefixFrom(addr, addr.BitLen())
+			} else {
+				fail(w, 422, "invalid_cidr", "Некорректный CIDR")
+				return
+			}
+		}
+		normalized = append(normalized, prefix.Masked().String())
+	}
+	tx, e := s.Store.BeginTx()
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	defer tx.Rollback()
+	user, e := s.Store.User(tx, username)
+	if errors.Is(e, sql.ErrNoRows) {
+		fail(w, 404, "not_found", "Пользователь не найден")
+		return
+	}
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	if user.Role != "manager" {
+		fail(w, 422, "not_manager", "Область есть только у менеджера")
+		return
+	}
+	scope := store.Scope{Networks: normalized, ClientIDs: input.ClientIDs}
+	if e := s.Store.ReplaceScope(tx, username, scope); e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	if e := s.Store.AuditTx(tx, v.User, "update_scope", username); e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	if e := tx.Commit(); e != nil {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	respond(w, 200, scope)
 }

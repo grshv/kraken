@@ -217,12 +217,24 @@ func (s *Server) sessionView(w http.ResponseWriter, v session) {
 		username = v.User
 		expires = time.Unix(v.Expires, 0).UTC().Format(time.RFC3339)
 	}
-	respond(w, 200, map[string]any{"authenticated": v.User != "", "username": username, "csrf_token": v.CSRF, "expires_at": expires, "role": func() any {
+	out := map[string]any{"authenticated": v.User != "", "username": username, "csrf_token": v.CSRF, "expires_at": expires, "role": func() any {
 		if v.Role == "" {
 			return nil
 		}
 		return v.Role
-	}(), "permissions": permissions(v.Role)})
+	}(), "permissions": permissions(v.Role)}
+	// Managers see their scope; admins do not (null/absent).
+	if v.Role == "manager" {
+		tx, e := s.Store.BeginTx()
+		if e == nil {
+			scope, se := s.Store.UserScope(tx, v.User)
+			tx.Rollback()
+			if se == nil {
+				out["scope"] = map[string]any{"networks": scope.Networks, "client_ids": scope.ClientIDs}
+			}
+		}
+	}
+	respond(w, 200, out)
 }
 func (s *Server) sessionGet(w http.ResponseWriter, r *http.Request) {
 	v, e := s.readSession(r)

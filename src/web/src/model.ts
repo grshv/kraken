@@ -1,4 +1,4 @@
-export type PanelRole = "admin" | "viewer";
+export type PanelRole = "admin" | "manager";
 export type ApiRequest = <T>(
   path: string,
   method?: string,

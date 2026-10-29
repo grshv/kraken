@@ -5,12 +5,23 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"kraken.local/kraken/internal/store"
 )
 
 func (s *Server) statistics(w http.ResponseWriter, r *http.Request, v session) {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	result, err := s.Store.EventStatistics(ctx, time.Now())
+	var scope *store.EventScope
+	if v.Role == "manager" {
+		sc, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		scope = &store.EventScope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
+	}
+	result, err := s.Store.EventStatistics(ctx, time.Now(), scope)
 	if err != nil {
 		fail(w, http.StatusServiceUnavailable, "statistics_unavailable", "Статистика временно недоступна")
 		return
@@ -31,7 +42,16 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request, v session) {
 
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 	defer cancel()
-	result, err := s.Store.RecentActivity(ctx, time.Now(), minutes)
+	var scope *store.EventScope
+	if v.Role == "manager" {
+		sc, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		scope = &store.EventScope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
+	}
+	result, err := s.Store.RecentActivity(ctx, time.Now(), minutes, scope)
 	if err != nil {
 		fail(w, 503, "activity_unavailable", "Активность клиентов временно недоступна")
 		return

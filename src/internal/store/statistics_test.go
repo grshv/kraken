@@ -15,7 +15,7 @@ import (
 func TestEventStatisticsEmptyWindowAndUTC(t *testing.T) {
 	s := eventStore(t)
 	now := time.Date(2026, 10, 27, 18, 12, 34, 123, time.FixedZone("fixture", 3*3600))
-	got, err := s.EventStatistics(context.Background(), now)
+	got, err := s.EventStatistics(context.Background(), now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestEventStatisticsEventTimeBoundariesDenialsAndBytes(t *testing.T) {
 	if _, err := s.DB.Exec(`UPDATE proxy_events SET body=json_set(body,'$.bytes_observed',NULL) WHERE event_id='null-bytes'`); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.EventStatistics(context.Background(), now)
+	got, err := s.EventStatistics(context.Background(), now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -113,7 +113,7 @@ func TestEventStatisticsStorageErrorsAreNotZeroes(t *testing.T) {
 					t.Fatal(err)
 				}
 			}
-			if _, err := s.EventStatistics(context.Background(), now); err == nil {
+			if _, err := s.EventStatistics(context.Background(), now, nil); err == nil {
 				t.Fatal("corrupt storage represented as successful statistics")
 			}
 		})
@@ -121,11 +121,11 @@ func TestEventStatisticsStorageErrorsAreNotZeroes(t *testing.T) {
 	s := eventStore(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	if _, err := s.EventStatistics(ctx, time.Now()); !errors.Is(err, context.Canceled) {
+	if _, err := s.EventStatistics(ctx, time.Now(), nil); !errors.Is(err, context.Canceled) {
 		t.Fatalf("context cancellation ignored: %v", err)
 	}
 	_ = s.DB.Close()
-	if _, err := s.EventStatistics(context.Background(), time.Now()); err == nil {
+	if _, err := s.EventStatistics(context.Background(), time.Now(), nil); err == nil {
 		t.Fatal("closed database represented as successful statistics")
 	}
 }
@@ -142,7 +142,7 @@ func TestEventStatisticsRetentionBoundIsExplicit(t *testing.T) {
 	if _, err = s.DB.Exec(`WITH RECURSIVE n(x) AS (SELECT 1 UNION ALL SELECT x+1 FROM n WHERE x<=?) INSERT INTO proxy_events(event_id,failed,ingested_at,body) SELECT CAST(x AS TEXT),0,?,? FROM n`, EventLimit, now.Unix(), string(body)); err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.EventStatistics(context.Background(), now)
+	got, err := s.EventStatistics(context.Background(), now, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
