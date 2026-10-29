@@ -210,6 +210,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/v1/proxy-accounts", s.authorized("proxy_accounts", s.createProxyAccount))
 	mux.HandleFunc("PATCH /api/v1/proxy-accounts/{username}", s.authorized("proxy_accounts", s.updateProxyAccount))
 	mux.HandleFunc("GET /api/v1/certificates", s.authorized("read", s.certificates))
+	mux.HandleFunc("GET /api/v1/help", s.authorized("read", s.helpIndex))
+	mux.HandleFunc("GET /api/v1/help/{slug}", s.authorized("read", s.helpArticle))
 	// No /api/ catch-all: a method-agnostic prefix pattern absorbs wrong-method
 	// requests and would surface them as 404 instead of the 405 Go 1.22 ServeMux
 	// returns when a path matches a registered pattern with a different method.

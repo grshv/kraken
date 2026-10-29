@@ -4,7 +4,7 @@
 
 | Команда | Что проверяет | Когда обязательна |
 | --- | --- | --- |
-| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, whitespace | Любое изменение |
+| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace | Любое изменение |
 | `make check` | docs-check, typecheck и сборка web, `go test -race ./...`, `go vet`, `git diff --check` | Любое изменение кода |
 | `make integration` | `smoke.py`, `network.py`, `apt.py`: реальный Squid в образе `kraken:dev`, локальные fixtures | Изменения policy, runtime, deploy, auth |
 | `npm --prefix src/web run test:e2e` | Playwright в отдельном контейнере | Изменения UI; нужен `make image` и Chromium |
@@ -18,11 +18,12 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | --- | --- |
 | `policy` | Валидация CIDR, доменов, портов, settings; детерминированный рендер; порядок защитных ACL; expert allowlist, файлы-параметры, deny_info, cache_peer; эквивалентность разбора строк валидатором и Squid; proxy auth ACL |
 | `runtime` | Parse/reload/verify, fingerprint, journal, LKG, recovery, rollback, drift, lock; ENOSPC на каждой записи; SIGKILL отдельного процесса на durable-границах; номер строки parse без вывода Squid; manager reports |
-| `httpapi` | Auth, CSRF, Origin, throttle, роли и last-admin; stale draft conflict; идемпотентность операций; preview без ревизий; service-update из LKG; статистика и события; findings операции |
+| `httpapi` | Auth, CSRF, Origin, throttle, роли и last-admin; stale draft conflict; идемпотентность операций; preview без ревизий; service-update из LKG; статистика и события; findings операции; индекс и статья справки (401 анонимно, 404 неизвестный slug) |
 | `store` | Миграции: атомарность при отказе, отказ для несовместимой БД; FK сессий; сессии и reset; события, checkpoint, cursor, фильтры, retention |
 | `events` | Чтение access log: частичные/битые строки, rotation, truncation, возврат файла |
 | `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
 | `credentials` | Argon2id PHC; отказ для verifier без версии и параметров |
+| `help` | Разбор front matter при init (panic на ошибку формата), индекс непустой и отсортирован, статья по slug, уникальность slug, разрешимость всех `help:` ссылок |
 
 ## Integration smoke
 

@@ -158,6 +158,65 @@ def check_structure(files: list[Path], errors: list[str]) -> None:
                     errors.append(f"{label}:{line_no}: dated heading looks like a session log; describe current state")
 
 
+# Help articles live under src/internal/help/articles and are embedded into the
+# binary; they are not descriptive docs, so the dated-heading/orphan rules above
+# do not apply. They have their own front matter and help:slug link contract.
+HELP_ARTICLES = "src/internal/help/articles"
+HELP_FRONT_MATTER = re.compile(r"\A---\n(.*?\n)---\n", re.DOTALL)
+HELP_LINK = re.compile(r"\[([^\]]*)\]\(help:([^\s)]+)\)")
+HELP_KEYS = ("slug", "title", "section", "order")
+
+
+def check_help_articles(files: list[Path], errors: list[str]) -> None:
+    articles = [
+        p for p in files
+        if str(p.relative_to(ROOT)).startswith(HELP_ARTICLES + "/") and p.suffix == ".md"
+    ]
+    if not articles:
+        # An empty tree is a build defect caught by the Go package init panic;
+        # docs-check only validates the contract of present articles.
+        return
+    slugs: dict[str, str] = {}
+    for path in articles:
+        label = str(path.relative_to(ROOT))
+        content = path.read_text(encoding="utf-8")
+        match = HELP_FRONT_MATTER.match(content)
+        if not match:
+            errors.append(f"{label}: missing front matter block delimited by '---'")
+            continue
+        fields: dict[str, str] = {}
+        for line in match.group(1).splitlines():
+            if not line.strip():
+                continue
+            key, sep, val = line.partition(":")
+            if not sep:
+                errors.append(f"{label}: invalid front matter line: {line!r}")
+                continue
+            fields[key.strip()] = val.strip()
+        for key in HELP_KEYS:
+            if key not in fields:
+                errors.append(f"{label}: front matter missing {key!r}")
+        for key in fields:
+            if key not in HELP_KEYS:
+                errors.append(f"{label}: unknown front matter key {key!r}")
+        slug = fields.get("slug")
+        if slug:
+            stem = path.stem
+            if slug != stem:
+                errors.append(f"{label}: slug {slug!r} does not match file stem {stem!r}")
+            if slug in slugs:
+                errors.append(f"{label}: duplicate slug {slug!r} (also in {slugs[slug]})")
+            else:
+                slugs[slug] = label
+    for path in articles:
+        label = str(path.relative_to(ROOT))
+        content = path.read_text(encoding="utf-8")
+        for match in HELP_LINK.finditer(content):
+            target = match.group(2)
+            if target not in slugs:
+                errors.append(f"{label}: help link to unknown slug {target!r}")
+
+
 def main() -> int:
     errors: list[str] = []
     files = repo_files()
@@ -203,6 +262,7 @@ def main() -> int:
         check_policy_example(policy, errors)
     else:
         errors.append("examples/policy.json: missing example")
+    check_help_articles(files, errors)
     if errors:
         print("Documentation checks failed:", file=sys.stderr)
         for error in errors:

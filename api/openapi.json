@@ -2,8 +2,8 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Kraken API",
-    "version": "0.9.0",
-    "description": "Critical-path API implemented in the first development slice. Draft editing, local users/admin-viewer roles, separate proxy accounts, bounded event history and retained 24-hour statistics are implemented. Listener ports are installation settings and cannot change via draft/revision operations. Draft preview is read-only. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
+    "version": "0.10.0",
+    "description": "Critical-path API implemented in the first development slice. Draft editing, local users/admin-viewer roles, separate proxy accounts, bounded event history and retained 24-hour statistics are implemented. Listener ports are installation settings and cannot change via draft/revision operations. Draft preview is read-only. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching. In-binary help articles are exposed via read-only index and article endpoints."
   },
   "servers": [
     {
@@ -652,6 +652,87 @@
         },
         "parameters": [],
         "description": "Returns installed inventory metadata, never private keys; local provisioning only in first version. Available to admin and viewer."
+      }
+    },
+    "/help": {
+      "get": {
+        "operationId": "listHelpArticles",
+        "summary": "Read the embedded help article index",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "articles"
+                  ],
+                  "properties": {
+                    "articles": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/HelpEntry"
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "description": "Articles are embedded at build time; the index is sorted by section order, then by article order. Available to any authenticated role; managers with an empty scope see only instance state and help."
+      }
+    },
+    "/help/{slug}": {
+      "get": {
+        "operationId": "getHelpArticle",
+        "summary": "Read one embedded help article by slug",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HelpArticle"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "slug",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "description": "Unknown slug returns 404 not_found. Available to any authenticated role; authentication runs before slug lookup, so anonymous requests never reveal whether an article exists."
       }
     },
     "/configuration/expert-template": {
@@ -3118,6 +3199,73 @@
           "exclusive": {
             "type": "boolean",
             "description": "true: never_direct allow all; false: direct fallback"
+          }
+        }
+      },
+      "HelpEntry": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slug",
+          "title",
+          "section",
+          "order"
+        ],
+        "description": "One row of the embedded help index. The section sequence and per-article order are fixed at build time from front matter.",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "description": "Matches the article file stem; used as the path parameter and help: link target."
+          },
+          "title": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "Начало работы",
+              "Подключение машин",
+              "Сценарии",
+              "Как это работает"
+            ]
+          },
+          "order": {
+            "type": "integer"
+          }
+        }
+      },
+      "HelpArticle": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "slug",
+          "title",
+          "section",
+          "order",
+          "markdown"
+        ],
+        "description": "A help entry plus its markdown body. Inter-article references use [text](help:slug) links resolved by docs-check.",
+        "properties": {
+          "slug": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "section": {
+            "type": "string",
+            "enum": [
+              "Начало работы",
+              "Подключение машин",
+              "Сценарии",
+              "Как это работает"
+            ]
+          },
+          "order": {
+            "type": "integer"
+          },
+          "markdown": {
+            "type": "string"
           }
         }
       }
