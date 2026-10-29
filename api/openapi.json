@@ -1421,7 +1421,8 @@
     "/inspector/clients/{id}/stats": {
       "get": {
         "operationId": "getInspectorClientStats",
-        "summary": "Per-client 24h request/denied/byte totals, 96 15-minute buckets and top destinations; admin/viewer read",
+        "summary": "Per-client 24h request/denied/byte totals, 96 15-minute buckets and top destinations; admin/manager read",
+        "description": "Available to admin and manager. A manager sees only his assigned clients; a client outside his scope is reported as 404, the same as a missing ID.",
         "parameters": [
           {
             "name": "id",
@@ -1457,7 +1458,7 @@
             }
           },
           "404": {
-            "description": "Client not found in draft or active revision"
+            "description": "Client not found in draft or active revision, or outside the manager's scope"
           }
         }
       }
@@ -1465,7 +1466,8 @@
     "/inspector/policies/{id}/hits": {
       "get": {
         "operationId": "getInspectorPolicyHits",
-        "summary": "24h and 7d domain hit counts for one policy (draft, else active); admin/viewer read",
+        "summary": "24h and 7d domain hit counts for one policy (draft, else active); admin/manager read",
+        "description": "Available to admin and manager. A manager sees a policy only if at least one of his clients references it in the active revision, or no client references it; otherwise 404. Hits are counted only from his clients' events.",
         "parameters": [
           {
             "name": "id",
@@ -1501,7 +1503,7 @@
             }
           },
           "404": {
-            "description": "Policy not found"
+            "description": "Policy not found, or referenced only by clients outside the manager's scope"
           }
         }
       }
@@ -1509,7 +1511,8 @@
     "/inspector/unknown-sources": {
       "get": {
         "operationId": "getInspectorUnknownSources",
-        "summary": "Events without a client from the last 24h grouped by source IP; admin/viewer read",
+        "summary": "Events without a client from the last 24h grouped by source IP; admin/manager read",
+        "description": "Available to admin and manager. A manager sees only unknown sources whose source IP is inside his assigned networks.",
         "parameters": [],
         "responses": {
           "200": {
@@ -1541,7 +1544,8 @@
     "/inspector/events/{event_id}/explain": {
       "get": {
         "operationId": "getInspectorEventExplain",
-        "summary": "Re-evaluate one completed request against the active policy; admin/viewer read",
+        "summary": "Re-evaluate one completed request against the active policy; admin/manager read",
+        "description": "Available to admin and manager. A manager cannot explain an event outside his scope (foreign client, or unknown source outside his networks); it is reported as 404.",
         "parameters": [
           {
             "name": "event_id",
@@ -1577,7 +1581,7 @@
             }
           },
           "404": {
-            "description": "Event not found"
+            "description": "Event not found, or outside the manager's scope"
           }
         }
       }
@@ -1585,7 +1589,8 @@
     "/inspector/draft-impact": {
       "get": {
         "operationId": "getInspectorDraftImpact",
-        "summary": "Divergences between the active policy and the draft over the last 24h; admin/viewer read",
+        "summary": "Divergences between the active policy and the draft over the last 24h; admin/manager read",
+        "description": "Available to admin and manager. A manager sees divergences only for events in his scope; the clients list contains only his assigned clients.",
         "parameters": [],
         "responses": {
           "200": {

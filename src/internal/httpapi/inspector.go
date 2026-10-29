@@ -19,9 +19,21 @@ import (
 	"kraken.local/kraken/internal/store"
 )
 
-// inspectorScope is passed to every store read so manager-role filtering (slice
-// 9) can tighten the visible event set without touching handlers again.
-var inspectorScope *store.InspectorScope // scope: wired with manager roles
+// inspectorEventScope returns the event-scope filter for inspector reads. Nil
+// means admin (no filtering). For a manager it is his assigned clients and
+// networks from managerScope; the store.Scope is also returned for handler-
+// level checks (inScope, managerDraftView). A store error yields ok=false so
+// the handler answers 503 storage_unavailable, matching the journal.
+func (s *Server) inspectorEventScope(v session) (*store.EventScope, store.Scope, bool) {
+	if v.Role != "manager" {
+		return nil, store.Scope{}, true
+	}
+	sc, e := s.managerScope(v)
+	if e != nil {
+		return nil, store.Scope{}, false
+	}
+	return &store.EventScope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}, sc, true
+}
 
 // explanation is the result of evaluating one event against a snapshot.
 type explanation struct {
@@ -206,14 +218,21 @@ func (s *Server) openConnections(ctx context.Context) (any, any) {
 
 func (s *Server) inspectorClientStats(w http.ResponseWriter, r *http.Request, v session) {
 	id := r.PathValue("id")
-	if !s.clientKnown(id) {
+	es, scope, ok := s.inspectorEventScope(v)
+	if !ok {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	// A manager must not learn whether a foreign client exists: out-of-scope is
+	// reported as 404, the same as a missing ID.
+	if !s.clientKnown(id) || (es != nil && !inScope(scope, id)) {
 		fail(w, 404, "not_found", "Клиент не найден")
 		return
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	stats, e := s.Store.InspectorClientStats(ctx, now, id, inspectorScope)
+	stats, e := s.Store.InspectorClientStats(ctx, now, id, es)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Статистика клиента временно недоступна")
 		return
@@ -252,6 +271,30 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 		fail(w, 404, "not_found", "Политика не найдена")
 		return
 	}
+	es, scope, ok := s.inspectorEventScope(v)
+	if !ok {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	// A manager sees a policy only if at least one of his clients references it
+	// in the active revision, or no client references it at all. A policy
+	// referenced only by foreign clients is reported as 404.
+	if es != nil {
+		active := s.loadActiveManifestOrDraft()
+		refs, mine := 0, false
+		for _, c := range active.Clients {
+			if c.PolicyID == id {
+				refs++
+				if inScope(scope, c.ID) {
+					mine = true
+				}
+			}
+		}
+		if refs > 0 && !mine {
+			fail(w, 404, "not_found", "Политика не найдена")
+			return
+		}
+	}
 	var clientIDs []string
 	for _, c := range snap.Clients {
 		if c.PolicyID == id {
@@ -268,7 +311,7 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	rows, e := s.Store.InspectorPolicyEvents(ctx, now, clientIDs, inspectorScope)
+	rows, e := s.Store.InspectorPolicyEvents(ctx, now, clientIDs, es)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Попадания по политике временно недоступны")
 		return
@@ -296,10 +339,15 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 }
 
 func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request, v session) {
+	es, _, ok := s.inspectorEventScope(v)
+	if !ok {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	rows, e := s.Store.InspectorUnknownEvents(ctx, now, inspectorScope)
+	rows, e := s.Store.InspectorUnknownEvents(ctx, now, es)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Неописанные источники временно недоступны")
 		return
@@ -369,9 +417,14 @@ func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v session) {
+	es, scope, ok := s.inspectorEventScope(v)
+	if !ok {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	ev, e := s.Store.InspectorEvent(ctx, r.PathValue("event_id"))
+	ev, e := s.Store.InspectorEvent(ctx, r.PathValue("event_id"), es)
 	if errors.Is(e, sql.ErrNoRows) {
 		fail(w, 404, "not_found", "Событие не найдено")
 		return
@@ -385,7 +438,13 @@ func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v
 		fail(w, 503, "runtime_unavailable", "Активная политика недоступна")
 		return
 	}
-	ex := explainEvent(ev, m.Snapshot)
+	// A manager explains against his filtered view so a foreign client or an
+	// invisible policy never appears in the response; admin uses the full snapshot.
+	snap := m.Snapshot
+	if es != nil {
+		snap = managerDraftView(m.Snapshot, scope)
+	}
+	ex := explainEvent(ev, snap)
 	respond(w, 200, map[string]any{
 		"decision":  ex.decision,
 		"reason":    ex.reason,
@@ -395,10 +454,15 @@ func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v
 }
 
 func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v session) {
+	es, _, ok := s.inspectorEventScope(v)
+	if !ok {
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	now := s.now().UTC()
-	rows, e := s.Store.InspectorRecentEvents(ctx, now, inspectorScope)
+	rows, e := s.Store.InspectorRecentEvents(ctx, now, es)
 	if e != nil {
 		fail(w, 503, "storage_unavailable", "Журнал временно недоступен")
 		return
