@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/netip"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -185,6 +186,155 @@ func (s *Server) eventClients(w http.ResponseWriter, r *http.Request, v session)
 		return
 	}
 	respond(w, 200, map[string]any{"items": items})
+}
+
+// eventFacets handles GET /events/facets: server-side counters and histogram
+// over a bounded window with the same filters and scope as /events, plus the
+// required from/to (RFC3339) and step (1m|15m|1h) parameters. Manager scope is
+// applied like /events; bad parameters return 400 invalid_filter.
+func (s *Server) eventFacets(w http.ResponseWriter, r *http.Request, v session) {
+	q := r.URL.Query()
+	raw := q.Get("failures_only")
+	if raw != "" && raw != "true" && raw != "false" {
+		fail(w, 400, "invalid_filter", "Некорректный фильтр отказов")
+		return
+	}
+	if len(q.Get("client_id")) > 128 {
+		fail(w, 400, "invalid_filter", "Некорректный клиент")
+		return
+	}
+	filter := telemetry.EventQuery{
+		ClientID:    q.Get("client_id"),
+		Failures:    raw == "true",
+		SourceIP:    q.Get("source_ip"),
+		Destination: strings.TrimSpace(q.Get("destination")),
+		Method:      q.Get("method"),
+		Result:      q.Get("result"),
+	}
+	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64
+	if filter.SourceIP != "" {
+		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
+			invalid = true
+		}
+	}
+	fromT, err := time.Parse(time.RFC3339Nano, q.Get("from"))
+	if err != nil {
+		invalid = true
+	}
+	toT, err := time.Parse(time.RFC3339Nano, q.Get("to"))
+	if err != nil {
+		invalid = true
+	}
+	if invalid {
+		fail(w, 400, "invalid_filter", "Проверьте IP, длину фильтров и диапазон времени")
+		return
+	}
+	filter.From = fromT
+	filter.To = toT
+	if !filter.From.Before(filter.To) {
+		fail(w, 400, "invalid_filter", "Параметр to должен быть позже from")
+		return
+	}
+	step, ok := parseFacetsStep(q.Get("step"))
+	if !ok {
+		fail(w, 400, "invalid_filter", "Шаг должен быть 1m, 15m или 1h")
+		return
+	}
+	if v.Role == "manager" {
+		sc, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		if filter.ClientID != "" && !inScope(sc, filter.ClientID) {
+			fail(w, 404, "not_found", "Клиент не найден")
+			return
+		}
+		filter.Scope = &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	f, e := s.Telemetry.Facets(ctx, filter, step)
+	if e != nil {
+		if errors.Is(e, telemetry.ErrFacetsWindow) {
+			fail(w, 400, "invalid_filter", "Окно обязательно, не длиннее 7 суток и не больше 1440 корзин")
+			return
+		}
+		queryFailure(w, e)
+		return
+	}
+	// Resolve client names from the active snapshot; unknown and missing
+	// clients get null names. "" stays as id:"" with name:null.
+	names := map[string]string{}
+	if m, e := s.Runtime.ReadManifest(); e == nil {
+		for _, c := range m.Snapshot.Clients {
+			names[c.ID] = c.Name
+		}
+	}
+	type clientFacet struct {
+		ID    string  `json:"id"`
+		Name  *string `json:"name"`
+		Count int64   `json:"count"`
+	}
+	type methodFacet struct {
+		Method string `json:"method"`
+		Count  int64  `json:"count"`
+	}
+	type histBucket struct {
+		Start   string `json:"start"`
+		Allowed int64  `json:"allowed"`
+		Denied  int64  `json:"denied"`
+	}
+	clients := make([]clientFacet, 0, len(f.Clients))
+	for id, n := range f.Clients {
+		var name *string
+		if id != "" {
+			if label, ok := names[id]; ok {
+				name = &label
+			}
+		}
+		clients = append(clients, clientFacet{ID: id, Name: name, Count: n})
+	}
+	sort.Slice(clients, func(i, j int) bool {
+		if clients[i].Count != clients[j].Count {
+			return clients[i].Count > clients[j].Count
+		}
+		return clients[i].ID < clients[j].ID
+	})
+	methods := make([]methodFacet, 0, len(f.Methods))
+	for m, n := range f.Methods {
+		methods = append(methods, methodFacet{Method: m, Count: n})
+	}
+	sort.Slice(methods, func(i, j int) bool {
+		if methods[i].Count != methods[j].Count {
+			return methods[i].Count > methods[j].Count
+		}
+		return methods[i].Method < methods[j].Method
+	})
+	hist := make([]histBucket, 0, len(f.Histogram))
+	for _, b := range f.Histogram {
+		hist = append(hist, histBucket{Start: b.Start.UTC().Format(time.RFC3339), Allowed: b.Allowed, Denied: b.Denied})
+	}
+	respond(w, 200, map[string]any{
+		"allowed":   f.Allowed,
+		"denied":    f.Denied,
+		"clients":   clients,
+		"methods":   methods,
+		"histogram": hist,
+	})
+}
+
+// parseFacetsStep maps the step query parameter to a duration.
+func parseFacetsStep(s string) (time.Duration, bool) {
+	switch s {
+	case "1m":
+		return time.Minute, true
+	case "15m":
+		return 15 * time.Minute, true
+	case "1h":
+		return time.Hour, true
+	}
+	return 0, false
 }
 func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, v session) {
 	limit, ok := queryLimit(w, r)
