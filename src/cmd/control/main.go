@@ -93,6 +93,15 @@ func run() error {
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
+		// A forced kill (SIGKILL, OOM, power loss) leaves a stale squid.pid that
+		// makes Squid abort with "already running" on the next launch. Remove it
+		// before exec unless it still names a live squid; this is the only runtime
+		// state squid-start mutates, and it never logs the file contents.
+		if removed, e := local.RemoveStalePID(filepath.Join(m.Options.SquidDir, "squid.pid"), local.ProcComm); e != nil {
+			return e
+		} else if removed {
+			slog.Info("removed stale squid pid file")
+		}
 		syscall.Umask(0o027)
 		return syscall.Exec(m.Binary, []string{m.Binary, "-N", "-f", m.ActivePath()}, os.Environ())
 	case "service-update":
