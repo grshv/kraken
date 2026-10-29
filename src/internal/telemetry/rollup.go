@@ -64,24 +64,29 @@ func (t *Store) rollupMonth(ctx context.Context, key string) (int, error) {
 	uh1d := map[int64]map[string]map[string]*Counts{}
 	uh1hSeen := map[int64]map[string]map[string]int64{}
 	uh1dSeen := map[int64]map[string]map[string]int64{}
+	facet15m := map[int64]map[facetKey]int64{} // bucket -> facetkey -> requests
 	counted := 0
 	e = t.monthReader(mf, ctx, func(r *sql.DB) error {
-		rows, e := r.QueryContext(ctx, `SELECT e.id,e.ts,e.client_id,e.source_ip,h.name,e.bytes,e.failed FROM event e JOIN host h ON h.id=e.host_id WHERE e.id>? ORDER BY e.id`, last)
+		rows, e := r.QueryContext(ctx, `SELECT e.id,e.ts,e.client_id,e.source_ip,h.name,e.bytes,e.failed,e.method,e.result,e.count FROM event e JOIN host h ON h.id=e.host_id WHERE e.id>? ORDER BY e.id`, last)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var id, ts int64
-			var clientIDNS sql.NullString
+			var clientIDNS, methodNS, resultNS sql.NullString
 			var sourceIP, hostName string
 			var bytes int64
 			var failed int
-			if e = rows.Scan(&id, &ts, &clientIDNS, &sourceIP, &hostName, &bytes, &failed); e != nil {
+			var count int64
+			if e = rows.Scan(&id, &ts, &clientIDNS, &sourceIP, &hostName, &bytes, &failed, &methodNS, &resultNS, &count); e != nil {
 				return e
 			}
 			last = id
 			counted++
+			if count <= 0 {
+				count = 1
+			}
 			clientID := ""
 			if clientIDNS.Valid {
 				clientID = clientIDNS.String
@@ -90,16 +95,34 @@ func (t *Store) rollupMonth(ctx context.Context, key string) (int, error) {
 			h1 := floorBucket(ts, time.Hour)
 			d1 := floorDay(ts)
 			if clientID != "" {
-				addCounts(c15m, b15, clientID, "", hostName, bytes, failed)
-				addCountsHost(ch1h, h1, clientID, hostName, bytes, failed)
-				addCountsHost(ch1d, d1, clientID, hostName, bytes, failed)
+				addCounts(c15m, b15, clientID, "", hostName, bytes, failed, count)
+				addCountsHost(ch1h, h1, clientID, hostName, bytes, failed, count)
+				addCountsHost(ch1d, d1, clientID, hostName, bytes, failed, count)
 			} else {
-				addCountsHost(uh1h, h1, sourceIP, hostName, bytes, failed)
-				addCounts(u15m, b15, sourceIP, "", "", bytes, failed)
-				addCountsHost(uh1d, d1, sourceIP, hostName, bytes, failed)
+				addCountsHost(uh1h, h1, sourceIP, hostName, bytes, failed, count)
+				addCounts(u15m, b15, sourceIP, "", "", bytes, failed, count)
+				addCountsHost(uh1d, d1, sourceIP, hostName, bytes, failed, count)
 				recordSeen(uh1hSeen, h1, sourceIP, hostName, ts)
 				recordSeen(uh1dSeen, d1, sourceIP, hostName, ts)
 			}
+			// Facet aggregate: known-client rows carry client_id and '' source;
+			// unknown rows carry '' client_id and the source_ip. Method/result
+			// default to '' when NULL so the key is stable.
+			fk := facetKey{
+				clientID: clientID,
+				method:   methodNS.String,
+				result:   resultNS.String,
+				failed:   failed != 0,
+			}
+			if clientID == "" {
+				fk.sourceIP = sourceIP
+			}
+			fm, ok := facet15m[b15]
+			if !ok {
+				fm = map[facetKey]int64{}
+				facet15m[b15] = fm
+			}
+			fm[fk] += count
 		}
 		return rows.Err()
 	})
@@ -121,22 +144,25 @@ func (t *Store) rollupMonth(ctx context.Context, key string) (int, error) {
 		return 0, e
 	}
 	defer tx.Rollback()
-	if e := write15m(tx, c15m, "client_15m", "client_id"); e != nil {
+	if e := write15m(ctx, tx, c15m, "client_15m", "client_id"); e != nil {
 		return 0, e
 	}
-	if e := write15m(tx, u15m, "unknown_15m", "source_ip"); e != nil {
+	if e := write15m(ctx, tx, u15m, "unknown_15m", "source_ip"); e != nil {
 		return 0, e
 	}
-	if e := writeHostTable(tx, ch1h, "client_host_1h", "bucket", "client_id", false, nil); e != nil {
+	if e := writeFacet15m(ctx, tx, facet15m); e != nil {
 		return 0, e
 	}
-	if e := writeHostTable(tx, ch1d, "client_host_1d", "day", "client_id", false, nil); e != nil {
+	if e := writeHostTable(ctx, tx, ch1h, "client_host_1h", "bucket", "client_id", false, nil); e != nil {
 		return 0, e
 	}
-	if e := writeHostTable(tx, uh1h, "unknown_host_1h", "bucket", "source_ip", true, uh1hSeen); e != nil {
+	if e := writeHostTable(ctx, tx, ch1d, "client_host_1d", "day", "client_id", false, nil); e != nil {
 		return 0, e
 	}
-	if e := writeHostTable(tx, uh1d, "unknown_host_1d", "day", "source_ip", true, uh1dSeen); e != nil {
+	if e := writeHostTable(ctx, tx, uh1h, "unknown_host_1h", "bucket", "source_ip", true, uh1hSeen); e != nil {
+		return 0, e
+	}
+	if e := writeHostTable(ctx, tx, uh1d, "unknown_host_1d", "day", "source_ip", true, uh1dSeen); e != nil {
 		return 0, e
 	}
 	if _, e := tx.ExecContext(ctx, "INSERT INTO watermark(month,last_event_id) VALUES(?,?) ON CONFLICT(month) DO UPDATE SET last_event_id=excluded.last_event_id", key, last); e != nil {
@@ -148,7 +174,7 @@ func (t *Store) rollupMonth(ctx context.Context, key string) (int, error) {
 	return counted, nil
 }
 
-func addCounts(m map[int64]map[string]*Counts, bucket int64, client, _, host string, bytes int64, failed int) {
+func addCounts(m map[int64]map[string]*Counts, bucket int64, client, _, host string, bytes int64, failed int, count int64) {
 	c, ok := m[bucket]
 	if !ok {
 		c = map[string]*Counts{}
@@ -159,14 +185,14 @@ func addCounts(m map[int64]map[string]*Counts, bucket int64, client, _, host str
 		cc = &Counts{}
 		c[client] = cc
 	}
-	cc.Requests++
+	cc.Requests += count
 	cc.Bytes += bytes
 	if failed != 0 {
-		cc.Denied++
+		cc.Denied += count
 	}
 }
 
-func addCountsHost(m map[int64]map[string]map[string]*Counts, bucket int64, key, host string, bytes int64, failed int) {
+func addCountsHost(m map[int64]map[string]map[string]*Counts, bucket int64, key, host string, bytes int64, failed int, count int64) {
 	c, ok := m[bucket]
 	if !ok {
 		c = map[string]map[string]*Counts{}
@@ -182,10 +208,10 @@ func addCountsHost(m map[int64]map[string]map[string]*Counts, bucket int64, key,
 		hc = &Counts{}
 		hm[host] = hc
 	}
-	hc.Requests++
+	hc.Requests += count
 	hc.Bytes += bytes
 	if failed != 0 {
-		hc.Denied++
+		hc.Denied += count
 	}
 }
 
@@ -247,8 +273,8 @@ type hostEntry struct {
 
 // write15m writes a 15-minute aggregate table (client_15m keyed by client_id,
 // or unknown_15m keyed by source_ip) with UPSERT accumulation.
-func write15m(tx *sql.Tx, m map[int64]map[string]*Counts, table, keyCol string) error {
-	stmt, e := tx.Prepare(fmt.Sprintf("INSERT INTO %s(bucket,%s,requests,denied,bytes) VALUES(?,?,?,?,?) ON CONFLICT(bucket,%s) DO UPDATE SET requests=requests+excluded.requests,denied=denied+excluded.denied,bytes=bytes+excluded.bytes", table, keyCol, keyCol))
+func write15m(ctx context.Context, tx *sql.Tx, m map[int64]map[string]*Counts, table, keyCol string) error {
+	stmt, e := tx.PrepareContext(ctx, fmt.Sprintf("INSERT INTO %s(bucket,%s,requests,denied,bytes) VALUES(?,?,?,?,?) ON CONFLICT(bucket,%s) DO UPDATE SET requests=requests+excluded.requests,denied=denied+excluded.denied,bytes=bytes+excluded.bytes", table, keyCol, keyCol))
 	if e != nil {
 		return e
 	}
@@ -267,7 +293,7 @@ func write15m(tx *sql.Tx, m map[int64]map[string]*Counts, table, keyCol string) 
 		sort.Strings(ids)
 		for _, id := range ids {
 			c := clients[id]
-			if _, e := stmt.Exec(b, id, c.Requests, c.Denied, c.Bytes); e != nil {
+			if _, e := stmt.ExecContext(ctx, b, id, c.Requests, c.Denied, c.Bytes); e != nil {
 				return e
 			}
 		}
@@ -275,13 +301,69 @@ func write15m(tx *sql.Tx, m map[int64]map[string]*Counts, table, keyCol string) 
 	return nil
 }
 
-func writeHostTable(tx *sql.Tx, m map[int64]map[string]map[string]*Counts, table, col, keyCol string, withSeen bool, seen ...map[int64]map[string]map[string]int64) error {
+// facetKey is the composite dimension of the facet_15m aggregate: client_id
+// (” for unknown sources), source_ip (” for known clients), method,
+// proxy_result and failed. Known-client rows carry client_id and ” source;
+// unknown rows carry ” client_id and the source IP.
+type facetKey struct {
+	clientID, sourceIP, method, result string
+	failed                             bool
+}
+
+// writeFacet15m writes the facet_15m aggregate table with UPSERT accumulation.
+func writeFacet15m(ctx context.Context, tx *sql.Tx, m map[int64]map[facetKey]int64) error {
+	stmt, e := tx.PrepareContext(ctx, "INSERT INTO facet_15m(bucket,client_id,source_ip,method,proxy_result,failed,requests) VALUES(?,?,?,?,?,?,?) ON CONFLICT(bucket,client_id,source_ip,method,proxy_result,failed) DO UPDATE SET requests=requests+excluded.requests")
+	if e != nil {
+		return e
+	}
+	defer stmt.Close()
+	buckets := make([]int64, 0, len(m))
+	for b := range m {
+		buckets = append(buckets, b)
+	}
+	sort.Slice(buckets, func(i, j int) bool { return buckets[i] < buckets[j] })
+	for _, b := range buckets {
+		fm := m[b]
+		keys := make([]facetKey, 0, len(fm))
+		for k := range fm {
+			keys = append(keys, k)
+		}
+		sort.Slice(keys, func(i, j int) bool {
+			ki, kj := keys[i], keys[j]
+			if ki.clientID != kj.clientID {
+				return ki.clientID < kj.clientID
+			}
+			if ki.sourceIP != kj.sourceIP {
+				return ki.sourceIP < kj.sourceIP
+			}
+			if ki.method != kj.method {
+				return ki.method < kj.method
+			}
+			if ki.result != kj.result {
+				return ki.result < kj.result
+			}
+			return !ki.failed && kj.failed
+		})
+		for _, k := range keys {
+			fail := 0
+			if k.failed {
+				fail = 1
+			}
+			if _, e := stmt.ExecContext(ctx, b, k.clientID, k.sourceIP, k.method, k.result, fail, fm[k]); e != nil {
+				return e
+			}
+		}
+	}
+	return nil
+}
+
+func writeHostTable(ctx context.Context, tx *sql.Tx, m map[int64]map[string]map[string]*Counts, table, col, keyCol string, withSeen bool, seen ...map[int64]map[string]map[string]int64) error {
 	var stmt *sql.Stmt
 	var e error
 	if withSeen {
-		stmt, e = tx.Prepare(fmt.Sprintf("INSERT INTO %s(%s,%s,host,requests,denied,bytes,last_seen) VALUES(?,?,?,?,?,?,?) ON CONFLICT(%s,%s,host) DO UPDATE SET requests=requests+excluded.requests,denied=denied+excluded.denied,bytes=bytes+excluded.bytes,last_seen=excluded.last_seen", table, col, keyCol, col, keyCol))
+		stmt, e = tx.PrepareContext(ctx, fmt.Sprintf("INSERT INTO %s(%s,%s,host,requests,denied,bytes,last_seen) VALUES(?,?,?,?,?,?,?) ON CONFLICT(%s,%s,host) DO UPDATE SET requests=requests+excluded.requests,denied=denied+excluded.denied,bytes=bytes+excluded.bytes,last_seen=excluded.last_seen", table, col, keyCol, col, keyCol))
 	} else {
-		stmt, e = tx.Prepare(fmt.Sprintf("INSERT INTO %s(%s,%s,host,requests,denied,bytes) VALUES(?,?,?,?,?,?) ON CONFLICT(%s,%s,host) DO UPDATE SET requests=requests+excluded.requests,denied=denied+excluded.denied,bytes=bytes+excluded.bytes", table, col, keyCol, col, keyCol))
+		stmt, e = tx.PrepareContext(ctx, fmt.Sprintf("INSERT INTO %s(%s,%s,host,requests,denied,bytes) VALUES(?,?,?,?,?,?) ON CONFLICT(%s,%s,host) DO UPDATE SET requests=requests+excluded.requests,denied=denied+excluded.denied,bytes=bytes+excluded.bytes", table, col, keyCol, col, keyCol))
 	}
 	if e != nil {
 		return e
@@ -317,11 +399,11 @@ func writeHostTable(tx *sql.Tx, m map[int64]map[string]map[string]*Counts, table
 					if seenMap != nil {
 						ls = seenMap[b][id][h]
 					}
-					if _, e := stmt.Exec(b, id, h, c.Requests, c.Denied, c.Bytes, ls); e != nil {
+					if _, e := stmt.ExecContext(ctx, b, id, h, c.Requests, c.Denied, c.Bytes, ls); e != nil {
 						return e
 					}
 				} else {
-					if _, e := stmt.Exec(b, id, h, c.Requests, c.Denied, c.Bytes); e != nil {
+					if _, e := stmt.ExecContext(ctx, b, id, h, c.Requests, c.Denied, c.Bytes); e != nil {
 						return e
 					}
 				}

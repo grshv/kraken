@@ -21,6 +21,7 @@ CREATE TABLE IF NOT EXISTS event (
   http_status INTEGER,
   duration_ms INTEGER,
   bytes INTEGER,
+  count INTEGER NOT NULL DEFAULT 1,
   failed INTEGER NOT NULL DEFAULT 0,
   proxy_username TEXT,
   revision_id TEXT,
@@ -95,4 +96,14 @@ CREATE TABLE IF NOT EXISTS unknown_host_1d (
   PRIMARY KEY(day, source_ip, host)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS watermark (month TEXT PRIMARY KEY, last_event_id INTEGER NOT NULL);
+CREATE TABLE IF NOT EXISTS facet_15m (
+  bucket INTEGER NOT NULL,
+  client_id TEXT NOT NULL,
+  source_ip TEXT NOT NULL,
+  method TEXT NOT NULL,
+  proxy_result TEXT NOT NULL,
+  failed INTEGER NOT NULL,
+  requests INTEGER NOT NULL,
+  PRIMARY KEY(bucket, client_id, source_ip, method, proxy_result, failed)
+) WITHOUT ROWID;
 `

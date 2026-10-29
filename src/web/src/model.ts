@@ -121,6 +121,7 @@ export type Event = {
   proxy_http_status: number | null;
   duration_ms: number | null;
   bytes_observed: number | null;
+  count: number;
   tls_mode: "unknown" | "tunnel";
   revision_id: string | null;
 };

@@ -253,8 +253,11 @@ func dsn(path, txlock string, queryOnly bool) string {
 // or had to be recreated, aggregates are rebuilt from all retained monthly
 // files (loss of rollups.db is recoverable from raw events).
 func (t *Store) openRollups() error {
+	// Detect a missing rollups.db before ensureFile0600 creates it, so the
+	// from-raw rebuild path still triggers when the file was deleted.
 	_, statErr := os.Stat(t.rollPath())
 	missing := errors.Is(statErr, os.ErrNotExist)
+	ensureFile0600(t.rollPath())
 	rebuilt, e := t.openFileWithRecover(t.rollPath(), rollupsSchema, "rollups")
 	if e != nil {
 		return e
@@ -297,7 +300,7 @@ func (t *Store) openFileWithRecover(path, schema, label string) (bool, error) {
 		return false, e
 	}
 	apply := func(d *sql.DB) error {
-		_, e := d.Exec(schema)
+		_, e := d.ExecContext(context.Background(), schema)
 		return e
 	}
 	if e = apply(db); e != nil {
@@ -409,29 +412,35 @@ func (t *Store) currentMonth(ctx context.Context) (*monthFile, error) {
 // Info.BrokenFiles). The schema is created if absent.
 func (t *Store) openMonth(path, key string) (*monthFile, error) {
 	mf := &monthFile{key: key, path: path, pool: make(chan *sql.DB, readerPoolSize)}
+	ensureFile0600(path)
 	db, e := sql.Open("sqlite", dsn(path, "immediate", false))
 	if e != nil {
 		return nil, e
 	}
 	db.SetMaxOpenConns(1)
-	if _, e = db.Exec(eventsSchema); e != nil {
+	if _, e = db.ExecContext(context.Background(), eventsSchema); e != nil {
 		db.Close()
 		if isCorrupt(e) {
 			slog.Warn("telemetry monthly file corrupt, recreating", "month", key)
 			t.quarantine(path)
 			t.broken++
+			ensureFile0600(path)
 			db, e = sql.Open("sqlite", dsn(path, "immediate", false))
 			if e != nil {
 				return nil, e
 			}
 			db.SetMaxOpenConns(1)
-			if _, e = db.Exec(eventsSchema); e != nil {
+			if _, e = db.ExecContext(context.Background(), eventsSchema); e != nil {
 				db.Close()
 				return nil, e
 			}
 		} else {
 			return nil, e
 		}
+	}
+	if e := migrateEventCount(db); e != nil {
+		db.Close()
+		return nil, e
 	}
 	mf.writer = db
 	for i := 0; i < readerPoolSize; i++ {
@@ -443,6 +452,37 @@ func (t *Store) openMonth(path, key string) (*monthFile, error) {
 		mf.pool <- r
 	}
 	return mf, nil
+}
+
+// migrateEventCount adds the count column to legacy monthly files that predate
+// it. CREATE TABLE IF NOT EXISTS already includes it for new files, so this
+// only affects files created by older binaries. Idempotent.
+func migrateEventCount(db *sql.DB) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	var present int
+	if e := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pragma_table_info('event') WHERE name='count'").Scan(&present); e != nil {
+		return e
+	}
+	if present > 0 {
+		return nil
+	}
+	_, e := db.ExecContext(ctx, "ALTER TABLE event ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
+	return e
+}
+
+// ensureFile0600 creates the file with mode 0600 if absent (so SQLite inherits
+// it for -wal/-shm) and tightens an existing file and its sidecars to 0600 on
+// open. Sidecars may not exist yet; missing ones are ignored.
+func ensureFile0600(path string) {
+	if _, e := os.Stat(path); errors.Is(e, os.ErrNotExist) {
+		if f, e := os.OpenFile(path, os.O_CREATE|os.O_WRONLY, 0600); e == nil {
+			f.Close()
+		}
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		_ = os.Chmod(path+suffix, 0600)
+	}
 }
 
 // touchOpen moves key to the end of openOrder (most recently used).

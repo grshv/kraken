@@ -35,7 +35,7 @@ func TestAcceptanceLowDiskPausesIngestion(t *testing.T) {
 	s, h := fixtureServer(t)
 	admin, _ := loginTest(t, h)
 	s.freeBytes = func() (uint64, error) { return 300 << 20, nil }
-	if e := s.CollectEvents(); e != nil {
+	if _, e := s.CollectEvents(); e != nil {
 		t.Fatalf("collect must not fail on low disk: %v", e)
 	}
 	var st struct {

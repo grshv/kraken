@@ -143,10 +143,10 @@ func (t *Store) Series(ctx context.Context, from, to time.Time, step time.Durati
 		}
 		if idx := len(out) - 1; idx >= 0 {
 			for _, ev := range rows {
-				out[idx].Requests++
+				out[idx].Requests += ev.count
 				out[idx].Bytes += ev.bytes
 				if ev.failed {
-					out[idx].Denied++
+					out[idx].Denied += ev.count
 				}
 			}
 		}
@@ -158,6 +158,7 @@ func (t *Store) Series(ctx context.Context, from, to time.Time, step time.Durati
 type boundaryEventRow struct {
 	host   string
 	bytes  int64
+	count  int64
 	failed bool
 	client string // empty for unmatched sources
 	source string
@@ -181,23 +182,23 @@ func (t *Store) boundaryEvents(ctx context.Context, to time.Time, clients []stri
 		switch {
 		case len(clients) > 0:
 			ph := placeholders(len(clients))
-			q = "SELECT e.bytes,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=? AND e.client_id IN (" + ph + ")"
+			q = "SELECT e.bytes,e.count,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=? AND e.client_id IN (" + ph + ")"
 			args = []any{toMS}
 			for _, c := range clients {
 				args = append(args, c)
 			}
 		case scope != nil && len(scope.ClientIDs) > 0:
 			ph := placeholders(len(scope.ClientIDs))
-			q = "SELECT e.bytes,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=? AND (e.client_id IN (" + ph + ") OR e.client_id IS NULL)"
+			q = "SELECT e.bytes,e.count,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=? AND (e.client_id IN (" + ph + ") OR e.client_id IS NULL)"
 			args = []any{toMS}
 			for _, c := range scope.ClientIDs {
 				args = append(args, c)
 			}
 		case scope != nil:
-			q = "SELECT e.bytes,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=? AND e.client_id IS NULL"
+			q = "SELECT e.bytes,e.count,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=? AND e.client_id IS NULL"
 			args = []any{toMS}
 		default:
-			q = "SELECT e.bytes,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=?"
+			q = "SELECT e.bytes,e.count,e.failed,e.client_id,e.source_ip,h.name FROM event e JOIN host h ON h.id=e.host_id WHERE e.ts=?"
 			args = []any{toMS}
 		}
 		e = t.monthReader(mf, ctx, func(r *sql.DB) error {
@@ -207,10 +208,10 @@ func (t *Store) boundaryEvents(ctx context.Context, to time.Time, clients []stri
 			}
 			defer rows.Close()
 			for rows.Next() {
-				var bytes int64
+				var bytes, count int64
 				var failed int
 				var clientIDNS, sourceIPNS, hostNS sql.NullString
-				if e = rows.Scan(&bytes, &failed, &clientIDNS, &sourceIPNS, &hostNS); e != nil {
+				if e = rows.Scan(&bytes, &count, &failed, &clientIDNS, &sourceIPNS, &hostNS); e != nil {
 					return e
 				}
 				if scope != nil && (!clientIDNS.Valid || clientIDNS.String == "") {
@@ -218,9 +219,13 @@ func (t *Store) boundaryEvents(ctx context.Context, to time.Time, clients []stri
 						continue
 					}
 				}
+				if count <= 0 {
+					count = 1
+				}
 				out = append(out, boundaryEventRow{
 					host:   hostNS.String,
 					bytes:  bytes,
+					count:  count,
 					failed: failed != 0,
 					client: clientIDNS.String,
 					source: sourceIPNS.String,
@@ -366,10 +371,10 @@ func (t *Store) TopHosts(ctx context.Context, from, to time.Time, clientIDs []st
 				h = &out[len(out)-1]
 				byHost[ev.host] = h
 			}
-			h.Requests++
+			h.Requests += ev.count
 			h.Bytes += ev.bytes
 			if ev.failed {
-				h.Denied++
+				h.Denied += ev.count
 			}
 		}
 		sort.Slice(out, func(i, j int) bool {

@@ -120,6 +120,7 @@ func (t *Store) trimAggregates(ctx context.Context) error {
 		{"unknown_host_1d", "day", rollCut, []string{"day", "source_ip", "host"}},
 		{"client_15m", "bucket", rollCut, []string{"bucket", "client_id"}},
 		{"unknown_15m", "bucket", rollCut, []string{"bucket", "source_ip"}},
+		{"facet_15m", "bucket", hourlyCut, []string{"bucket", "client_id", "source_ip", "method", "proxy_result", "failed"}},
 	} {
 		if e := t.trimTable(ctx, spec.table, spec.col, spec.cut, spec.pk...); e != nil {
 			return e
@@ -163,7 +164,7 @@ func (t *Store) trimTable(ctx context.Context, table, col string, cut int64, pk 
 }
 
 func (t *Store) checkpointAndOptimize(ctx context.Context) error {
-	if _, e := t.rollWriter.ExecContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)"); e != nil {
+	if _, e := t.rollWriter.ExecContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)"); e != nil {
 		return e
 	}
 	if _, e := t.rollWriter.ExecContext(ctx, "PRAGMA optimize"); e != nil {

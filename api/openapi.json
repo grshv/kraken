@@ -2955,7 +2955,8 @@
           "tls_mode",
           "client_name",
           "client_match_basis",
-          "proxy_username"
+          "proxy_username",
+          "count"
         ],
         "properties": {
           "id": {
@@ -3004,6 +3005,11 @@
               "null"
             ],
             "minimum": 0
+          },
+          "count": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Number of identical requests coalesced into this record."
           },
           "tls_mode": {
             "type": "string",

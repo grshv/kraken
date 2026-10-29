@@ -228,6 +228,24 @@ func run() error {
 			return e
 		}
 		s.PanelCert = env("KRAKEN_PANEL_CERT", "/data/certs/panel.crt")
+		// RotateGate prevents log rotation while the collector is behind: a
+		// rotate during backlog loses still-unread records. Rotation proceeds
+		// when the latest checkpoint shows Backlog==false, or when the log has
+		// reached local.RotateHardCap (rotation then loses tail records as
+		// before, but bounds log growth). Maintain also forces rotation when
+		// any log reaches local.RotateHardCap regardless of this gate.
+		m.RotateGate = func(size int64) bool {
+			if size >= local.RotateHardCap {
+				return true
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			cp, e := tel.Checkpoint(ctx)
+			if e != nil {
+				return false
+			}
+			return !cp.Backlog
+		}
 		// Docker forwards the published port to the container interface, not its
 		// loopback. Host exposure is restricted by Compose port bindings.
 		server := &http.Server{Addr: env("KRAKEN_PANEL_LISTEN", ":8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{
@@ -279,21 +297,11 @@ func run() error {
 			}
 		}()
 		collectorDone := make(chan struct{})
-		defer func() { stopMaintenance(); <-collectorDone; tel.Close() }()
+		collectorCtx, stopCollector := context.WithCancel(maintenanceCtx)
+		defer func() { stopMaintenance(); stopCollector(); <-collectorDone; tel.Close() }()
 		go func() {
 			defer close(collectorDone)
-			ticker := time.NewTicker(2 * time.Second)
-			defer ticker.Stop()
-			for {
-				if e := s.CollectEvents(); e != nil {
-					slog.Warn("event collection failed", "error", e)
-				}
-				select {
-				case <-maintenanceCtx.Done():
-					return
-				case <-ticker.C:
-				}
-			}
+			s.RunCollector(collectorCtx, 2*time.Second)
 		}()
 		stop := make(chan os.Signal, 1)
 		signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

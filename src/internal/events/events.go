@@ -36,6 +36,7 @@ type Event struct {
 	ProxyHTTPStatus  *int    `json:"proxy_http_status"`
 	Duration         int64   `json:"duration_ms"`
 	Bytes            int64   `json:"bytes_observed"`
+	Count            int64   `json:"count"`
 	TLSMode          string  `json:"tls_mode"`
 	RevisionID       *string `json:"revision_id"`
 }
