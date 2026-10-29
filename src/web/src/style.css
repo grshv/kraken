@@ -1514,3 +1514,75 @@ button.facet-item {
 .audit-item {
   grid-template-columns: minmax(0, 1fr) auto;
 }
+
+/* ---------- accounts & settings screens ---------- */
+.setting-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.setting-row:last-child {
+  border-bottom: 0;
+}
+.setting-dirty {
+  color: var(--mod-fg);
+  margin-top: 2px;
+}
+.card-desc {
+  color: var(--muted-foreground);
+  font-size: var(--text-sm);
+}
+/* Toggle switch (settings + protect) */
+.sw {
+  position: relative;
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: var(--input);
+  border: 0;
+  cursor: pointer;
+  flex: none;
+}
+.sw::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--background);
+  box-shadow: 0 1px 2px #0003;
+  transition: left 0.15s;
+}
+.sw.on {
+  background: var(--primary);
+}
+.sw.on::after {
+  left: 16px;
+}
+/* Checkbox used by the manager scope client picker */
+.cbx {
+  width: 14px;
+  height: 14px;
+  border: 1px solid var(--input);
+  border-radius: 4px;
+  flex: none;
+  display: grid;
+  place-items: center;
+}
+.cbx.on {
+  background: var(--primary);
+  border-color: var(--primary);
+  color: var(--primary-foreground);
+}
+.cbx.on::after {
+  content: "";
+  width: 7px;
+  height: 4px;
+  border-left: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg) translate(1px, -1px);
+}

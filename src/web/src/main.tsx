@@ -3,6 +3,8 @@ import { createRoot } from "react-dom/client";
 import {
   KeyRound,
   SlidersHorizontal,
+  History,
+  Activity,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +32,8 @@ import { ClientsSection } from "./clients/ClientsSection";
 import { PoliciesSection } from "./policies/PoliciesSection";
 import { LogSection } from "./log/LogSection";
 import { AuditSection } from "./audit/AuditSection";
+import { AccountsSection } from "./accounts/AccountsSection";
+import { SettingsSection } from "./settings/SettingsSection";
 import type { CommitResult } from "./sections/sectionProps";
 import { ErrorState } from "./shell/ErrorState";
 import "./theme.css";
@@ -516,16 +520,35 @@ function App() {
         />
       );
     if (navId === "accounts")
-      return (
-        <PlaceholderSection title="Аккаунты" icon={<KeyRound aria-hidden />} />
-      );
+      return <AccountsSection
+        request={request}
+        draft={draft}
+        active={active}
+        session={session!}
+        onCommit={commitDraft}
+        onDiscard={async () => {
+          await discardDraftNow();
+          return { ok: true };
+        }}
+        onToast={showToast}
+        onNavigate={setNavId}
+        onConfirm={(o) => setConfirm(o)}
+      />;
     if (navId === "settings")
-      return (
-        <PlaceholderSection
-          title="Настройки"
-          icon={<SlidersHorizontal aria-hidden />}
-        />
-      );
+      return <SettingsSection
+        request={request}
+        draft={draft}
+        active={active}
+        session={session!}
+        onCommit={commitDraft}
+        onDiscard={async () => {
+          await discardDraftNow();
+          return { ok: true };
+        }}
+        onToast={showToast}
+        onNavigate={setNavId}
+        onConfirm={(o) => setConfirm(o)}
+      />;
     return null;
   }
 
