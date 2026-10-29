@@ -66,64 +66,6 @@ export function isDenied(e: LogEvent): boolean {
   return false;
 }
 
-export type FacetCounts = {
-  result: { allowed: number; denied: number };
-  // Keys are stable client_ids, not client_names (names are non-unique and can
-  // change). Events without client_id collapse under "" ("Не описан").
-  client: Record<string, number>;
-  method: Record<string, number>;
-};
-
-// facetCounts summarise loaded events for the sidebar groups. Clients without
-// client_id collapse under "" (shown in the UI as "Не описан").
-export function facetCounts(events: LogEvent[]): FacetCounts {
-  const out: FacetCounts = {
-    result: { allowed: 0, denied: 0 },
-    client: {},
-    method: {},
-  };
-  for (const e of events) {
-    if (isDenied(e)) out.result.denied++;
-    else out.result.allowed++;
-    // Group by stable client_id, not client_name: names are not unique and can
-    // change after edits, while the /events filter resolves to client_id. A
-    // missing client_id (unknown source) collapses under "".
-    const key = e.client_id ?? "";
-    out.client[key] = (out.client[key] ?? 0) + 1;
-    const m = e.method || "";
-    out.method[m] = (out.method[m] ?? 0) + 1;
-  }
-  return out;
-}
-
-export type HistogramBin = { start: string; allowed: number; denied: number };
-
-// minuteHistogram buckets events into `minutes` per-minute bins; the last bin
-// holds the minute containing `now`. Bins are oldest-first; `start` is the ISO
-// start-of-minute timestamp. Events outside the window are ignored.
-export function minuteHistogram(
-  events: LogEvent[],
-  now: Date,
-  minutes: number,
-): HistogramBin[] {
-  const bins: HistogramBin[] = [];
-  if (minutes <= 0) return bins;
-  const lastMs = Math.floor(now.getTime() / 60000) * 60000;
-  const firstMs = lastMs - (minutes - 1) * 60000;
-  for (let t = firstMs; t <= lastMs; t += 60000) {
-    bins.push({ start: new Date(t).toISOString(), allowed: 0, denied: 0 });
-  }
-  for (const e of events) {
-    const ms = Date.parse(e.timestamp);
-    if (Number.isNaN(ms)) continue;
-    const idx = Math.floor((ms - firstMs) / 60000);
-    if (idx < 0 || idx >= bins.length) continue;
-    if (isDenied(e)) bins[idx].denied++;
-    else bins[idx].allowed++;
-  }
-  return bins;
-}
-
 // EventsParams mirrors the GET /events query parameters the Log screen sends.
 // client/hostname resolution happens client-side: the server only accepts an
 // exact stored client_id, so a typed name must map to its UUID first.
@@ -155,7 +97,10 @@ export function buildEventsParams(
   if (q.result === "denied") p.failures_only = true;
   if (q.method) p.method = q.method;
   if (q.source) p.source_ip = q.source;
-  const freeStr = q.free.map((s) => s.trim()).filter(Boolean).join(" ");
+  const freeStr = q.free
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(" ");
   const dest = q.host ?? (freeStr || undefined);
   if (dest) p.destination = dest;
   if (opts.cursor) p.cursor = opts.cursor;
@@ -172,3 +117,82 @@ export function toEventsQuery(p: EventsParams): string {
   }
   return sp.toString();
 }
+
+// FacetWindow is one preset for the log sidebar: a span and the histogram step
+// the server requires. The default is the last hour at 1-minute resolution.
+export type FacetWindow = {
+  label: string;
+  minutes: number;
+  step: "1m" | "15m" | "1h";
+};
+
+export const FACET_WINDOWS: FacetWindow[] = [
+  { label: "1 ч", minutes: 60, step: "1m" },
+  { label: "24 ч", minutes: 24 * 60, step: "15m" },
+  { label: "7 дн", minutes: 7 * 24 * 60, step: "1h" },
+];
+
+// FacetsParams mirrors GET /events/facets query parameters. from/to/to are
+// required and derived from the window end (now); the same scalar filters as
+// /events are applied so facets match the loaded list.
+export type FacetsParams = {
+  from: string;
+  to: string;
+  step: "1m" | "15m" | "1h";
+  client_id?: string;
+  failures_only?: boolean;
+  destination?: string;
+  method?: string;
+  source_ip?: string;
+};
+
+// buildFacetsParams composes the /events/facets query from a parsed LogQuery,
+// a client resolver and a window ending at `now`. Filter mapping mirrors
+// buildEventsParams minus cursor/limit (facets has no paging).
+export function buildFacetsParams(
+  q: LogQuery,
+  resolveClient: (name: string) => string | undefined,
+  now: Date,
+  window: FacetWindow,
+): FacetsParams {
+  const to = new Date(now);
+  const from = new Date(to.getTime() - window.minutes * 60000);
+  const p: FacetsParams = {
+    from: from.toISOString(),
+    to: to.toISOString(),
+    step: window.step,
+  };
+  if (q.client) {
+    const id = resolveClient(q.client);
+    if (id) p.client_id = id;
+  }
+  if (q.result === "denied") p.failures_only = true;
+  if (q.method) p.method = q.method;
+  if (q.source) p.source_ip = q.source;
+  const freeStr = q.free
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join(" ");
+  const dest = q.host ?? (freeStr || undefined);
+  if (dest) p.destination = dest;
+  return p;
+}
+
+// toFacetsQuery serializes FacetsParams into a query string for fetch.
+export function toFacetsQuery(p: FacetsParams): string {
+  const sp = new URLSearchParams();
+  for (const [k, v] of Object.entries(p)) {
+    if (v === undefined || v === null) continue;
+    sp.set(k, String(v));
+  }
+  return sp.toString();
+}
+
+// FacetsResponse mirrors the GET /events/facets response body.
+export type FacetsResponse = {
+  allowed: number;
+  denied: number;
+  clients: { id: string; name: string | null; count: number }[];
+  methods: { method: string; count: number }[];
+  histogram: { start: string; allowed: number; denied: number }[];
+};

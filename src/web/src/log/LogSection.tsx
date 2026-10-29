@@ -22,15 +22,17 @@ import type { NavId } from "../shell/nav";
 import type { SectionProps } from "../sections/sectionProps";
 import {
   buildEventsParams,
-  facetCounts,
+  buildFacetsParams,
+  FACET_WINDOWS,
   isDenied,
-  minuteHistogram,
   parseLogQuery,
   toEventsQuery,
+  toFacetsQuery,
   type EventsParams,
+  type FacetsResponse,
+  type FacetWindow,
 } from "./query";
 
-const HIST_MINUTES = 60;
 const PAGE_LIMIT = 200;
 const REFRESH_MS = 5000;
 const DEBOUNCE_MS = 250;
@@ -99,7 +101,9 @@ export function LogSection(props: SectionProps) {
 
   const [queryText, setQueryText] = useState("");
   const parsed = useMemo(() => parseLogQuery(queryText), [queryText]);
+  const [window, setWindow] = useState<FacetWindow>(FACET_WINDOWS[0]);
   const [events, setEvents] = useState<Event[]>([]);
+  const [facets, setFacets] = useState<FacetsResponse | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [gap, setGap] = useState(false);
   const [observedAt, setObservedAt] = useState("");
@@ -116,6 +120,19 @@ export function LogSection(props: SectionProps) {
         buildEventsParams(parsed, resolveClient, { limit: PAGE_LIMIT }),
       ),
     [parsed, resolveClient],
+  );
+
+  // Server clock: the events response carries observed_at; the facets window
+  // ends there so its buckets align with the server's view rather than wall
+  // time. Before the first load falls back to the local clock.
+  const now = useMemo(
+    () => (observedAt ? new Date(observedAt) : new Date()),
+    [observedAt],
+  );
+
+  const facetsQuery = useMemo(
+    () => toFacetsQuery(buildFacetsParams(parsed, resolveClient, now, window)),
+    [parsed, resolveClient, now, window],
   );
 
   const fetchFirst = useCallback(
@@ -145,19 +162,40 @@ export function LogSection(props: SectionProps) {
     [request, query],
   );
 
+  const fetchFacets = useCallback(
+    async (signal?: AbortSignal) => {
+      try {
+        const r = await request<FacetsResponse>(
+          `/events/facets?${facetsQuery}`,
+          "GET",
+          undefined,
+          undefined,
+          signal,
+        );
+        setFacets(r);
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+        // Facets failures are non-fatal: keep the previous counts and let the
+        // list's error state surface storage problems.
+      }
+    },
+    [request, facetsQuery],
+  );
+
   // Debounced fetch on query change; aborts the in-flight request when the
   // query changes mid-flight.
   useEffect(() => {
     const ctrl = new AbortController();
     const t = setTimeout(() => {
       void fetchFirst(ctrl.signal);
+      void fetchFacets(ctrl.signal);
     }, DEBOUNCE_MS);
     setSelectedID(null);
     return () => {
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [fetchFirst]);
+  }, [fetchFirst, fetchFacets]);
 
   // Auto-refresh every 5s unless paused. Stops while a load is in-flight so
   // overlapping requests cannot thrash the histogram.
@@ -167,12 +205,13 @@ export function LogSection(props: SectionProps) {
     const t = setInterval(() => {
       if (!live) return;
       void fetchFirst();
+      void fetchFacets();
     }, REFRESH_MS);
     return () => {
       live = false;
       clearInterval(t);
     };
-  }, [paused, fetchFirst]);
+  }, [paused, fetchFirst, fetchFacets]);
 
   const loadMore = useCallback(async () => {
     if (!cursor) return;
@@ -190,12 +229,16 @@ export function LogSection(props: SectionProps) {
     }
   }, [request, cursor, parsed, resolveClient, onToast]);
 
-  const facets = useMemo(() => facetCounts(events), [events]);
-  // Client id -> display name. facetCounts keys by client_id (stable), but the
-  // sidebar shows the human name; resolve it per id from events first, then
-  // fall back to the draft/active snapshot. "" stays as "Не описан".
+  // Client id -> display name. The facets response carries name per id from
+  // the active snapshot; fall back to the draft/active snapshot the screen
+  // already holds, then to event labels.
   const clientNameByID = useMemo(() => {
     const m = new Map<string, string>();
+    if (facets) {
+      for (const c of facets.clients) {
+        if (c.id && c.name != null) m.set(c.id, c.name);
+      }
+    }
     for (const e of events) {
       if (e.client_id && e.client_name != null && !m.has(e.client_id)) {
         m.set(e.client_id, e.client_name);
@@ -207,24 +250,15 @@ export function LogSection(props: SectionProps) {
       }
     }
     return m;
-  }, [events, snap]);
-  const now = useMemo(
-    () => (observedAt ? new Date(observedAt) : new Date()),
-    [observedAt],
-  );
-  const hist = useMemo(
-    () => minuteHistogram(events, now, HIST_MINUTES),
-    [events, now],
-  );
+  }, [facets, events, snap]);
+  const hist = facets?.histogram ?? [];
   const selected = events.find((e) => e.id === selectedID) ?? null;
   const maxBin = Math.max(1, ...hist.map((b) => b.allowed + b.denied));
 
-  const clientCounts = Object.entries(facets.client).sort(
-    (a, b) => b[1] - a[1],
-  );
-  const methodCounts = Object.entries(facets.method).sort(
-    (a, b) => b[1] - a[1],
-  );
+  const clientCounts = facets?.clients ?? [];
+  const methodCounts = facets?.methods ?? [];
+  const allowedCount = facets?.allowed ?? 0;
+  const deniedCount = facets?.denied ?? 0;
 
   // Clicking a client facet turns into a `client:<name>` search token, which
   // parseLogQuery + resolveClient map back to the same client_id for
@@ -241,6 +275,29 @@ export function LogSection(props: SectionProps) {
     [clientNameByID, queryText],
   );
 
+  // Clicking a result facet adds a `result:` token (allowed|denied), replacing
+  // any existing one. Russian synonyms are accepted by parseLogQuery.
+  const applyResultFacet = useCallback(
+    (value: "allowed" | "denied") => {
+      const rest = queryText
+        .split(/\s+/)
+        .filter((t) => !/^(result|результат):/i.test(t));
+      rest.push(`result:${value}`);
+      setQueryText(rest.join(" "));
+    },
+    [queryText],
+  );
+
+  // Clicking a method facet adds a `method:` token, replacing any existing one.
+  const applyMethodFacet = useCallback(
+    (value: string) => {
+      const rest = queryText.split(/\s+/).filter((t) => !/^method:/i.test(t));
+      rest.push(`method:${value}`);
+      setQueryText(rest.join(" "));
+    },
+    [queryText],
+  );
+
   return (
     <section
       className="log-section"
@@ -248,18 +305,28 @@ export function LogSection(props: SectionProps) {
     >
       <aside className="log-facets">
         <FacetGroup title="Результат">
-          <FacetRow label="Разрешено" value={facets.result.allowed} swatch="allow" />
-          <FacetRow label="Отказ" value={facets.result.denied} swatch="deny" />
+          <FacetRow
+            label="Разрешено"
+            value={allowedCount}
+            swatch="allow"
+            onClick={() => applyResultFacet("allowed")}
+          />
+          <FacetRow
+            label="Отказ"
+            value={deniedCount}
+            swatch="deny"
+            onClick={() => applyResultFacet("denied")}
+          />
         </FacetGroup>
         <FacetGroup title="Клиент">
-          {clientCounts.map(([id, n]) => {
-            const name = id ? (clientNameByID.get(id) ?? id) : "";
+          {clientCounts.map((c) => {
+            const name = c.id ? (clientNameByID.get(c.id) ?? c.id) : "";
             return (
               <FacetRow
-                key={id || "_unknown"}
+                key={c.id || "_unknown"}
                 label={name || "Не описан"}
-                value={n}
-                onClick={id ? () => applyClientFacet(id) : undefined}
+                value={c.count}
+                onClick={c.id ? () => applyClientFacet(c.id) : undefined}
               />
             );
           })}
@@ -268,16 +335,18 @@ export function LogSection(props: SectionProps) {
           )}
         </FacetGroup>
         <FacetGroup title="Метод">
-          {methodCounts.map(([k, n]) => (
-            <FacetRow key={k || "_"} label={k || "—"} value={n} />
+          {methodCounts.map((m) => (
+            <FacetRow
+              key={m.method || "_"}
+              label={m.method || "—"}
+              value={m.count}
+              onClick={m.method ? () => applyMethodFacet(m.method) : undefined}
+            />
           ))}
           {methodCounts.length === 0 && (
             <div className="muted-text small">—</div>
           )}
         </FacetGroup>
-        <div className="muted-text small facet-note">
-          Счётчики по загруженным записям, не по всему журналу.
-        </div>
       </aside>
 
       <div className="log-main">
@@ -290,6 +359,22 @@ export function LogSection(props: SectionProps) {
               value={queryText}
               onChange={(e) => setQueryText(e.target.value)}
             />
+          </div>
+          <div
+            className="log-window-toggle"
+            role="group"
+            aria-label="Окно журнала"
+          >
+            {FACET_WINDOWS.map((w) => (
+              <Button
+                key={w.label}
+                size="xs"
+                variant={w.label === window.label ? "secondary" : "ghost"}
+                onClick={() => setWindow(w)}
+              >
+                {w.label}
+              </Button>
+            ))}
           </div>
           {paused ? (
             <Button size="xs" onClick={() => setPaused(false)}>
@@ -325,23 +410,33 @@ export function LogSection(props: SectionProps) {
             <span>
               <i style={{ background: "var(--s-deny)" }} /> отказ
             </span>
-            <span className="muted-text">по минутам</span>
+            <span className="muted-text">
+              {window.step === "1m"
+                ? "по минутам"
+                : window.step === "15m"
+                  ? "по 15 минут"
+                  : "по часам"}
+            </span>
           </div>
           <div
             className="log-bars"
             role="img"
-            aria-label="Гистограмма запросов по минутам"
+            aria-label="Гистограмма запросов"
           >
             {hist.map((b) => {
               const total = b.allowed + b.denied;
               const h = total === 0 ? 0 : (total / maxBin) * 100;
               const denyH = total === 0 ? 0 : (b.denied / total) * h;
+              const label =
+                window.step === "1h"
+                  ? b.start.slice(0, 16)
+                  : b.start.slice(11, 16);
               return (
                 <div
                   key={b.start}
                   className="log-bar-col"
                   style={{ height: `${h}%` }}
-                  title={`${b.start.slice(11, 16)}: ${b.allowed} разрешено, ${b.denied} отказ`}
+                  title={`${label}: ${b.allowed} разрешено, ${b.denied} отказ`}
                 >
                   <div
                     className="log-bar-denied"
@@ -406,9 +501,7 @@ export function LogSection(props: SectionProps) {
                         {e.destination}
                       </td>
                       <td>
-                        <Badge
-                          variant={denied ? "destructive" : "secondary"}
-                        >
+                        <Badge variant={denied ? "destructive" : "secondary"}>
                           {e.proxy_result}
                           {denied ? " отказ" : ""}
                         </Badge>
@@ -420,7 +513,10 @@ export function LogSection(props: SectionProps) {
             </table>
           )}
           {cursor && !loadError && (
-            <div className="row" style={{ justifyContent: "center", padding: 12 }}>
+            <div
+              className="row"
+              style={{ justifyContent: "center", padding: 12 }}
+            >
               <Button size="xs" variant="ghost" onClick={loadMore}>
                 Ещё
               </Button>
@@ -519,7 +615,9 @@ function LogDetail({
   snap: Snapshot | null;
   session: Session;
   request: SectionProps["request"];
-  onCommit: (next: Snapshot) => Promise<{ ok: boolean; code?: string; message?: string }>;
+  onCommit: (
+    next: Snapshot,
+  ) => Promise<{ ok: boolean; code?: string; message?: string }>;
   onToast: (m: string) => void;
   onNavigate: (id: NavId) => void;
 }) {
@@ -563,7 +661,9 @@ function LogDetail({
 
   async function allowHost() {
     if (!snap || !event.client_id) return;
-    const res = await onCommit(addDomainToClientPolicy(snap, event.client_id, host));
+    const res = await onCommit(
+      addDomainToClientPolicy(snap, event.client_id, host),
+    );
     if (res.ok) onToast(`Домен ${host} добавлен в политику`);
     else if (res.code !== "revision_conflict")
       onToast(res.message ?? "Не удалось изменить черновик");
@@ -614,15 +714,14 @@ function LogDetail({
       <div style={{ fontWeight: 600 }}>Запрос</div>
       <dl className="kv-row">
         <dt>Время</dt>
-        <dd className="num">{event.timestamp.replace("T", " ").slice(0, 19)}</dd>
+        <dd className="num">
+          {event.timestamp.replace("T", " ").slice(0, 19)}
+        </dd>
         <dt>Источник</dt>
         <dd>
           {event.client_name && (
             <>
-              <button
-                className="link"
-                onClick={() => onNavigate("clients")}
-              >
+              <button className="link" onClick={() => onNavigate("clients")}>
                 {event.client_name}
               </button>{" "}
             </>
@@ -701,7 +800,9 @@ function LogDetail({
       ) : (
         <div className="callout callout-info">
           <Info aria-hidden />
-          <div className="grow small">Запрос разрешён действующей политикой.</div>
+          <div className="grow small">
+            Запрос разрешён действующей политикой.
+          </div>
           {blockForAll && (
             <Button size="xs" variant="ghost" onClick={blockHost}>
               <Ban aria-hidden /> Запретить домен для всех

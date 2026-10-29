@@ -700,6 +700,132 @@
         "description": "Admin-only history, newest ingestion sequence first. Cursor is bound to filters and gives earlier records without shifting on new arrivals. Thirty days by ingestion time, at most 50000 rows. Source client matches policy at ingestion; historical revision/ACL are unknown. CONNECT contains no origin path/content/status. Reader errors appear as stale ingestion, not fabricated empty traffic. Available to admin and manager (manager sees only his scope)."
       }
     },
+    "/events/facets": {
+      "get": {
+        "operationId": "listEventFacets",
+        "summary": "Server-side facet counters and histogram over a bounded window",
+        "description": "Aggregates totals by result, client_id and method plus a stepped histogram over [from, to) using SQL GROUP BY across retained monthly files. Same filters and manager scope as /events; cursor and limit are ignored. Window is required, capped at 7 days and 1440 buckets. Client names are resolved from the active snapshot; unmatched sources collapse under id:\"\" with name:null. Available to admin and manager (manager sees only his scope).",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "Inclusive event timestamp, RFC3339 with timezone.",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Exclusive event timestamp, RFC3339 with timezone; later than from.",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "step",
+            "in": "query",
+            "required": true,
+            "description": "Histogram bucket size.",
+            "schema": {
+              "type": "string",
+              "enum": ["1m", "15m", "1h"]
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Exact stored client ID, including deleted clients."
+          },
+          {
+            "name": "failures_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "source_ip",
+            "in": "query",
+            "description": "Exact source IPv4/IPv6 address.",
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            }
+          },
+          {
+            "name": "destination",
+            "in": "query",
+            "description": "Case-insensitive literal substring of stored sanitized destination; no wildcards.",
+            "schema": {
+              "type": "string",
+              "maxLength": 253
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "description": "Exact method, e.g. GET, HEAD or CONNECT.",
+            "schema": {
+              "type": "string",
+              "maxLength": 24
+            }
+          },
+          {
+            "name": "result",
+            "in": "query",
+            "description": "Exact Squid result, e.g. TCP_DENIED/403.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventFacets"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_filter: missing/invalid from, to or step, window over 7 days or over 1440 buckets, or an invalid filter value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/certificates": {
       "get": {
         "operationId": "listCertificates",
@@ -2664,6 +2790,90 @@
           "record_limit": {
             "type": "integer",
             "const": 50000
+          }
+        }
+      },
+      "EventFacets": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "allowed",
+          "denied",
+          "clients",
+          "methods",
+          "histogram"
+        ],
+        "properties": {
+          "allowed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "denied": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clients": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["id", "name", "count"],
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "Stable client_id; \"\" for unmatched (unknown) sources."
+                },
+                "name": {
+                  "type": ["string", "null"],
+                  "description": "Client name from the active snapshot; null for unmatched sources or clients no longer in the snapshot."
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "methods": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method", "count"],
+              "properties": {
+                "method": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "histogram": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["start", "allowed", "denied"],
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "Bucket start (inclusive), RFC3339 UTC."
+                },
+                "allowed": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "denied": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            },
+            "description": "Exactly ceil((to-from)/step) buckets spanning [from, to), oldest first; empty buckets are zero."
           }
         }
       },

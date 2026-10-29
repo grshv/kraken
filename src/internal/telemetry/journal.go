@@ -178,59 +178,68 @@ func hasOlderMissing(t *Store, months []string) bool {
 	return false
 }
 
-// queryMonthEvents reads up to `cap` events from one month (id < upper),
-// applying scope network filtering for unmatched sources in Go. Returns the
-// fetched events, the rowid of the last scanned row, and whether more rows
-// remain in this month beyond the returned set.
-func (t *Store) queryMonthEvents(ctx context.Context, mf *monthFile, key string, q EventQuery, upper int64, cap int, nets []netip.Prefix, clientSet map[string]bool) ([]events.Event, int64, bool, error) {
-	var where []string
-	var args []any
-	where = append(where, "e.id<?")
-	args = append(args, upper)
+// buildEventWhere builds the WHERE conditions shared by Events (journal) and
+// Facets, applying scope and the EventQuery scalar filters: client_id,
+// failures_only, source_ip, method, result and the [From, To) ts range.
+// Cursor paging (e.id < upper) and LIMIT are NOT included so Facets can reuse
+// the same filter without paging. The destination substring LIKE value is
+// returned separately so callers append the host JOIN only when needed.
+func buildEventWhere(q EventQuery) (where []string, args []any, destLike string) {
+	where = []string{}
 	if q.Scope != nil {
 		if len(q.Scope.ClientIDs) == 0 {
-			where = append(where, "client_id IS NULL")
+			where = append(where, "e.client_id IS NULL")
 		} else {
 			ph := placeholders(len(q.Scope.ClientIDs))
-			where = append(where, "(client_id IN ("+ph+") OR client_id IS NULL)")
+			where = append(where, "(e.client_id IN ("+ph+") OR e.client_id IS NULL)")
 			for _, id := range q.Scope.ClientIDs {
 				args = append(args, id)
 			}
 		}
 	}
 	if q.ClientID != "" {
-		where = append(where, "client_id=?")
+		where = append(where, "e.client_id=?")
 		args = append(args, q.ClientID)
 	}
 	if q.Failures {
-		where = append(where, "failed=1")
+		where = append(where, "e.failed=1")
 	}
 	if q.SourceIP != "" {
-		where = append(where, "source_ip=?")
+		where = append(where, "e.source_ip=?")
 		args = append(args, q.SourceIP)
 	}
 	if q.Method != "" {
-		where = append(where, "method=?")
+		where = append(where, "e.method=?")
 		args = append(args, q.Method)
 	}
 	if q.Result != "" {
-		where = append(where, "result=?")
+		where = append(where, "e.result=?")
 		args = append(args, q.Result)
 	}
 	if !q.From.IsZero() {
-		where = append(where, "ts>=?")
+		where = append(where, "e.ts>=?")
 		args = append(args, q.From.UnixMilli())
 	}
 	if !q.To.IsZero() {
-		where = append(where, "ts<?")
+		where = append(where, "e.ts<?")
 		args = append(args, q.To.UnixMilli())
 	}
-	var destLike string
 	if q.Destination != "" {
 		// Match host name case-insensitively as a literal substring; escape
 		// SQL wildcards so "%" is not a pattern.
 		destLike = "%" + strings.ReplaceAll(strings.ReplaceAll(strings.ToLower(q.Destination), "%", "\\%"), "_", "\\_") + "%"
 	}
+	return where, args, destLike
+}
+
+// queryMonthEvents reads up to `cap` events from one month (id < upper),
+// applying scope network filtering for unmatched sources in Go. Returns the
+// fetched events, the rowid of the last scanned row, and whether more rows
+// remain in this month beyond the returned set.
+func (t *Store) queryMonthEvents(ctx context.Context, mf *monthFile, key string, q EventQuery, upper int64, cap int, nets []netip.Prefix, clientSet map[string]bool) ([]events.Event, int64, bool, error) {
+	where, args, destLike := buildEventWhere(q)
+	where = append(where, "e.id<?")
+	args = append(args, upper)
 	args = append(args, cap)
 	query := "SELECT " + eventColumns + " FROM event e JOIN host h ON h.id=e.host_id"
 	if destLike != "" {
