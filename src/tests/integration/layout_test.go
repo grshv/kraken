@@ -15,7 +15,7 @@ import (
 // itself never reaches test output.
 func managerSecretHash(t *testing.T, container string) string {
 	t.Helper()
-	out, e := dockerExec(container, "cat", "/dev/shm/kraken/manager-auth.conf")
+	out, e := dockerExecUser(container, controlUser, "cat", "/dev/shm/kraken/manager-auth.conf")
 	if e != nil || strings.TrimSpace(out) == "" {
 		t.Fatalf("manager-auth.conf not readable in tmpfs: %v", e)
 	}
@@ -36,7 +36,10 @@ func TestLayout(t *testing.T) {
 		if _, e := dockerExec(inst.proxy, "test", "-e", "/data"); e == nil {
 			t.Error("/data still exists")
 		}
-		out, e := dockerExec(inst.proxy, "find", "/var/lib/kraken", "-mindepth", "1")
+		// find must traverse log/ (2750 proxy:proxy); the numeric controlUser
+		// spec has no supplementary groups, so drop via setpriv --init-groups
+		// which adds proxy membership from /etc/group.
+		out, e := dockerExec(inst.proxy, "setpriv", "--reuid=kraken", "--regid=kraken", "--init-groups", "--", "find", "/var/lib/kraken", "-mindepth", "1")
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -51,7 +54,7 @@ func TestLayout(t *testing.T) {
 			}
 		}
 		for _, p := range []string{"/var/lib/kraken/data/control.sqlite3", "/var/lib/kraken/data/telemetry/rollups.db", "/var/lib/kraken/log/access.log", "/var/lib/kraken/certs/panel.key"} {
-			if _, e := dockerExec(inst.proxy, "test", "-f", p); e != nil {
+			if _, e := dockerExec(inst.proxy, "setpriv", "--reuid=kraken", "--regid=kraken", "--init-groups", "--", "test", "-f", p); e != nil {
 				t.Errorf("missing %s", p)
 			}
 		}
@@ -63,7 +66,7 @@ func TestLayout(t *testing.T) {
 			t.Errorf("/dev/shm/kraken fs type %q", fsType)
 		}
 		for _, f := range []string{"squid.conf", "manager-auth.conf", "proxy-accounts.json"} {
-			if _, e := dockerExec(inst.proxy, "test", "-f", "/dev/shm/kraken/"+f); e != nil {
+			if _, e := dockerExecUser(inst.proxy, controlUser, "test", "-f", "/dev/shm/kraken/"+f); e != nil {
 				t.Errorf("missing /dev/shm/kraken/%s", f)
 			}
 		}

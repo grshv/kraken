@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -93,10 +94,11 @@ type Manager struct {
 	Command func(context.Context, ...string) error
 	// Reload triggers a Squid reconfigure (action "reconfigure") or log
 	// rotation (action "rotate") over the loopback manager listener. The
-	// default implementation issues a cache_object request authenticated by
-	// the manager secret kept in memory and in <Dir>/manager-auth.conf.
-	// Cross-UID signalling via `-k reconfigure/rotate` would require a shared
-	// UID, so cachemgr over TCP is used instead.
+	// default implementation issues an HTTP request to the
+	// /squid-internal-mgr/<action> endpoint authenticated by the manager
+	// secret kept in memory and in <Dir>/manager-auth.conf. Cross-UID
+	// signalling via `-k reconfigure/rotate` would require a shared UID, so
+	// manager-over-TCP is used instead.
 	Reload func(context.Context, string) error
 	// RotateGate gates log rotation in Maintain: when set, Maintain rotates only
 	// if RotateGate(size) returns true (in addition to the >10 MiB threshold).
@@ -299,9 +301,11 @@ func (m *Manager) loadSecret() error {
 	return nil
 }
 
-// defaultReload issues a loopback cachemgr request authenticated by the manager
-// secret; Squid reloads/rotates based on the action path. Errors never include
-// the secret: a malformed response or non-200 status is reported generically.
+// defaultReload issues a loopback HTTP request to Squid's manager endpoint
+// (/squid-internal-mgr/<action>) authenticated by the manager secret; Squid
+// reloads/rotates based on the action path. The Basic credential is "kraken:"
+// plus the secret, sent only over loopback. Errors never include the secret: a
+// malformed response or non-200 status is reported generically.
 func (m *Manager) defaultReload(ctx context.Context, action string) error {
 	if m.secret == "" {
 		if e := m.loadSecret(); e != nil {
@@ -319,7 +323,8 @@ func (m *Manager) defaultReload(ctx context.Context, action string) error {
 		deadline = dl
 	}
 	c.SetDeadline(deadline)
-	req := "GET cache_object://127.0.0.1/" + action + "@" + m.secret + " HTTP/1.0\r\nHost: 127.0.0.1\r\n\r\n"
+	auth := base64.StdEncoding.EncodeToString([]byte("kraken:" + m.secret))
+	req := "GET /squid-internal-mgr/" + action + " HTTP/1.1\r\nHost: 127.0.0.1:3131\r\nAuthorization: Basic " + auth + "\r\nConnection: close\r\n\r\n"
 	if _, e = io.WriteString(c, req); e != nil {
 		return fmt.Errorf("squid manager request failed: %w", e)
 	}

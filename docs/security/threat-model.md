@@ -49,7 +49,8 @@ Go состоит в группе `proxy` и читает логи Squid: обр
 Web не запускается root; CLI-подкоманды, кроме `squid-start` и `proxy-auth`, root отклоняют.
 
 Один контейнер означает общую filesystem/network зону; web exploit может изменить
-доступ через разрешённые ему config paths. Минимальные mounts/capabilities,
+доступ через разрешённые ему config paths. Capabilities контейнера — только `SETUID`, `SETGID`, `KILL`
+для Pebble; у Squid и панели их нет. Минимальные mounts,
 seccomp, no-new-privileges и resource limits снижают риск, но не дают HA/sandbox
 между внутренними Go-модулями. Squid не требует web readiness для продолжения трафика.
 

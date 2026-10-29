@@ -1,7 +1,7 @@
 # Kraken
 
 Web-панель для управления исходящим доступом клиентов через Squid: весь HTTP/HTTPS
-либо только разрешённые домены. Один собственный контейнер на базе `ubuntu/squid`,
+либо только разрешённые домены. Один собственный контейнер на Alpine со Squid 7.7 из upstream-релиза,
 Pebble и отдельные процессы Squid и Go. React/TypeScript UI на shadcn/ui встроен в Go-бинарник.
 Node и Go toolchain нужны только при сборке. Docker socket приложению не выдаётся.
 
@@ -50,7 +50,7 @@ docker exec -it <контейнер> kraken password-reset --username admin
 
 Исходники целиком в `src/`: Go-модуль, `cmd/`, `internal/`, `migrations/`, `web/`,
 `tests/`, `tools/`. Go 1.27.3 зафиксирован go.mod; npm dependencies — lockfile.
-Для локальной сборки нужен совместимый Node (в Docker используется pinned Node 24).
+Для локальной сборки нужен совместимый Node (в Docker используется pinned Node 26 LTS).
 
 ```sh
 make check         # docs, web typecheck/build, Go race tests, vet, whitespace

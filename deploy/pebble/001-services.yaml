@@ -19,7 +19,7 @@ services:
     # triggers Go exec's setgroups(nil), clearing supplementary groups; the
     # pure-Go user lookup also bypasses /etc/group. setpriv drops to kraken
     # and initialises supplementary groups from NSS before exec'ing the panel.
-    command: /usr/bin/setpriv --reuid=kraken --regid=kraken --init-groups -- /usr/local/bin/kraken serve
+    command: /bin/setpriv --reuid=kraken --regid=kraken --init-groups -- /usr/local/bin/kraken serve
     startup: enabled
     on-success: restart
     on-failure: restart

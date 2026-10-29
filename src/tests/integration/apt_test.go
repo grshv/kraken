@@ -44,12 +44,13 @@ subprocess.run(['openssl','req','-newkey','rsa:2048','-nodes','-keyout','/tmp/se
 pathlib.Path('/tmp/san.ext').write_text('subjectAltName=DNS:repo.test\n')
 subprocess.run(['openssl','x509','-req','-in','/tmp/server.csr','-CA',str(FIX/'ca.crt'),'-CAkey','/tmp/ca.key','-CAcreateserial','-days','1','-out','/tmp/server.crt','-extfile','/tmp/san.ext'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)
 class H(http.server.BaseHTTPRequestHandler):
+    protocol_version='HTTP/1.1'
     def do_GET(self):
         p=REPO/self.path.lstrip('/')
         if p.is_file():
             d=p.read_bytes();self.send_response(200);self.send_header('Content-Type','application/octet-stream');self.send_header('Content-Length',str(len(d)));self.end_headers();self.wfile.write(d)
         else:
-            self.send_response(404);self.end_headers()
+            self.send_response(404);self.send_header('Content-Length','0');self.end_headers()
     def log_message(self,*a):pass
 (FIX/'ready').write_text('ok')
 httpd=http.server.HTTPServer(('0.0.0.0',80),H);threading.Thread(target=httpd.serve_forever,daemon=True).start()
@@ -58,6 +59,10 @@ httpsd=http.server.HTTPServer(('0.0.0.0',443),H);httpsd.socket=ctx.wrap_socket(h
 `
 
 const fixtureImage = "sc-apt-fixture:1"
+
+// aptClientImage is the APT test client. Ubuntu (not the Alpine-based kraken
+// image) because the client needs apt-get, which Alpine does not ship.
+const aptClientImage = "ubuntu:26.04@sha256:6a06111c3b0a8600feadb270aec771dc239bf407b25625f93f44ab00e11f4d3c"
 
 // aptRun execs apt-get inside the client container and returns combined output
 // plus the exit status, matching run_exec in apt.py. A 120s ceiling prevents a
@@ -118,7 +123,7 @@ func TestApt(t *testing.T) {
 	docker(t, "cp", fixture+":/fixtures/ca.crt", filepath.Join(fixtures, "ca.crt"))
 
 	client := r.addContainer(randName("sc-apt") + "-client")
-	docker(t, "run", "-d", "--name", client, "--network", inst.network, "--ip", base+".20", "--entrypoint", "sleep", testImage(), "3600")
+	docker(t, "run", "-d", "--name", client, "--network", inst.network, "--ip", base+".20", "--entrypoint", "sleep", aptClientImage, "3600")
 	docker(t, "exec", client, "sh", "-c", "rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*")
 	docker(t, "exec", client, "mkdir", "-p", "/fixtures")
 	docker(t, "cp", filepath.Join(fixtures, "repo.gpg"), client+":/fixtures/repo.gpg")
@@ -242,9 +247,9 @@ Acquire::AllowDowngradeToInsecureRepositories "false";
 			arch, _ := dockerExec(client, "dpkg", "--print-architecture")
 			var mirrors []string
 			if strings.TrimSpace(arch) == "amd64" {
-				mirrors = []string{"http://archive.ubuntu.com/ubuntu noble main", "http://archive.ubuntu.com/ubuntu noble-updates main", "http://security.ubuntu.com/ubuntu noble-security main"}
+				mirrors = []string{"http://archive.ubuntu.com/ubuntu resolute main", "http://archive.ubuntu.com/ubuntu resolute-updates main", "http://security.ubuntu.com/ubuntu resolute-security main"}
 			} else {
-				mirrors = []string{"http://ports.ubuntu.com/ubuntu-ports noble main", "http://ports.ubuntu.com/ubuntu-ports noble-updates main", "http://ports.ubuntu.com/ubuntu-ports noble-security main"}
+				mirrors = []string{"http://ports.ubuntu.com/ubuntu-ports resolute main", "http://ports.ubuntu.com/ubuntu-ports resolute-updates main", "http://ports.ubuntu.com/ubuntu-ports resolute-security main"}
 			}
 			var b strings.Builder
 			for _, m := range mirrors {
