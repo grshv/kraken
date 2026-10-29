@@ -1,0 +1,1012 @@
+<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><style>body{margin:0}</style></head><body>
+<title>Kraken: прототип UI</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%2024%2024%22%3E%3Cstyle%3Eg%7Bcolor%3A%23171717%7D%40media%20%28prefers-color-scheme%3Adark%29%7Bg%7Bcolor%3A%23ededed%7D%7D%3C%2Fstyle%3E%3Cg%3E%3Cpath%20d%3D%22M12%201.6%2016%204.6%2016.2%209.6%2013.6%2012.6H10.4L7.8%209.6%208%204.6ZM9.4%207.4%2011.3%208.5%209.6%209.2ZM14.6%207.4%2012.7%208.5%2014.4%209.2Z%22%20fill%3D%22currentColor%22%20fill-rule%3D%22evenodd%22%20stroke%3D%22none%22%2F%3E%3Cpath%20d%3D%22M10.2%2012.2H13.8L13.2%2014.2H10.8Z%22%20fill%3D%22currentColor%22%20stroke%3D%22none%22%2F%3E%3Cg%20fill%3D%22none%22%20stroke%3D%22currentColor%22%20stroke-width%3D%221.7%22%20stroke-linejoin%3D%22miter%22%20stroke-miterlimit%3D%224%22%20stroke-linecap%3D%22butt%22%3E%3Cpath%20d%3D%22M9.6%2011.2%206.4%2010.2%204.6%207.4%206.2%206.8%22%2F%3E%3Cpath%20d%3D%22M14.4%2011.2%2017.6%2010.2%2019.4%207.4%2017.8%206.8%22%2F%3E%3Cpath%20d%3D%22M9.8%2012.2%205.2%2013.0%202.6%2011.0%202.0%2012.6%22%2F%3E%3Cpath%20d%3D%22M14.2%2012.2%2018.8%2013.0%2021.4%2011.0%2022.0%2012.6%22%2F%3E%3Cpath%20d%3D%22M10.4%2012.9%207.6%2016.4%204.4%2016.2%203.6%2018.2%22%2F%3E%3Cpath%20d%3D%22M13.6%2012.9%2016.4%2016.4%2019.6%2016.2%2020.4%2018.2%22%2F%3E%3Cpath%20d%3D%22M11.2%2013.2%2010.0%2017.6%207.4%2019.4%208.2%2021.8%22%2F%3E%3Cpath%20d%3D%22M12.8%2013.2%2014.0%2017.6%2016.6%2019.4%2015.8%2021.8%22%2F%3E%3C%2Fg%3E%3C%2Fg%3E%3C%2Fsvg%3E">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: inspector-first app — labeled rail · list pane · inspector; draft tray at the bottom; review sheet on the right.
+   Tokens follow shadcn/ui v4 "neutral"; chart series: dataviz reference slot 1 (blue) and slot 8 (red). */
+:root{
+  --fs-micro:11px;--fs-meta:12px;--fs-body:13px;--fs-title:14px;--fs-page:20px;
+  --bg:#f7f7f8;--fg:#18181b;--card:#fcfcfd;--muted:#eeeef0;--muted-fg:#6b6b75;--border:#e3e3e8;--input:#d9d9df;
+  --sidebar:#f0f0f2;--primary:#0f766e;--primary-fg:#ffffff;--accent:#0f766e;--accent-soft:#0f766e14;--ring:#0f766e80;--hover:#ececef;--sel:#e6e6ea;--overlay:#18181b52;
+  --s-allow:#0d9488;--s-deny:#dc4b4b;--s-allow-soft:#0d94881f;
+  --ok:#15803d;--ok-bg:#ecfdf3;--warn:#a16207;--warn-bg:#fef9e7;--bad:#b91c1c;--bad-bg:#fdf0f0;--info-bg:#eef6f6;--info:#0f766e;
+  --add-bg:#e9f9ef;--add-fg:#166534;--mod-bg:#fdf6e3;--mod-fg:#92400e;--del-bg:#fdf0f0;--del-fg:#991b1b;
+  --page:#e2e2e6;--r:10px;
+  --font:"Geist",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:"Geist Mono",ui-monospace,"SFMono-Regular",Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#161618;--fg:#ececef;--card:#1c1c1f;--muted:#28282c;--muted-fg:#a0a0aa;--border:#ffffff14;--input:#ffffff21;
+  --sidebar:#121214;--primary:#2dd4bf;--primary-fg:#042f2e;--accent:#2dd4bf;--accent-soft:#2dd4bf1a;--ring:#2dd4bf80;--hover:#232327;--sel:#2a2a2f;--overlay:#000000a0;
+  --s-allow:#2dd4bf;--s-deny:#f07070;--s-allow-soft:#2dd4bf21;
+  --ok:#4ade80;--ok-bg:#052e1666;--warn:#facc15;--warn-bg:#4220064d;--bad:#f87171;--bad-bg:#450a0a66;--info-bg:#0b2f2c80;--info:#5eead4;
+  --add-bg:#052e16;--add-fg:#86efac;--mod-bg:#3b2006;--mod-fg:#fcd34d;--del-bg:#3f0b0b;--del-fg:#fca5a5;
+  --page:#0b0b0c;color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#161618;--fg:#ececef;--card:#1c1c1f;--muted:#28282c;--muted-fg:#a0a0aa;--border:#ffffff14;--input:#ffffff21;
+  --sidebar:#121214;--primary:#2dd4bf;--primary-fg:#042f2e;--accent:#2dd4bf;--accent-soft:#2dd4bf1a;--ring:#2dd4bf80;--hover:#232327;--sel:#2a2a2f;--overlay:#000000a0;
+  --s-allow:#2dd4bf;--s-deny:#f07070;--s-allow-soft:#2dd4bf21;
+  --ok:#4ade80;--ok-bg:#052e1666;--warn:#facc15;--warn-bg:#4220064d;--bad:#f87171;--bad-bg:#450a0a66;--info-bg:#0b2f2c80;--info:#5eead4;
+  --add-bg:#052e16;--add-fg:#86efac;--mod-bg:#3b2006;--mod-fg:#fcd34d;--del-bg:#3f0b0b;--del-fg:#fca5a5;
+  --page:#0b0b0c;color-scheme:dark}
+.logo{width:32px;height:32px;border-radius:9px;display:grid;place-items:center;flex:none}
+.logo svg.i{width:27px;height:27px}
+ .logo{background:none;color:var(--accent);width:34px;height:34px}
+ .logo svg.i{width:30px;height:30px}
+:root{--bg:#f7f7f7;--card:#fdfdfd;--muted:#efefef;--muted-fg:#6b6b6b;--border:#e4e4e4;--input:#d9d9d9;--sidebar:#f1f1f1;--hover:#ececec;--sel:#e5e5e5;--fg:#171717;--primary:#262626;--primary-fg:#fafafa;--accent:#262626;--accent-soft:#26262617;--ring:#26262680;--page:#e3e3e3;--s-allow:#525252;--s-allow-soft:#52525224;--logo-a:#262626;--logo-b:#262626;--info:#262626;--info-bg:#2626260d;}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161616;--card:#1c1c1c;--muted:#282828;--muted-fg:#a3a3a3;--border:#ffffff14;--input:#ffffff21;--sidebar:#121212;--hover:#222222;--sel:#2a2a2a;--fg:#ededed;--primary:#e5e5e5;--primary-fg:#171717;--accent:#e5e5e5;--accent-soft:#e5e5e517;--ring:#e5e5e580;--page:#0b0b0b;--s-allow:#a3a3a3;--s-allow-soft:#a3a3a324;--logo-a:#e5e5e5;--logo-b:#e5e5e5;--info:#e5e5e5;--info-bg:#e5e5e50d;}}
+:root[data-theme="dark"]{--bg:#161616;--card:#1c1c1c;--muted:#282828;--muted-fg:#a3a3a3;--border:#ffffff14;--input:#ffffff21;--sidebar:#121212;--hover:#222222;--sel:#2a2a2a;--fg:#ededed;--primary:#e5e5e5;--primary-fg:#171717;--accent:#e5e5e5;--accent-soft:#e5e5e517;--ring:#e5e5e580;--page:#0b0b0b;--s-allow:#a3a3a3;--s-allow-soft:#a3a3a324;--logo-a:#e5e5e5;--logo-b:#e5e5e5;--info:#e5e5e5;--info-bg:#e5e5e50d;}
+.top.grid5{display:grid;grid-template-columns:72px var(--list-w,300px) minmax(0,1fr) minmax(0,520px) minmax(0,1fr);gap:0;padding:0 14px 0 0}
+.top.grid5 .logo-cell{display:flex;justify-content:center}
+.top.grid5 .name-cell{display:flex;align-items:center;gap:8px;padding-left:12px;min-width:0}
+.top.grid5 .search-cell{grid-column:4}
+.top.grid5 .stat-cell{grid-column:5;display:flex;justify-content:flex-end}
+@media (max-width:1180px){.top.grid5{grid-template-columns:72px min(var(--list-w,300px),260px) minmax(0,.4fr) minmax(0,520px) minmax(0,1fr)}}
+@media (max-width:820px){.top.grid5{grid-template-columns:auto auto minmax(0,1fr) auto;gap:10px;padding:0 14px}.top.grid5 .search-cell{grid-column:3}.top.grid5 .stat-cell{grid-column:4}.top.grid5>.gap{display:none}}
+.word{color:var(--fg);white-space:nowrap}
+.word{font-weight:600;font-size:var(--fs-meta);letter-spacing:.24em;text-transform:uppercase}
+*{box-sizing:border-box}
+body{margin:0;background:var(--page);color:var(--fg);font-family:var(--font);font-size:var(--fs-body);line-height:1.45;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:16px 32px;-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+.mono{font-family:var(--mono);font-size:var(--fs-meta)}.num{font-variant-numeric:tabular-nums}
+.mut{color:var(--muted-fg)}.sm{font-size:var(--fs-meta)}.xs{font-size:var(--fs-meta)}.m{font-weight:500}.b{font-weight:600}
+.row{display:flex;align-items:center;gap:8px;min-width:0}.wrap{flex-wrap:wrap}.grow{flex:1;min-width:0}.col{display:flex;flex-direction:column;gap:12px;min-width:0}
+.ellip{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+svg.i{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.i.s{width:14px;height:14px}
+
+.intro{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:flex-start;margin-bottom:12px}
+.intro h1{font-size:var(--fs-title);margin:0 0 2px;font-weight:600}.intro p{margin:0;color:var(--muted-fg);max-width:64ch}
+.try{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.try b{font-size:var(--fs-meta);color:var(--muted-fg);font-weight:500;margin-right:4px}
+.seg{display:inline-flex;background:var(--muted);border-radius:8px;padding:3px;gap:2px;flex-wrap:wrap}
+.seg button{border:0;background:transparent;color:var(--muted-fg);font-size:var(--fs-body);padding:4px 10px;border-radius:6px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--bg);color:var(--fg);box-shadow:0 1px 2px #0000001f}
+
+.frame{position:relative;background:var(--bg);border:1px solid var(--border);border-radius:14px;overflow:hidden;box-shadow:0 1px 2px #0000000d,0 8px 24px #0000000a;height:820px;display:flex;flex-direction:column}
+.card{background:var(--card);border:1px solid var(--border);border-radius:var(--r);min-width:0}
+.ch{padding:12px 14px 4px;display:flex;align-items:flex-start;gap:8px}.ct{font-weight:600;font-size:var(--fs-title)}.cd{color:var(--muted-fg);font-size:var(--fs-meta)}
+.cb{padding:8px 14px 12px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;padding:0 12px;border-radius:8px;border:1px solid var(--input);background:var(--bg);font-size:var(--fs-body);font-weight:500;cursor:pointer;white-space:nowrap}
+.btn:hover{background:var(--hover)}.btn.pri{background:var(--primary);color:var(--primary-fg);border-color:var(--primary)}.btn.pri:hover{opacity:.9}
+.btn.ghost{border-color:transparent;background:transparent}.btn.ghost:hover{background:var(--hover)}
+.btn.xs{height:26px;padding:0 8px;font-size:var(--fs-meta);border-radius:6px}.btn.icon{width:32px;padding:0}.btn.icon.xs{width:26px}.btn.dashed{border-style:dashed}
+.btn.danger{color:var(--bad)}
+.btn:focus-visible,.seg button:focus-visible,.rail-i:focus-visible,.li:focus-visible,.tab:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:2px solid var(--ring);outline-offset:1px}
+.badge{display:inline-flex;align-items:center;gap:4px;height:20px;padding:0 7px;border-radius:6px;border:1px solid var(--border);font-size:var(--fs-meta);font-weight:500;white-space:nowrap;color:var(--fg)}
+.badge.sec{background:var(--muted);border-color:transparent}.badge.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
+.badge.warn{background:var(--warn-bg);color:var(--warn);border-color:transparent}.badge.bad{background:var(--bad-bg);color:var(--bad);border-color:transparent}
+.badge.add{background:var(--add-bg);color:var(--add-fg);border-color:transparent}.badge.mod{background:var(--mod-bg);color:var(--mod-fg);border-color:transparent}
+.badge.del{background:var(--del-bg);color:var(--del-fg);border-color:transparent}
+.dot{width:6px;height:6px;border-radius:50%;background:currentColor;flex:none}
+.chip{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 7px;border-radius:6px;background:var(--muted);font-family:var(--mono);font-size:var(--fs-meta);white-space:nowrap}
+.kbd{font-family:var(--mono);font-size:var(--fs-micro);border:1px solid var(--border);border-radius:6px;padding:0 4px;color:var(--muted-fg);background:var(--muted)}
+.sep{height:1px;background:var(--border)}
+.input,input.in,select.in,textarea.in{display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--input);border-radius:8px;background:var(--bg);font-size:var(--fs-body);min-width:0;width:100%}
+.input{color:var(--muted-fg);cursor:text}
+textarea.in{height:auto;padding:8px 10px;font-family:var(--mono);font-size:var(--fs-meta);resize:vertical}
+.field{display:flex;flex-direction:column;gap:5px;min-width:0}
+.field label,.lbl{font-size:var(--fs-body);font-weight:500}
+.help{font-size:var(--fs-meta);color:var(--muted-fg)}
+.err{font-size:var(--fs-meta);color:var(--bad)}
+.fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.sw{position:relative;width:34px;height:20px;border-radius:999px;background:var(--input);border:0;cursor:pointer;flex:none}
+.sw::after{content:"";position:absolute;top:2px;left:2px;width:16px;height:16px;border-radius:50%;background:var(--bg);box-shadow:0 1px 2px #0003;transition:left .15s}
+.sw[aria-checked="true"]{background:var(--primary)}.sw[aria-checked="true"]::after{left:16px}
+.opt{display:grid;grid-template-columns:18px minmax(0,1fr);gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:8px;cursor:pointer;align-items:start}
+.opt.on{border-color:var(--fg);box-shadow:0 0 0 1px var(--fg)}
+.radio{width:16px;height:16px;border-radius:50%;border:1px solid var(--input);margin-top:1px;display:grid;place-items:center}
+.opt.on .radio::after{content:"";width:8px;height:8px;border-radius:50%;background:var(--fg)}
+.opts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.callout{display:flex;gap:10px;padding:10px 12px;border-radius:8px;border:1px solid transparent;align-items:flex-start}
+.callout.bad{background:var(--bad-bg);border-color:color-mix(in srgb,var(--bad) 25%,transparent)}
+.callout.warn{background:var(--warn-bg);border-color:color-mix(in srgb,var(--warn) 25%,transparent)}
+.callout.info{background:var(--info-bg);border-color:color-mix(in srgb,var(--info) 20%,transparent)}
+.callout .ic{margin-top:1px}
+
+.tw{overflow-x:auto}
+table{width:100%;border-collapse:collapse}
+th{text-align:left;font-weight:500;color:var(--muted-fg);font-size:var(--fs-meta);height:34px;padding:0 10px;border-bottom:1px solid var(--border);white-space:nowrap}
+td{padding:7px 10px;border-bottom:1px solid var(--border);vertical-align:middle}
+tbody tr:hover{background:var(--hover)}tbody tr:last-child td{border-bottom:0}
+th.r,td.r{text-align:right}
+tr.add td:first-child{box-shadow:inset 3px 0 0 var(--add-fg)}tr.mod td:first-child{box-shadow:inset 3px 0 0 var(--mod-fg)}tr.del td{text-decoration:line-through;color:var(--muted-fg)}tr.del td:first-child{box-shadow:inset 3px 0 0 var(--del-fg)}
+tr.dim td{color:var(--muted-fg)}
+.bar{height:6px;border-radius:3px;background:var(--muted);overflow:hidden;min-width:50px}.bar>i{display:block;height:100%;background:var(--s-allow);border-radius:3px}.bar>i.d{background:var(--s-deny)}
+
+/* app shell */
+.top{display:flex;align-items:center;gap:10px;height:52px;padding:0 14px;border-bottom:1px solid var(--border);flex:none}
+.brand{display:flex;align-items:center;gap:9px;width:208px}
+
+.status{display:flex;align-items:center;gap:8px;font-size:var(--fs-body)}
+.body{flex:1;display:grid;grid-template-columns:72px var(--list-w,300px) minmax(0,1fr);min-height:0}
+.body.wide{grid-template-columns:72px minmax(0,1fr)}
+.rail{background:var(--sidebar);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 0;overflow-y:auto}
+.rail-i{width:64px;padding:7px 0 6px;border-radius:8px;display:flex;flex-direction:column;align-items:center;gap:3px;cursor:pointer;color:var(--muted-fg);font-size:var(--fs-micro);font-weight:500;position:relative}
+.rail-i:hover{background:var(--hover);color:var(--fg)}.rail-i.on{background:var(--accent-soft);color:var(--accent)}
+.avatar{position:relative;width:32px;height:32px;border-radius:50%;border:1px solid var(--border);background:var(--muted);color:var(--fg);font-weight:500;font-size:var(--fs-body);cursor:pointer;margin:6px 0 4px;flex:none}
+.avatar:hover,.avatar.on{border-color:var(--ring)}
+.avatar .online{position:absolute;right:-1px;bottom:-1px;width:10px;height:10px;border-radius:50%;background:var(--ok);border:2px solid var(--sidebar)}
+.menu{position:absolute;left:80px;bottom:60px;z-index:25;width:280px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 32px #00000033;padding:6px}
+.menu .mh{display:flex;gap:10px;align-items:center;padding:8px 8px 10px}
+.menu .mi{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 8px;border:0;background:transparent;border-radius:6px;cursor:pointer;text-align:left;font-size:var(--fs-body)}
+.menu .mi:hover,.menu .mi:focus-visible{background:var(--hover);outline:none}
+.menu .mi.danger{color:var(--bad)}
+.menu .sep{margin:4px 0}
+.avatar:focus-visible{outline:2px solid var(--ring);outline-offset:2px}
+.health{position:relative}
+.health .htip{display:none;position:absolute;top:34px;right:0;z-index:15;width:340px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px #00000026;padding:10px 12px}
+.health:hover .htip,.health:focus-within .htip,.health.open .htip{display:block}
+.rail-i .n{position:absolute;top:3px;right:9px;min-width:15px;height:15px;border-radius:8px;background:var(--mod-bg);color:var(--mod-fg);font-size:var(--fs-micro);display:grid;place-items:center;padding:0 3px}
+.list{border-right:1px solid var(--border);display:flex;flex-direction:column;min-width:0;min-height:0}
+.lh{padding:12px 12px 10px;display:flex;flex-direction:column;gap:8px;border-bottom:1px solid var(--border)}
+.lb{overflow-y:auto;flex:1}
+.lg{padding:10px 14px 4px;font-size:var(--fs-meta);color:var(--muted-fg);font-weight:500}
+.li{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:1px 8px;padding:9px 14px;border-bottom:1px solid var(--border);cursor:pointer}
+.li:hover{background:var(--hover)}.li.on{background:var(--sel);box-shadow:inset 2px 0 0 var(--accent)}
+.li>*{min-width:0}.li:not([style])>:nth-child(2n){white-space:nowrap;text-align:right;justify-self:end}
+.li:not([style])>:nth-child(1),.li:not([style])>:nth-child(3){overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.insp{display:flex;flex-direction:column;min-width:0;min-height:0}
+.ih{padding:14px 20px 10px;display:flex;flex-direction:column;gap:6px;flex:none}
+.pt{font-size:var(--fs-page);font-weight:600;letter-spacing:-.015em;margin:0}
+.tabs{display:flex;gap:18px;border-bottom:1px solid var(--border);padding:0 20px;flex:none;overflow-x:auto}
+.tab{padding:9px 0;color:var(--muted-fg);font-weight:500;border-bottom:2px solid transparent;margin-bottom:-1px;cursor:pointer;white-space:nowrap;display:flex;gap:6px;align-items:center}
+.tab.on{color:var(--fg);border-color:var(--accent)}
+.ib{padding:16px 20px 20px;overflow-y:auto;flex:1;display:flex;flex-direction:column;gap:14px;min-width:0}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));background:var(--card);border:1px solid var(--border);border-radius:var(--r);overflow:hidden}
+.kpis>.kpi{border:0;border-radius:0;background:transparent;border-left:1px solid var(--border);padding:10px 14px;min-width:0}.kpis>.kpi:first-child{border-left:0}
+.kpis>.kpi .v,.kpis>.kpi span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ib{container-type:inline-size}
+.ib>*,.sb>*,.lb>*{flex-shrink:0}
+@container (max-width:600px){.kpi .v{font-size:var(--fs-title)}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.kpis>.kpi:nth-child(3){border-left:0}.kpis>.kpi:nth-child(n+3){border-top:1px solid var(--border)}}
+.ov{display:grid;gap:12px;grid-template-columns:minmax(0,1fr);align-items:start}
+@container (min-width:960px){.ov{grid-template-columns:minmax(0,1.65fr) minmax(300px,1fr)}}
+.ov>.col{gap:12px}
+.resizer{position:absolute;top:0;bottom:0;width:9px;cursor:col-resize;z-index:6;display:flex;justify-content:center}
+.resizer::before{content:"";width:1px;height:100%;background:transparent;transition:background .12s}
+.resizer:hover::before,.resizer.drag::before{background:var(--accent);width:2px}
+.resizer::after{content:"";position:absolute;top:50%;width:4px;height:28px;margin-top:-14px;border-radius:3px;background:var(--input);opacity:0;transition:opacity .12s}
+.resizer:hover::after,.resizer.drag::after{opacity:1;background:var(--accent)}
+.list{position:relative}.list>.resizer{right:-5px}.req-aside{position:relative}.req-aside>.resizer{left:-5px}
+body.resizing{cursor:col-resize;user-select:none}
+*{scrollbar-width:thin;scrollbar-color:var(--input) transparent}
+::-webkit-scrollbar{width:10px;height:10px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:var(--input);border-radius:10px;border:3px solid transparent;background-clip:content-box}::-webkit-scrollbar-thumb:hover{background-color:var(--muted-fg)}
+td.r,th.r{white-space:nowrap}
+.trunc{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.link{border:0;background:none;padding:0;color:var(--accent);font-weight:500;cursor:pointer}.link:hover{text-decoration:underline}
+.crumbs{display:flex;align-items:center;gap:6px;font-size:var(--fs-meta);color:var(--muted-fg)}.crumbs .link{color:var(--muted-fg);font-weight:400}
+.dd{position:absolute;z-index:22;min-width:220px;background:var(--card);border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 32px #00000026;padding:6px}
+.dd .mi{display:flex;align-items:center;gap:10px;width:100%;height:32px;padding:0 8px;border:0;background:transparent;border-radius:6px;cursor:pointer;text-align:left;font-size:var(--fs-body)}.dd .mi:hover{background:var(--hover)}.dd .mi.danger{color:var(--bad)}
+.feed{display:flex;flex-direction:column}.feed .fr{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border)}.feed .fr:last-child{border-bottom:0}
+.kpi{padding:10px 12px;display:flex;flex-direction:column;gap:1px}.kpi .v{font-size:var(--fs-page);font-weight:600;letter-spacing:-.02em}
+.up{color:var(--bad)}
+.g2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:12px}
+.kv{display:grid;grid-template-columns:auto minmax(0,1fr);gap:6px 14px;font-size:var(--fs-body)}.kv dt{color:var(--muted-fg)}.kv dd{margin:0;min-width:0;overflow-wrap:anywhere}
+
+/* tray, sheet, palette */
+.tray{flex:none;display:flex;align-items:center;gap:10px;padding:9px 14px;border-top:1px solid var(--border);background:var(--card)}
+.pill{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;background:var(--mod-bg);color:var(--mod-fg);font-weight:500;font-size:var(--fs-meta)}
+.overlay{position:absolute;inset:0;background:var(--overlay);z-index:20;display:flex;justify-content:flex-end}
+.sheet{width:min(620px,100%);height:100%;background:var(--bg);border-left:1px solid var(--border);display:flex;flex-direction:column;box-shadow:-8px 0 24px #0000001f}
+.sheet .sh{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;gap:10px;align-items:flex-start}
+.sheet .sb{flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px}
+.sheet .sf{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center}
+.palette{margin:80px auto auto;width:min(560px,92%);background:var(--bg);border:1px solid var(--border);border-radius:12px;box-shadow:0 16px 48px #00000040;overflow:hidden;align-self:flex-start}
+.palette .pi{display:flex;align-items:center;gap:8px;padding:0 14px;height:46px;border-bottom:1px solid var(--border)}
+.palette .pg{padding:8px 8px 2px;font-size:var(--fs-meta);color:var(--muted-fg);font-weight:500;padding-left:14px}
+.palette .po{display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;border-radius:6px;margin:0 6px}
+.palette .po:hover,.palette .po.on{background:var(--sel)}
+.change-li{display:grid;grid-template-columns:22px minmax(0,1fr) auto;gap:10px;padding:10px 14px;border-bottom:1px solid var(--border);align-items:start}.change-li:last-child{border-bottom:0}
+.ci{width:20px;height:20px;border-radius:6px;display:grid;place-items:center;font-weight:600;font-family:var(--mono);font-size:var(--fs-meta)}
+.ci.a{background:var(--add-bg);color:var(--add-fg)}.ci.m{background:var(--mod-bg);color:var(--mod-fg)}.ci.d{background:var(--del-bg);color:var(--del-fg)}
+.diff{font-family:var(--mono);font-size:var(--fs-meta);line-height:1.65;overflow-x:auto;border:1px solid var(--border);border-radius:8px}
+.diff div{display:grid;grid-template-columns:34px 14px minmax(0,1fr);white-space:pre}.diff .ln{color:var(--muted-fg);text-align:right;padding-right:6px}
+.diff .p{background:var(--add-bg);color:var(--add-fg)}.diff .n{background:var(--del-bg);color:var(--del-fg)}.diff .h{color:var(--muted-fg);background:var(--muted);padding-left:48px;display:block}
+.steps{display:flex;flex-direction:column;gap:8px}
+.stp{display:grid;grid-template-columns:20px minmax(0,1fr) auto;gap:8px;align-items:center;font-size:var(--fs-body)}
+.spin{width:14px;height:14px;border-radius:50%;border:2px solid var(--border);border-top-color:var(--fg);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+/* charts */
+.chart{position:relative}.chart svg.plot{position:absolute;inset:0;width:100%;height:100%;overflow:visible}
+.chart .grid{position:absolute;left:0;right:0;border-top:1px dashed var(--border)}
+.chart .yl{position:absolute;right:calc(100% + 6px);transform:translateY(-50%);font-size:var(--fs-meta);color:var(--muted-fg);white-space:nowrap}
+.chart .xl{position:absolute;top:calc(100% + 6px);transform:translateX(-50%);font-size:var(--fs-meta);color:var(--muted-fg);white-space:nowrap}
+.chart .cross{position:absolute;top:0;bottom:0;width:1px;background:var(--muted-fg);opacity:.5;pointer-events:none}
+.tip{position:absolute;z-index:5;pointer-events:none;background:var(--card);border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 16px #0000001f;padding:7px 9px;font-size:var(--fs-meta);min-width:150px}
+.tip .tr{display:flex;align-items:center;gap:8px}.tip .tr b{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:500}
+.swc{width:8px;height:8px;border-radius:2px;flex:none;display:inline-block}
+.legend{display:flex;gap:14px;font-size:var(--fs-meta);color:var(--muted-fg)}.legend span{display:inline-flex;align-items:center;gap:6px}
+.spark{display:block}
+.facets{border-right:1px solid var(--border);padding:14px;display:flex;flex-direction:column;gap:16px;min-width:0;overflow-y:auto}
+.fg h4{margin:0 0 6px;font-size:var(--fs-meta);font-weight:500;color:var(--muted-fg)}
+.fo{display:flex;align-items:center;gap:8px;height:26px;font-size:var(--fs-body)}
+.cbx{width:14px;height:14px;border:1px solid var(--input);border-radius:4px;flex:none;display:grid;place-items:center}
+.cbx.on{background:var(--primary);border-color:var(--primary);color:var(--primary-fg)}
+.explain{border:1px solid var(--border);border-radius:8px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;background:var(--bg)}
+.step{display:grid;grid-template-columns:18px minmax(0,1fr);gap:8px;font-size:var(--fs-body);align-items:start}
+.toast{position:absolute;left:50%;bottom:64px;transform:translateX(-50%);z-index:30;background:var(--primary);color:var(--primary-fg);padding:8px 14px;border-radius:8px;font-size:var(--fs-body);box-shadow:0 6px 20px #0003}
+
+@media (max-width:1180px){
+  .body{grid-template-columns:72px min(var(--list-w,300px),260px) minmax(0,1fr)}.g2,.fgrid,.opts{grid-template-columns:1fr}
+  .hide-md{display:none!important}.brand{width:auto}.logc{grid-template-columns:minmax(0,1fr) min(var(--aside-w,340px),300px)!important}
+}
+@media (max-width:820px){.body,.body.wide{grid-template-columns:1fr}.rail,.list{display:none}.hide-sm{display:none!important}.logc{grid-template-columns:1fr!important}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="intro">
+  <div style="flex:1;min-width:300px"><h1>Kraken · инспектор</h1>
+    <p>Прототип на компонентах shadcn/ui. Данные условные. Действия работают: правки попадают в черновик внизу, а из него в проверку и применение.</p></div>
+</div>
+<div class="try" style="margin-bottom:8px"><b>Сценарии</b>
+  <button class="btn xs" data-go="why">Почему ci-01 не качает npm</button>
+  <button class="btn xs" data-go="newfromlog">Описать неизвестный IP</button>
+  <button class="btn xs" data-go="newclient">Добавить сервер</button>
+  <button class="btn xs" data-go="policy">Общая политика</button>
+  <button class="btn xs" data-go="blocked">Запретить домен для всех</button>
+  <button class="btn xs" data-go="review">Проверить и применить</button>
+</div>
+<div class="try" style="margin-bottom:12px;gap:14px">
+  <span class="row"><b>Смотреть как</b><span class="seg"><button aria-pressed="true" data-mode="role:admin">Администратор</button><button aria-pressed="false" data-mode="role:manager">Менеджер anna</button></span></span>
+  <span class="row"><b>Состояние</b><span class="seg"><button aria-pressed="true" data-mode="env:ok">Работает</button><button aria-pressed="false" data-mode="env:down">Squid недоступен</button><button aria-pressed="false" data-mode="env:empty">Первый запуск</button></span></span>
+  <span class="row"><b>Применение</b><span class="seg"><button aria-pressed="true" data-mode="apply:ok">Успешно</button><button aria-pressed="false" data-mode="apply:fail">С ошибкой Squid</button></span></span>
+  <button class="btn xs" data-mode="conflict:on">Черновик изменён другим</button>
+</div>
+
+<div class="frame" id="app"></div>
+
+<script>
+/* ---------- icons (Lucide) ---------- */
+const P={
+ users:'<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/>',
+ log:'<path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z"/><path d="M14 2v4a2 2 0 0 0 2 2h4"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/>',
+ diff:'<circle cx="18" cy="18" r="3"/><circle cx="6" cy="6" r="3"/><path d="M13 6h3a2 2 0 0 1 2 2v7"/><path d="M11 18H8a2 2 0 0 1-2-2V9"/>',
+ sliders:'<path d="M21 4h-7M10 4H3M21 12h-9M8 12H3M21 20h-5M12 20H3M14 2v4M8 10v4M16 18v4"/>',
+ shield:'<path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z"/>',
+ key:'<circle cx="7.5" cy="15.5" r="5.5"/><path d="m21 2-9.6 9.6"/><path d="m15.5 7.5 3 3L22 7l-3-3"/>',
+ hist:'<path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M12 7v5l4 2"/>',
+ search:'<circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>',plus:'<path d="M5 12h14M12 5v14"/>',check:'<path d="M20 6 9 17l-5-5"/>',
+ warn:'<path d="m21.73 18-8-14a2 2 0 0 0-3.48 0l-8 14A2 2 0 0 0 4 21h16a2 2 0 0 0 1.73-3"/><path d="M12 9v4"/><path d="M12 17h.01"/>',
+ more:'<circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>',
+ globe:'<circle cx="12" cy="12" r="10"/><path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20"/><path d="M2 12h20"/>',
+ ban:'<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',arrow:'<path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>',
+ pause:'<rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/>',
+ server:'<rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/><path d="M6 6h.01M6 18h.01"/>',
+ user:'<circle cx="12" cy="8" r="5"/><path d="M20 21a8 8 0 0 0-16 0"/>',x:'<path d="M18 6 6 18M6 6l12 12"/>',
+ lock:'<rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',play:'<path d="m6 3 14 9-14 9z"/>',
+ list:'<path d="M3 12h.01M3 18h.01M3 6h.01M8 12h13M8 18h13M8 6h13"/>',copy:'<rect x="8" y="8" width="14" height="14" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/>',
+ info:'<circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/>',undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/>',
+ network:'<rect x="16" y="16" width="6" height="6" rx="1"/><rect x="2" y="16" width="6" height="6" rx="1"/><rect x="9" y="2" width="6" height="6" rx="1"/><path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/><path d="M12 12V8"/>',
+ code:'<path d="m16 18 6-6-6-6"/><path d="m8 6-6 6 6 6"/>',eye:'<path d="M2.06 12.35a1 1 0 0 1 0-.7 10.75 10.75 0 0 1 19.88 0 1 1 0 0 1 0 .7 10.75 10.75 0 0 1-19.88 0"/><circle cx="12" cy="12" r="3"/>',
+ clock:'<circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>',
+ kraken:'<path d="M12 1.6 16 4.6 16.2 9.6 13.6 12.6H10.4L7.8 9.6 8 4.6ZM9.4 7.4 11.3 8.5 9.6 9.2ZM14.6 7.4 12.7 8.5 14.4 9.2Z" fill="currentColor" fill-rule="evenodd" stroke="none"/><path d="M10.2 12.2H13.8L13.2 14.2H10.8Z" fill="currentColor" stroke="none"/><g fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="miter" stroke-miterlimit="4" stroke-linecap="butt"><path d="M9.6 11.2 6.4 10.2 4.6 7.4 6.2 6.8"/><path d="M14.4 11.2 17.6 10.2 19.4 7.4 17.8 6.8"/><path d="M9.8 12.2 5.2 13.0 2.6 11.0 2.0 12.6"/><path d="M14.2 12.2 18.8 13.0 21.4 11.0 22.0 12.6"/><path d="M10.4 12.9 7.6 16.4 4.4 16.2 3.6 18.2"/><path d="M13.6 12.9 16.4 16.4 19.6 16.2 20.4 18.2"/><path d="M11.2 13.2 10.0 17.6 7.4 19.4 8.2 21.8"/><path d="M12.8 13.2 14.0 17.6 16.6 19.4 15.8 21.8"/></g>',
+ book:'<path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M9 7h6"/><path d="M9 11h4"/>',
+ sun:'<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2m-7.07-14.07 1.41 1.41m11.32 11.32 1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/>',
+ moon:'<path d="M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z"/>',
+};
+const I=(n,c='')=>`<svg class="i ${c}" viewBox="0 0 24 24" aria-hidden="true">${P[n]}</svg>`;
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmt=n=>Number(n).toLocaleString('ru-RU');
+
+const plural=(n,a,b,c)=>{n=Math.abs(+String(n).replace(/\s/g,''));const m=n%10,h=n%100;return m===1&&h!==11?a:m>=2&&m<=4&&(h<12||h>14)?b:c;};
+const cnt=(n,a,b,c)=>n+' '+plural(n,a,b,c);
+const OTK=n=>cnt(n,'отказ','отказа','отказов');const KL=n=>cnt(n,'клиент','клиента','клиентов');
+/* ---------- deterministic data ---------- */
+let seed=7;const rnd=()=>(seed=(seed*16807)%2147483647)/2147483647;
+const series=(scale=1,s=7,denyTail=true)=>{seed=s;return Array.from({length:96},(_,i)=>{const h=(i/4+14)%24;const day=Math.max(0,Math.sin((h-7)/24*Math.PI*2*0.95));const a=Math.round((600+3400*Math.pow(day,1.4))*(0.85+rnd()*0.3)*scale);let d=Math.round(a*0.004+rnd()*8*scale);if(denyTail&&i>=88)d+=Math.round((18+rnd()*14)*Math.max(scale,.3));return {a,d};});};
+const tlabel=i=>{const m=(14*60+i*15)%(24*60);return String(Math.floor(m/60)).padStart(2,'0')+':'+String(m%60).padStart(2,'0');};
+const sp=(s,amp=1)=>{seed=s;return Array.from({length:24},(_,i)=>Math.round((40+60*Math.max(0,Math.sin(i/24*Math.PI*1.6+0.3)))*amp*(0.6+rnd()*0.8)));};
+
+const D={
+ policies:[
+  {id:'build',name:'Сборка и CI',mode:'list',dom:[{d:'archive.ubuntu.com',s:1,h:9120},{d:'ports.ubuntu.com',s:1,h:2310},{d:'docker.io',s:1,h:14210},{d:'ghcr.io',s:0,h:3120},{d:'github.com',s:1,h:8800},{d:'pypi.org',s:0,h:6200},{d:'files.pythonhosted.org',s:0,h:3920},{d:'bitbucket.org',s:0,h:0}]},
+  {id:'ci01',name:'ci-01',own:true,mode:'list',dom:[{d:'pypi.org',s:0,h:3920},{d:'files.pythonhosted.org',s:0,h:2104}]},
+  {id:'k8s',name:'Кластер prod',mode:'list',dom:[{d:'registry.k8s.io',s:0,h:7810},{d:'quay.io',s:0,h:4410},{d:'docker.io',s:1,h:6022},{d:'gcr.io',s:1,h:2130},{d:'github.com',s:1,h:1201}]},
+  {id:'web',name:'Весь веб',mode:'all',dom:[]},
+  {id:'s3',name:'Бэкапы S3',mode:'list',dom:[{d:'s3.eu-central-1.amazonaws.com',s:0,h:412}]},
+  {id:'mon',name:'Мониторинг',mode:'list',dom:[{d:'api.telegram.org',s:0,h:288}]},
+ ],
+ clients:[
+  {id:'build',name:'build-runners',desc:'CI-раннеры GitLab',kind:'Сеть',nets:['10.20.0.0/24'],pol:'build',tr:'HTTP',login:'',req:48210,den:212,bytes:'38,4 ГБ',last:'сейчас',sp:sp(3,1.2),on:true,tun:5},
+  {id:'ci01',name:'ci-01',desc:'Сборочный сервер фронтенда',kind:'Устройство',nets:['10.20.0.15'],pol:'ci01',tr:'HTTP',login:'',req:6120,den:37,bytes:'2,3 ГБ',last:'2 мин',sp:sp(11,.4),on:true,tun:1,note:'Пересекается с build-runners: допустимо, у ci-01 своё правило для этого IP'},
+  {id:'k8s',name:'k8s-nodes',desc:'Узлы кластера prod',kind:'Группа',nets:['10.50.1.0/24','10.50.2.0/24','10.50.3.0/24'],pol:'k8s',tr:'HTTP',login:'',req:22904,den:0,bytes:'21,7 ГБ',last:'1 мин',sp:sp(9,.9),on:true,tun:3},
+  {id:'vpn',name:'vpn-office',desc:'Офис через VPN',kind:'Сеть',nets:['10.8.0.0/16'],pol:'web',tr:'HTTP',login:'',req:31877,den:9,bytes:'12,1 ГБ',last:'сейчас',sp:sp(5),on:true,tun:2},
+  {id:'dev',name:'dev-laptops',desc:'Ноутбуки разработчиков',kind:'Сеть',nets:['10.40.0.0/22'],pol:'web',tr:'TLS',login:'dev-*',req:9310,den:4,bytes:'6,0 ГБ',last:'сейчас',sp:sp(13,.6),on:true,tun:1,changed:'Было: HTTP без логина'},
+  {id:'bkp',name:'backup-01',desc:'Выгрузка бэкапов в S3',kind:'Устройство',nets:['10.30.1.7'],pol:'s3',tr:'TLS',login:'backup',req:412,den:0,bytes:'94,2 ГБ',last:'38 мин',sp:sp(17,.15),on:true,tun:0},
+  {id:'mon',name:'monitoring',desc:'Алерты в мессенджер',kind:'Устройство',nets:['10.10.0.5'],pol:'mon',tr:'HTTP',login:'',req:288,den:0,bytes:'3 МБ',last:'4 мин',sp:sp(19,.1),on:true,tun:0},
+  {id:'prn',name:'lab-printers',desc:'Принтеры лаборатории',kind:'Группа',nets:['10.60.0.0/24','10.61.0.0/24'],pol:'',tr:'HTTP',login:'',req:0,den:0,bytes:'—',last:'—',sp:Array(24).fill(0),on:false,tun:0},
+ ],
+ unknown:[{ip:'10.99.1.4',den:5,dst:['deb.debian.org','security.debian.org'],last:'21 мин'}],
+ denied:{ci01:[{d:'registry.npmjs.org',n:37,why:'list'}],build:[{d:'objects.githubusercontent.com',n:164,why:'list'},{d:'smtp.gmail.com:587',n:48,why:'port'}],vpn:[{d:'169.254.169.254',n:9,why:'internal'}]},
+ blocked:[{d:'doubleclick.net',s:1,h:212},{d:'ngrok.io',s:1,h:3},{d:'pastebin.com',s:0,h:0},{d:'tracker.example',s:1,h:41,isnew:1}],
+ accounts:{panel:[{n:'admin',role:'Администратор',on:true,last:'сейчас'},{n:'oncall',role:'Менеджер',on:true,last:'вчера'},{n:'contractor',role:'Менеджер',on:false,last:'12 д'}],proxy:[{n:'backup',on:true,used:'backup-01'},{n:'dev-anna',on:true,used:'dev-laptops'},{n:'dev-oleg',on:true,used:'dev-laptops'}]},
+};
+const logs=[
+ ['14:02:11','ci01','10.20.0.15','CONNECT','registry.npmjs.org:443','403','d'],
+ ['14:02:09','build','10.20.0.31','CONNECT','github.com:443','200','a'],
+ ['14:02:08','build','10.20.0.31','CONNECT','objects.githubusercontent.com:443','403','d'],
+ ['14:01:58','vpn','10.8.3.17','GET','archive.ubuntu.com/ubuntu/dists/noble/InRelease','200','a'],
+ ['14:01:51','k8s','10.50.2.11','CONNECT','registry.k8s.io:443','200','a'],
+ ['14:01:40','ci01','10.20.0.15','CONNECT','pypi.org:443','200','a'],
+ ['14:01:12','?','10.99.1.4','GET','deb.debian.org/debian/dists/bookworm/InRelease','403','d'],
+ ['14:00:58','mon','10.10.0.5','CONNECT','api.telegram.org:443','200','a'],
+ ['14:00:44','build','10.20.0.44','CONNECT','smtp.gmail.com:587','403','d'],
+ ['14:00:31','bkp','10.30.1.7','CONNECT','s3.eu-central-1.amazonaws.com:443','200','a'],
+];
+
+/* ---------- state ---------- */
+const S={doc:'apt',aud:0,nav:'clients',sel:'ci01',tab:'overview',pol:'build',set:'blocked',acc:'admin',logSel:0,sheet:false,palette:false,applying:-1,applied:false,newc:null,toast:'',
+ draft:[{k:'m',t:'dev-laptops: только TLS с логином',d:'Было: HTTP без логина · стало: TLS, логин dev-*',ref:'dev'},{k:'a',t:'Запрещено для всех: *.tracker.example',d:'Для всех клиентов; за 24 ч 41 запрос от vpn-office',ref:'blocked'}]};
+const C=id=>D.clients.find(c=>c.id===id);const PO=id=>D.policies.find(p=>p.id===id);
+const usersOf=pid=>D.clients.filter(c=>c.pol===pid);
+function addChange(ch){S.draft.push(ch);S.applied=false;toast('Добавлено в черновик · трафик не изменится до применения');}
+function toast(t){S.toast=t;clearTimeout(toast.t);toast.t=setTimeout(()=>{S.toast='';render();},2600);}
+
+/* ---------- charts ---------- */
+function niceMax(v){if(v<=0)return 1;const p=Math.pow(10,Math.floor(Math.log10(v)));const f=v/p;return (f<=1?1:f<=2?2:f<=5?5:10)*p;}
+function traffic(id,data,h=150){
+  const n=data.length,maxA=niceMax(Math.max(...data.map(s=>s.a))),maxD=niceMax(Math.max(1,...data.map(s=>s.d)));const W=1000,H=100;
+  let line='';data.forEach((s,i)=>{line+=(i?'L':'M')+(i/(n-1)*W).toFixed(1)+','+(H-s.a/maxA*H).toFixed(1);});
+  const bw=W/n;const bars=data.map((s,i)=>{const bh=s.d/maxD*H;return bh?`<rect x="${(i*bw+1).toFixed(1)}" y="${(H-bh).toFixed(1)}" width="${(bw-2).toFixed(1)}" height="${bh.toFixed(1)}" rx="1.5" fill="var(--s-deny)"/>`:''}).join('');
+  const grid=v=>[0,.5,1].map(f=>`<div class="grid" style="top:${(1-f)*100}%"></div><div class="yl num" style="top:${(1-f)*100}%">${fmt(Math.round(v*f))}</div>`).join('');
+  const xt=[0,16,32,48,64,80,95].map(i=>`<div class="xl" style="left:${i/(n-1)*100}%;${i===95?'transform:translateX(-100%)':''}">${tlabel(i)}</div>`).join('');
+  TR[id]=data;
+  return `<div data-chart="${id}" style="position:relative;padding:2px 2px 22px 44px">
+   <div class="legend" style="margin-bottom:6px"><span><i class="swc" style="background:var(--s-allow)"></i>Разрешено, запросов за 15 мин</span></div>
+   <div class="chart" style="height:${h}px">${grid(maxA)}<svg class="plot" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none"><path d="${line}L${W},${H}L0,${H}Z" fill="var(--s-allow-soft)"/><path d="${line}" fill="none" stroke="var(--s-allow)" stroke-width="2" vector-effect="non-scaling-stroke"/></svg></div>
+   <div class="legend" style="margin:12px 0 6px"><span><i class="swc" style="background:var(--s-deny)"></i>Отказы, за 15 мин</span></div>
+   <div class="chart" style="height:40px">${grid(maxD)}<svg class="plot" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${bars}</svg>${xt}</div></div>`;
+}
+const TR={};
+function bindCharts(root){root.querySelectorAll('[data-chart]').forEach(el=>{const data=TR[el.dataset.chart];if(!data)return;const charts=el.querySelectorAll('.chart');const n=data.length;
+  const tip=document.createElement('div');tip.className='tip';tip.hidden=true;el.appendChild(tip);const cross=[...charts].map(c=>{const d=document.createElement('div');d.className='cross';d.hidden=true;c.appendChild(d);return d;});
+  el.addEventListener('mousemove',e=>{const r=charts[0].getBoundingClientRect();const f=Math.min(1,Math.max(0,(e.clientX-r.left)/r.width));const i=Math.round(f*(n-1));const s=data[i];
+   cross.forEach(d=>{d.hidden=false;d.style.left=(i/(n-1)*100)+'%';});tip.hidden=false;
+   tip.innerHTML=`<div class="mut" style="margin-bottom:4px">${tlabel(i)}–${tlabel(i+1)}</div><div class="tr"><i class="swc" style="background:var(--s-allow)"></i>Разрешено<b>${fmt(s.a)}</b></div><div class="tr"><i class="swc" style="background:var(--s-deny)"></i>Отказы<b>${fmt(s.d)}</b></div>`;
+   const er=el.getBoundingClientRect();let lx=e.clientX-er.left+14;if(lx+170>er.width)lx-=190;tip.style.left=lx+'px';tip.style.top='24px';});
+  el.addEventListener('mouseleave',()=>{tip.hidden=true;cross.forEach(d=>d.hidden=true);});});}
+function spark(v,w=56,h=18,color='var(--s-allow)'){const m=Math.max(1,...v),n=v.length,bw=w/n;if(v.every(x=>!x))return `<svg class="spark" width="${w}" height="${h}"><line x1="0" y1="${h-1}" x2="${w}" y2="${h-1}" stroke="var(--border)" stroke-width="2"/></svg>`;
+ return `<svg class="spark" width="${w}" height="${h}" aria-hidden="true">${v.map((x,i)=>{const bh=Math.max(1.5,x/m*(h-2));return `<rect x="${(i*bw+.4).toFixed(1)}" y="${(h-bh).toFixed(1)}" width="${(bw-1.2).toFixed(1)}" height="${bh.toFixed(1)}" rx="1" fill="${color}" opacity="${i===n-1?1:.55}"/>`;}).join('')}</svg>`;}
+function hist(){seed=31;const v=Array.from({length:60},(_,i)=>({a:Math.round(110+60*rnd()+(i>40?30:0)),d:Math.round(rnd()*4+(i>45?6*rnd():0))}));const m=Math.max(...v.map(x=>x.a+x.d));const W=600,H=60,bw=W/60;
+ return `<div class="chart" style="height:50px"><svg class="plot" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">${v.map((x,i)=>{const ha=x.a/m*H,hd=x.d/m*H;return `<rect x="${i*bw+1}" y="${H-ha}" width="${bw-2}" height="${ha}" rx="1" fill="var(--s-allow)" opacity=".7"/>${hd?`<rect x="${i*bw+1}" y="${H-ha-hd-1.5}" width="${bw-2}" height="${hd}" rx="1" fill="var(--s-deny)"/>`:''}`;}).join('')}</svg>${['13:03','13:18','13:33','13:48','14:02'].map((t,i)=>`<div class="xl" style="left:${i*25}%;${i===0?'transform:none':i===4?'transform:translateX(-100%)':''}">${t}</div>`).join('')}</div>`;}
+
+/* ---------- shared bits ---------- */
+const kpi=(t,v,d='',cls='')=>`<div class="card kpi"><span class="mut sm m">${t}</span><span class="v num ${cls}">${v}</span>${d?`<span class="xs mut">${d}</span>`:''}</div>`;
+const domLabel=x=>(x.s?'*.':'')+x.d;
+const whyText={list:'нет в политике клиента',port:'порт закрыт для всех',internal:'внутренний адрес, встроенная защита'};
+function policyBadge(c){const p=PO(c.pol);if(!c.on)return '<span class="badge">'+I('ban','s')+'выключен</span>';if(!p)return '<span class="badge">нет доступа</span>';return p.mode==='all'?`<span class="badge sec">${I('globe','s')}Весь веб</span>`:`<span class="badge sec">${I('shield','s')}${esc(p.own?'Своя политика':p.name)} · ${p.dom.length}</span>`;}
+
+// Domain editor, reused for client policy, shared policy and the global blocklist.
+function domainEditor(list,ctx){
+  const max=Math.max(1,...list.map(x=>x.h||0));
+  return `<div class="tw"><table><thead><tr><th style="padding-left:0">Домен</th><th>Поддомены</th><th>Запросов, 24 ч</th><th class="r"></th></tr></thead><tbody>${list.map((x,i)=>`<tr class="${x.isnew?'add':''} ${x.del?'del':''} ${!x.h&&!x.isnew&&!x.del?'dim':''}">
+   <td style="padding-left:6px"><span class="chip">${esc(domLabel(x))}</span>${x.isnew?' <span class="badge add">в черновике</span>':''}${!x.h&&!x.isnew&&!x.del?' <span class="badge sec" title="Ни одного запроса за 7 дней">не используется</span>':''}</td>
+   <td><button class="sw" role="switch" aria-checked="${!!x.s}" aria-label="Поддомены ${esc(x.d)}" data-act="toggle-sub" data-ctx="${ctx}" data-i="${i}"></button></td>
+   <td style="width:34%"><div class="row"><div class="bar grow"><i style="width:${(x.h||0)/max*100}%"></i></div><span class="num sm" style="width:52px;text-align:right">${x.h?fmt(x.h):'—'}</span></div></td>
+   <td class="r">${x.del?`<button class="btn xs ghost" data-act="undo-del" data-ctx="${ctx}" data-i="${i}">${I('undo','s')}Вернуть</button>`:`<button class="btn ghost icon xs" aria-label="Удалить ${esc(x.d)}" data-act="del-dom" data-ctx="${ctx}" data-i="${i}">${I('x','s')}</button>`}</td></tr>`).join('')}</tbody></table></div>
+   <div class="row" style="margin-top:10px"><input class="in mono" id="add-${ctx}" placeholder="домен; несколько через пробел или с новой строки" style="flex:1"><label class="row sm" style="gap:6px;white-space:nowrap"><button class="sw" role="switch" aria-checked="true" aria-label="С поддоменами" data-act="noop"></button>с поддоменами</label><button class="btn" data-act="add-dom" data-ctx="${ctx}">${I('plus','s')}Добавить</button></div>
+   <div class="help" style="margin-top:4px">Вставьте список из README или pip/npm-ошибки: домены извлекутся, дубли и пересечения подсветятся до сохранения.</div>`;
+}
+function ctxList(ctx){if(ctx==='blocked')return D.blocked;return PO(ctx.replace('pol:','')).dom;}
+
+/* ---------- shell ---------- */
+function render(){
+  const app=document.getElementById('app');
+  const rail=[['clients','users','Клиенты'],['policies','shield','Политики'],['log','log','Журнал'],['audit','hist','Аудит'],['accounts','key','Аккаунты'],['help','book','Справка'],['settings','sliders','Настройки']];
+  const wide=S.nav==='log';
+  const ri=([k,ic,l])=>`<a class="rail-i ${S.nav===k?'on':''}" data-nav="${k}" tabindex="0">${I(ic)}${l}${k==='clients'&&D.unknown.length?'<span class="n">'+D.unknown.length+'</span>':''}</a>`;
+  const dark=document.documentElement.dataset.theme==='dark'||(!document.documentElement.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);
+  app.innerHTML=`<header class="top grid5">
+    <div class="logo-cell"><div class="logo">${I('kraken')}</div></div>
+    <div class="name-cell"><span class="word">Kraken</span></div><div class="gap"></div>
+    <div class="input search-cell" data-act="palette" style="justify-self:stretch">${I('search','s')}<span class="grow">Клиент, IP, домен или действие…</span><span class="kbd">⌘K</span></div>
+    <div class="stat-cell"><div class="health ${S.hopen?'open':''}"><button class="btn xs ghost" data-act="health" aria-expanded="${!!S.hopen}" aria-label="Состояние сервера">${S.env==='down'?'<span class="dot" style="color:var(--bad);width:8px;height:8px"></span>Недоступен':'<span class="dot" style="color:var(--ok);width:8px;height:8px"></span>Работает'}</button>
+      <div class="htip" role="dialog" aria-label="Состояние сервера">
+       <div class="row">${S.env==='down'?'<span class="badge bad"><span class="dot"></span>Squid не отвечает с 14:03</span>':'<span class="badge ok"><span class="dot"></span>Squid работает</span>'}<span class="grow"></span><span class="xs mut">проверено 12 с назад</span></div>
+       <dl class="kv" style="margin-top:10px"><dt>Экземпляр</dt><dd>proxy-01</dd><dt>Ревизия</dt><dd><span class="mono">r-${S.applied?42:41}</span> · применена 13:40, admin</dd><dt>Squid</dt><dd>6.13 · аптайм 6 д 4 ч</dd><dt>Порты</dt><dd class="mono">10.0.0.2:3128 · :3129 TLS</dd><dt>Сейчас</dt><dd>12 открытых туннелей · 41 запрос/с</dd><dt>Ресурсы</dt><dd>CPU 3% · память 142 МБ</dd><dt>Журнал</dt><dd>собран 3 с назад, без пропусков</dd><dt>Диск /data</dt><dd>2,1 ГБ из 20 ГБ</dd></dl>
+       <div class="sep" style="margin:10px 0"></div><div class="row"><button class="btn xs" data-nav="audit">История применений</button><span class="grow"></span>${isMgr()?'':'<button class="btn xs ghost" data-set="ports" data-nav="settings">Настройки экземпляра</button>'}</div></div></div></div></header>
+  ${S.env==='down'?downBanner():''}<div class="body ${wide?'wide':''}"><nav class="rail" aria-label="Разделы">${rail.slice(0,5).map(ri).join('')}<span class="grow"></span>${(isMgr()?[rail[5]]:rail.slice(5)).map(ri).join('')}
+    <button class="rail-i" data-act="theme" aria-label="Переключить тему" style="border:0;background:transparent">${I(dark?'sun':'moon')}${dark?'Светлая':'Тёмная'}</button>
+    <button class="avatar ${S.me?'on':''}" data-act="me" aria-haspopup="menu" aria-expanded="${!!S.me}" aria-label="Профиль admin">${isMgr()?'An':'A'}<span class="online"></span></button></nav>
+   ${({clients:vClients,policies:vPolicies,log:vLog,settings:vSettings,accounts:vAccounts,audit:vAudit,help:vHelp})[S.nav]()}</div>
+  ${S.draft.length?`<div class="tray"><span class="pill">${I('diff','s')}${S.draft.length} ${plural(S.draft.length,'изменение','изменения','изменений')} в черновике</span><span class="mut sm hide-md">Трафик не изменится, пока изменения не применены</span><span class="grow"></span><button class="btn xs ghost" data-act="discard">Отменить всё</button><button class="btn pri xs" data-act="review">${I('eye','s')}Просмотреть и применить</button></div>`
+   :`<div class="tray"><span class="badge ok">${I('check','s')}Черновик пуст</span><span class="mut sm">${S.applied?'Ревизия r-42 применена и подтверждена Squid':'Работает ревизия r-41'}</span><span class="grow"></span><button class="btn xs ghost" data-nav="audit">История применений</button></div>`}
+  ${S.me?meMenu():''}${S.confirm?confirmDlg():''}${S.sheet?sheet():''}${S.palette?palette():''}${S.toast?`<div class="toast">${esc(S.toast)}</div>`:''}`;
+  bindCharts(app);
+  const pi=app.querySelector('#pal-in');if(pi)pi.focus();
+}
+const plural0=(n,a,b,c)=>{const m=n%10,h=n%100;return m===1&&h!==11?a:m>=2&&m<=4&&(h<12||h>14)?b:c;};
+
+/* ---------- clients ---------- */
+function vClients(){
+  const items=D.clients.map(c=>`<div class="li ${S.sel===c.id&&!S.newc?'on':''}" data-sel="${c.id}" tabindex="0"><div class="m ellip">${esc(c.name)}${c.isnew?' <span class="badge add">новый</span>':c.changed?' <span class="badge mod">изменён</span>':''}</div><div>${spark(c.sp,52,16,c.on?'var(--s-allow)':'var(--border)')}</div><div class="xs mut mono ellip">${esc(c.nets.join(', '))}</div><div class="xs num ${c.den?'up':'mut'}" style="text-align:right">${!c.on?'выкл':c.den?OTK(c.den):c.req?fmt(c.req):'—'}</div></div>`).join('');
+  return `<div class="list"><div class="lh"><div class="row"><span class="b grow">Клиенты</span><button class="btn xs pri" data-act="new-client">${I('plus','s')}Новый</button></div><div class="input">${I('search','s')}Имя, IP или домен…</div>
+    <div class="row wrap"><span class="badge sec">все ${D.clients.length}</span><span class="badge sec">с отказами 3</span><span class="badge sec">в черновике ${D.clients.filter(c=>c.isnew||c.changed).length}</span></div></div>
+   <div class="lb">${items}<div class="lg">Неописанные источники</div>${D.unknown.map(u=>`<div class="li ${S.newc&&S.newc.from===u.ip?'on':''}" data-act="new-from" data-ip="${u.ip}" tabindex="0"><div class="mono">${u.ip}</div><div class="xs up">${OTK(u.den)}</div><div class="xs mut ellip">${u.dst.join(', ')}</div><div class="xs mut">${u.last}</div></div>`).join('')}</div></div>
+  <section class="insp">${S.newc?newClient():clientInsp(C(S.sel))}</section>`;
+}
+function clientInsp(c){
+  const p=PO(c.pol);const den=D.denied[c.id]||[];const shared=p&&!p.own&&usersOf(p.id).length>1;
+  const tabs=[['overview','Обзор'],['access','Доступ'],['source','Источник и подключение'],['requests','Запросы'],['history','История']];
+  return `<div class="ih"><div class="crumbs"><button class="link" data-nav="clients">Клиенты</button><span>/</span><span class="trunc">${esc(c.name)}</span></div><div class="row wrap"><h2 class="pt trunc" style="max-width:100%">${esc(c.name)}</h2>${c.isnew?'<span class="badge add">новый, в черновике</span>':c.changed?'<span class="badge mod">изменён</span>':''}${c.on?`<span class="badge ok"><span class="dot"></span>последний запрос ${c.last}</span>`:'<span class="badge">выключен</span>'}<span class="grow"></span>
+     <button class="btn xs" data-act="toggle-client">${c.on?'Отключить':'Включить'}</button><button class="btn xs" data-act="dup">${I('copy','s')}Дублировать</button><span style="position:relative"><button class="btn ghost icon xs" aria-label="Ещё" data-act="more">${I('more','s')}</button>${S.more?`<div class="dd" style="right:0;top:30px" role="menu"><button class="mi" data-act="dup">${I('copy','s')}Дублировать</button><button class="mi" data-act="promote">${I('shield','s')}Сделать политику общей</button><button class="mi" data-tab="history">${I('hist','s')}История изменений</button><div class="sep" style="margin:4px 0"></div><button class="mi danger" data-act="del-client">${I('x','s')}Удалить клиента</button></div>`:''}</span></div>
+    <div class="row wrap sm mut"><span>${c.kind}</span>·<span>${esc(c.desc)}</span>·<span class="mono" style="color:var(--fg)">${esc(c.nets.join(', '))}</span>·<span>${c.tr==='TLS'?'TLS'+(c.login?', логин '+esc(c.login):''):'HTTP без логина'}</span>·${policyBadge(c)}</div></div>
+   <div class="tabs" role="tablist">${tabs.map(([k,l])=>`<span class="tab ${S.tab===k?'on':''}" role="tab" tabindex="0" data-tab="${k}">${l}${k==='access'&&den.some(d=>d.why==='list')?'<span class="badge bad" style="height:17px">'+den.filter(d=>d.why==='list').length+'</span>':''}</span>`).join('')}</div>
+   <div class="ib">${({overview:cOverview,access:cAccess,source:cSource,requests:cRequests,history:cHistory})[S.tab](c,p,den,shared)}</div>`;
+}
+function cOverview(c,p,den){
+  const fix=den.filter(d=>d.why==='list');
+  return `${fix.map(d=>`<div class="callout bad"><span class="ic" style="color:var(--bad)">${I('ban')}</span><div class="grow"><div class="m">${d.n} отказов к <span class="mono">${esc(d.d)}</span> за 24 ч</div><div class="sm mut">Домена нет в политике «${esc(p.own?c.name:p.name)}»${!p.own&&usersOf(p.id).length>1?'; она общая для '+usersOf(p.id).map(x=>x.name).join(', '):''}.</div></div><button class="btn xs pri" data-act="allow" data-c="${c.id}" data-d="${esc(d.d)}">${I('plus','s')}Разрешить ${esc(d.d)}</button></div>`).join('')}
+   <div class="kpis">${kpi('Запросы, 24 ч',c.req?fmt(c.req):'—')}${kpi('Отказы, 24 ч',c.den||'—',den.length?den.map(d=>whyText[d.why]).filter((v,i,a)=>a.indexOf(v)===i).join('; '):'',c.den?'up':'')}${kpi('Трафик, 24 ч',c.bytes)}${kpi('Открытые туннели',c.tun)}</div>
+   <div class="g2"><div class="card"><div class="ch"><div class="grow"><div class="ct">Куда обращается</div><div class="cd">Топ назначений за 24 ч, включая отказы</div></div></div><div class="cb">${destTable(c,p,den)}</div></div>
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Правила</div><div class="cd">${p?p.mode==='all'?'Любые внешние сайты, кроме запрещённых для всех':'Только домены политики':'Нет доступа'}</div></div><button class="btn xs" data-tab="access">Изменить</button></div>
+     <div class="cb col" style="gap:8px">${p&&p.mode==='list'?`<div class="row wrap">${p.dom.slice(0,8).map(x=>`<span class="chip">${esc(domLabel(x))}</span>`).join('')}</div>`:''}
+      <dl class="kv"><dt>Политика</dt><dd>${p?esc(p.own?'своя у клиента':p.name+', общая: '+KL(usersOf(p.id).length)):'—'}</dd><dt>Поверх неё</dt><dd>запрещено для всех: ${D.blocked.length} доменов · встроенная защита</dd><dt>Подключение</dt><dd>${c.tr==='TLS'?'только TLS-порт 3129'+(c.login?', логин '+esc(c.login):''):'HTTP-порт 3128'}</dd></dl></div></div></div>
+   <div class="card"><div class="ch"><div class="ct grow">Трафик за 24 часа</div></div><div class="cb">${traffic('c-'+c.id,series(Math.max(.05,c.req/48210),c.id.length*7,c.den>0),110)}</div></div>`;
+}
+function destTable(c,p,den){
+  const rows=[...den.map(d=>({d:d.d,n:d.n,x:1,why:d.why})),...(p&&p.mode==='list'?p.dom.filter(x=>x.h).map(x=>({d:domLabel(x),n:x.h})):[{d:'github.com',n:4210},{d:'archive.ubuntu.com',n:3022},{d:'api.openai.com',n:1880}])].slice(0,7);
+  const max=Math.max(...rows.map(r=>r.n),1);
+  return `<table><tbody>${rows.map(r=>`<tr><td style="padding-left:0"><div class="mono ellip" style="max-width:230px">${esc(r.d)}</div></td><td style="width:30%"><div class="bar"><i class="${r.x?'d':''}" style="width:${r.n/max*100}%"></i></div></td><td class="r num ${r.x?'up m':''}">${r.x?OTK(r.n):fmt(r.n)}</td><td class="r" style="padding-right:0">${r.why==='list'?`<button class="btn xs" data-act="allow" data-c="${c.id}" data-d="${esc(r.d)}">Разрешить</button>`:r.x?'<span class="xs mut">'+whyText[r.why]+'</span>':''}</td></tr>`).join('')}</tbody></table>`;
+}
+function cAccess(c,p,den,shared){
+  if(!p)return `<div class="callout info"><span class="ic">${I('info')}</span><div>Клиенту не назначена политика, доступа нет.</div></div>`;
+  const others=usersOf(p.id).filter(x=>x.id!==c.id);
+  return `<div class="card"><div class="ch"><div class="grow"><div class="ct">Политика</div><div class="cd">Список доменов можно держать у клиента или подключить общую: тогда правка действует на всех её клиентов</div></div></div>
+    <div class="cb col"><div class="opts">
+     <div class="opt ${p.own?'on':''}"><span class="radio"></span><div><div class="m">Своя политика</div><div class="sm mut">Только для ${esc(c.name)}</div></div></div>
+     <div class="opt ${!p.own&&p.mode==='list'?'on':''}"><span class="radio"></span><div><div class="m">Общая политика</div><div class="row sm"><select class="in" style="height:28px"><option>${p.own?'Выберите…':esc(p.name)}</option>${D.policies.filter(x=>!x.own&&x.mode==='list').map(x=>`<option>${esc(x.name)}</option>`).join('')}</select></div></div></div>
+     <div class="opt ${p.mode==='all'?'on':''}"><span class="radio"></span><div><div class="m">Весь веб</div><div class="sm mut">Кроме запрещённого для всех</div></div></div>
+     <div class="opt"><span class="radio"></span><div><div class="m">Нет доступа</div><div class="sm mut">Клиент описан, но всё закрыто</div></div></div></div>
+     ${p.own?`<div class="row sm mut">${I('info','s')}Тот же список нужен другим? <button class="btn xs" data-act="promote">Сделать общей…</button></div>`:''}</div></div>
+   ${p.mode==='list'?`<div class="card"><div class="ch"><div class="grow"><div class="ct">Разрешённые домены${p.own?'':' · «'+esc(p.name)+'»'}</div><div class="cd">${others.length?'<span style="color:var(--warn)">Общая политика: правка затронет также '+others.map(x=>esc(x.name)).join(', ')+'</span>':'Действует только для этого клиента'}</div></div><button class="btn xs ghost" data-act="open-policy" data-p="${p.id}">Открыть политику</button></div>
+    <div class="cb">${den.some(d=>d.why==='list')?`<div class="callout warn" style="margin-bottom:10px"><span class="ic">${I('warn')}</span><div class="grow sm"><span class="m">Отказанные домены этого клиента:</span> ${den.filter(d=>d.why==='list').map(d=>`<button class="btn xs" data-act="allow" data-c="${c.id}" data-d="${esc(d.d)}">${I('plus','s')}${esc(d.d)} · ${d.n}</button>`).join(' ')}</div></div>`:''}${domainEditor(p.dom,'pol:'+p.id)}</div></div>`:''}`;
+}
+function cSource(c){
+  return `<div class="card"><div class="ch"><div class="ct grow">Кто это</div></div><div class="cb fgrid">
+    <div class="field"><label for="f-name">Имя</label><input class="in" id="f-name" value="${esc(c.name)}"><span class="help">Латиница, цифры и дефис. Под этим именем клиент виден в журнале</span></div>
+    <div class="field"><label for="f-desc">Описание</label><input class="in" id="f-desc" value="${esc(c.desc)}"></div>
+    <div class="field"><label>Тип</label><div class="seg"><button aria-pressed="${c.kind==='Устройство'}">Устройство</button><button aria-pressed="${c.kind==='Сеть'}">Сеть</button><button aria-pressed="${c.kind==='Группа'}">Группа сетей</button></div><span class="help">Подсказка для людей; доступ определяется адресами ниже</span></div>
+    <div class="field"><label>Включён</label><div class="row"><button class="sw" role="switch" aria-checked="${c.on}" data-act="toggle-client"></button><span class="sm mut">${c.on?'Правила действуют':'Все запросы получают отказ'}</span></div></div></div></div>
+   <div class="card"><div class="ch"><div class="grow"><div class="ct">Адреса источника</div><div class="cd">IP или CIDR, как их видит прокси (после NAT)</div></div></div><div class="cb col" style="gap:8px">
+    ${c.nets.map(n=>`<div class="row"><input class="in mono" value="${esc(n)}" style="max-width:260px"><span class="sm mut">${n.includes('/')?Math.pow(2,32-+n.split('/')[1]).toLocaleString('ru-RU')+' адресов':'1 адрес'}</span><span class="grow"></span><button class="btn ghost icon xs" aria-label="Удалить">${I('x','s')}</button></div>`).join('')}
+    ${c.note?`<div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">${esc(c.note)}</div></div>`:''}
+    <button class="btn xs dashed" style="align-self:flex-start">${I('plus','s')}Адрес или сеть</button></div></div>
+   <div class="card"><div class="ch"><div class="grow"><div class="ct">Подключение к прокси</div></div></div><div class="cb col">
+    <div class="opts"><div class="opt ${c.tr==='HTTP'?'on':''}"><span class="radio"></span><div><div class="m">HTTP, порт 3128</div><div class="sm mut">Без шифрования до прокси. Логин недоступен</div></div></div>
+     <div class="opt ${c.tr==='TLS'?'on':''}"><span class="radio"></span><div><div class="m">TLS, порт 3129</div><div class="sm mut">Шифрование до прокси; можно требовать логин</div></div></div></div>
+    ${c.tr==='TLS'?`<div class="field"><label>Логин прокси</label><select class="in" style="max-width:320px"><option>${c.login?esc(c.login):'Не требуется'}</option><option>Не требуется</option>${D.accounts.proxy.map(a=>`<option>${a.n}</option>`).join('')}</select><span class="help">Логины прокси настраиваются в разделе «Аккаунты». Пароль в политике не хранится</span></div>`:''}
+    ${c.changed?`<div class="callout warn"><span class="ic">${I('warn','s')}</span><div class="sm"><span class="m">${esc(c.changed)}.</span> За 24 ч 9 310 запросов шли по HTTP. После применения они получат отказ, пока устройства не переключатся на TLS.</div></div>`:''}</div></div>`;
+}
+function cRequests(c){return `<div class="row wrap"><div class="input grow" style="max-width:420px">${I('search','s')}<span class="chip">клиент:${esc(c.name)}</span>домен…</div><div class="seg"><button aria-pressed="true">Все</button><button aria-pressed="false">Отказы</button></div><span class="grow"></span><button class="btn xs" data-nav="log">Открыть в журнале ${I('arrow','s')}</button></div>
+ <div class="card tw"><table><thead><tr><th>Время</th><th>IP</th><th>Назначение</th><th>Результат</th></tr></thead><tbody>${logs.filter(r=>r[1]===c.id).concat(logs.slice(0,3)).slice(0,6).map(r=>`<tr><td class="num mut">${r[0]}</td><td class="mono">${r[2]}</td><td class="mono">${esc(r[4])}</td><td><span class="badge ${r[6]==='d'?'bad':'ok'}">${r[5]}${r[6]==='d'?' отказ':''}</span></td></tr>`).join('')}</tbody></table></div>`;}
+function cHistory(c){return `<div class="card"><div class="cb col" style="gap:0;padding-top:4px">${[['29.10 13:58','admin','Создан клиент, политика: pypi.org, files.pythonhosted.org','в черновике'],['27.10 11:02','admin','Источник 10.20.0.14 → 10.20.0.15','r-38'],['24.10 16:40','admin','Добавлен files.pythonhosted.org','r-31']].map(([t,u,w,r])=>`<div class="row" style="padding:10px 0;border-bottom:1px solid var(--border);align-items:flex-start"><span class="num mut" style="width:90px">${t}</span><div class="grow"><div>${w}</div><div class="xs mut">${u}</div></div><span class="badge ${r==='в черновике'?'mod':'sec'}">${r}</span></div>`).join('')}</div></div>`;}
+
+/* new client (inline form in inspector) */
+function newClient(){
+  const n=S.newc;const fromLog=!!n.from;
+  return `<div class="ih"><div class="row"><h2 class="pt">Новый клиент</h2>${fromLog?`<span class="badge warn">из неописанного источника ${n.from}</span>`:''}<span class="grow"></span><button class="btn xs ghost" data-act="cancel-new">Отмена</button></div><div class="sm mut">Клиент попадёт в черновик. Трафик не изменится, пока вы не примените изменения.</div></div>
+  <div class="ib" style="border-top:1px solid var(--border)">
+   <div class="card"><div class="ch"><span class="ci a" style="font-family:var(--font)">1</span><div class="grow"><div class="ct">Кто</div></div></div><div class="cb fgrid">
+    <div class="field"><label for="n-name">Имя</label><input class="in" id="n-name" value="${esc(n.name)}" placeholder="например, build-02"></div>
+    <div class="field"><label>Тип</label><div class="seg"><button aria-pressed="true">Устройство</button><button aria-pressed="false">Сеть</button><button aria-pressed="false">Группа сетей</button></div></div>
+    <div class="field" style="grid-column:1/-1"><label for="n-src">Адреса источника</label><textarea class="in" id="n-src" rows="2" placeholder="10.20.0.77 или 10.20.0.0/24, по одному в строке">${esc(n.src)}</textarea>${n.err?'<span class="err">'+esc(n.err)+'</span>':''}
+     ${fromLog?`<span class="help" style="color:var(--fg)">${I('check','s')} За 24 ч с ${n.from}: ${D.unknown[0].den} запросов, все отказаны (источник не описан). Не пересекается с существующими клиентами.</span>`:'<span class="help">Пересечение с другим клиентом допустимо только при разных логинах прокси. Проверяется при вводе</span>'}</div></div></div>
+   <div class="card"><div class="ch"><span class="ci a" style="font-family:var(--font)">2</span><div class="grow"><div class="ct">Куда можно</div></div></div><div class="cb col">
+    <div class="opts">
+     <div class="opt ${n.mode==='own'?'on':''}" data-act="nmode" data-v="own"><span class="radio"></span><div><div class="m">Свой список доменов</div><div class="sm mut">Только перечисленные сайты</div></div></div>
+     <div class="opt ${n.mode==='shared'?'on':''}" data-act="nmode" data-v="shared"><span class="radio"></span><div><div class="m">Общая политика</div><div class="sm mut">Как у похожих клиентов</div></div></div>
+     <div class="opt ${n.mode==='all'?'on':''}" data-act="nmode" data-v="all"><span class="radio"></span><div><div class="m">Весь веб</div><div class="sm mut">Кроме запрещённого для всех</div></div></div>
+     <div class="opt ${n.mode==='none'?'on':''}" data-act="nmode" data-v="none"><span class="radio"></span><div><div class="m">Пока без доступа</div><div class="sm mut">Описать и решить позже</div></div></div></div>
+    ${n.mode==='own'?`<div class="field"><label>Домены</label><textarea class="in" rows="3">${esc(n.dom.join('\n'))}</textarea><span class="help">${fromLog?'Подставлены домены из отказанных запросов этого IP. ':''}Шаблоны: <button class="btn xs">APT Ubuntu</button> <button class="btn xs">APT Debian</button> <button class="btn xs">Docker Hub</button> <button class="btn xs">PyPI</button> <button class="btn xs">npm</button></span></div>`:''}
+    ${n.mode==='shared'?`<div class="field"><label>Политика</label><select class="in" style="max-width:320px">${D.policies.filter(x=>!x.own&&x.mode==='list').map(x=>`<option>${esc(x.name)}: ${cnt(x.dom.length,'домен','домена','доменов')}, ${KL(usersOf(x.id).length)}</option>`).join('')}</select></div>`:''}</div></div>
+   <div class="card"><div class="ch"><span class="ci a" style="font-family:var(--font)">3</span><div class="grow"><div class="ct">Подключение</div></div></div><div class="cb"><div class="opts"><div class="opt on"><span class="radio"></span><div><div class="m">HTTP, порт 3128</div><div class="sm mut">Подходит для APT и серверов в доверенной сети</div></div></div><div class="opt"><span class="radio"></span><div><div class="m">TLS, порт 3129</div><div class="sm mut">Можно требовать логин</div></div></div></div></div></div>
+   <div class="row"><span class="grow"></span><button class="btn" data-act="cancel-new">Отмена</button><button class="btn pri" data-act="save-new">${I('plus','s')}Добавить в черновик</button></div></div>`;
+}
+
+/* ---------- policies ---------- */
+function vPolicies(){
+  const p=PO(S.pol);
+  const items=D.policies.filter(x=>!x.own).map(x=>`<div class="li ${S.pol===x.id?'on':''}" data-pol="${x.id}" tabindex="0"><div class="m ellip">${esc(x.name)}</div><div class="xs mut">${KL(usersOf(x.id).length)}</div><div class="xs mut ellip">${x.mode==='all'?'весь веб':cnt(x.dom.length,'домен','домена','доменов')}</div><div class="xs num mut">${x.mode==='list'?fmt(x.dom.reduce((s,d)=>s+(d.h||0),0)):''}</div></div>`).join('');
+  const own=D.policies.filter(x=>x.own).map(x=>`<div class="li ${S.pol===x.id?'on':''}" data-pol="${x.id}" tabindex="0"><div class="m ellip">${esc(x.name)}</div><div class="xs mut">своя</div><div class="xs mut">${cnt(x.dom.length,'домен','домена','доменов')}</div><div></div></div>`).join('');
+  const users=usersOf(p.id);
+  return `<div class="list"><div class="lh"><div class="row"><span class="b grow">Политики</span><button class="btn xs pri">${I('plus','s')}Новая</button></div><div class="sm mut">Именованные списки доменов. Клиент ссылается на одну политику.</div></div>
+   <div class="lb"><div class="lg">Общие</div>${items}<div class="lg">Свои у клиентов</div>${own}</div></div>
+   <section class="insp"><div class="ih"><div class="row wrap"><h2 class="pt">${esc(p.name)}</h2><span class="badge sec">${p.mode==='all'?'весь веб':p.dom.length+' доменов'}</span><span class="grow"></span><button class="btn xs">${I('copy','s')}Дублировать</button><button class="btn xs danger" ${users.length?'disabled title="Сначала переназначьте клиентов"':''}>Удалить</button></div>
+    <div class="row wrap sm"><span class="mut">Используют:</span>${users.length?users.map(u=>`<button class="btn xs" data-sel="${u.id}">${esc(u.name)}</button>`).join(''):'<span class="mut">никто</span>'}</div></div>
+    <div class="ib" style="border-top:1px solid var(--border)">
+     ${users.length>1?`<div class="callout warn"><span class="ic">${I('warn','s')}</span><div class="sm">Изменения затронут ${users.length} клиентов: ${users.map(u=>esc(u.name)).join(', ')}.</div></div>`:''}
+     ${p.mode==='all'?`<div class="callout info"><span class="ic">${I('globe','s')}</span><div class="sm">Разрешены любые внешние сайты. Действуют запреты для всех и встроенная защита, они описаны в «Настройках».</div></div>`:
+     `<div class="card"><div class="ch"><div class="grow"><div class="ct">Домены</div><div class="cd">«Не используется»: ни одного запроса за 7 дней</div></div></div><div class="cb">${domainEditor(p.dom,'pol:'+p.id)}</div></div>
+      <div class="card"><div class="ch"><div class="grow"><div class="ct">Чего не хватает</div><div class="cd">Отказанные домены клиентов этой политики за 24 ч</div></div></div><div class="cb">${users.flatMap(u=>(D.denied[u.id]||[]).filter(d=>d.why==='list').map(d=>({...d,u}))).map(d=>`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--border)"><span class="mono grow">${esc(d.d)}</span><span class="sm mut">${esc(d.u.name)}</span><span class="num up sm" style="width:60px;text-align:right">${OTK(d.n)}</span><button class="btn xs" data-act="allow" data-c="${d.u.id}" data-d="${esc(d.d)}">${I('plus','s')}Добавить</button></div>`).join('')||'<span class="sm mut">Отказов нет</span>'}</div></div>`}
+    </div></section>`;
+}
+
+/* ---------- log ---------- */
+function vLog(){
+  const rows=logs;const r=rows[S.logSel];const c=C(r[1]);
+  const facet=(t,o)=>`<div class="fg"><h4>${t}</h4>${o.map(([l,n,on])=>`<div class="fo"><span class="cbx ${on?'on':''}">${on?I('check','s'):''}</span><span class="grow ellip">${l}</span><span class="num mut xs">${n}</span></div>`).join('')}</div>`;
+  const den=c?(D.denied[c.id]||[]).find(d=>r[4].startsWith(d.d.split(':')[0])):null;
+  return `<section class="insp"><div class="top" style="gap:8px"><span class="b">Журнал</span><span class="badge ok"><span class="dot"></span>обновляется</span><div class="input grow" style="max-width:520px">${I('search','s')}<span class="chip">последний час</span>client:ci-01 host:*.npmjs.org результат:отказ</div><span class="grow"></span><button class="btn xs">${I('pause','s')}Пауза</button></div>
+   <div class="logc" style="display:grid;grid-template-columns:190px minmax(0,1fr) var(--aside-w,340px);flex:1;min-height:0">
+    <div class="facets hide-md">${facet('Результат',[['Разрешено',1236,0],['Отказ',48,0],['Ошибка сайта',7,0]])}${facet('Клиент',[['build-runners',612,0],['vpn-office',401,0],['ci-01',88,0],['Не описан',5,0]])}${facet('Причина отказа',[['Нет в политике',43,0],['Порт закрыт',3,0],['Источник не описан',2,0],['Внутренний адрес',0,0]])}${facet('Метод',[['CONNECT',1101,0],['GET',190,0]])}</div>
+    <div style="min-width:0;display:flex;flex-direction:column;overflow-y:auto">
+     <div style="padding:12px 14px 26px;border-bottom:1px solid var(--border)"><div class="legend" style="margin-bottom:6px"><span><i class="swc" style="background:var(--s-allow)"></i>разрешено</span><span><i class="swc" style="background:var(--s-deny)"></i>отказ</span><span class="mut">по минутам</span></div>${hist()}</div>
+     <table><thead><tr><th>Время</th><th>Клиент</th><th>Назначение</th><th>Результат</th></tr></thead><tbody>${rows.map((x,i)=>`<tr data-log="${i}" style="cursor:pointer;${i===S.logSel?'background:var(--sel)':''}"><td class="num mut">${x[0]}</td><td><div class="m">${x[1]==='?'?'<span class="up">не описан</span>':esc(C(x[1]).name)}</div><div class="mono xs mut">${x[2]}</div></td><td class="mono" style="overflow-wrap:anywhere">${x[3]==='CONNECT'?'':'<span class="mut">'+x[3]+' </span>'}${esc(x[4])}</td><td><span class="badge ${x[6]==='d'?'bad':'ok'}">${x[5]}${x[6]==='d'?' отказ':''}</span></td></tr>`).join('')}</tbody></table></div>
+    <aside class="req-aside" style="border-left:1px solid var(--border);padding:16px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;background:var(--card)">
+     <div class="b">Запрос</div>
+     <dl class="kv"><dt>Время</dt><dd class="num">29.10, ${r[0]}</dd><dt>Источник</dt><dd>${c?`<button class="link" data-sel="${c.id}">${esc(c.name)}</button>`:'<span class="up">не описан</span>'} <span class="mono">${r[2]}</span></dd><dt>Запрос</dt><dd class="mono">${r[3]} ${esc(r[4])}</dd><dt>Результат</dt><dd><span class="badge ${r[6]==='d'?'bad':'ok'}">${r[6]==='d'?'TCP_DENIED/403':'TCP_TUNNEL/200'}</span></dd><dt>Ревизия</dt><dd class="mono">r-41</dd></dl>
+     ${r[6]==='d'?`<div class="explain"><div class="row"><span class="m sm grow">Почему отказано</span><span class="xs mut">по текущим правилам</span></div>
+      ${c?`<div class="step"><span style="color:var(--ok)">${I('check','s')}</span><span>Источник: клиент <b class="m">${esc(c.name)}</b></span></div>`:`<div class="step"><span style="color:var(--bad)">${I('x','s')}</span><span>${r[2]} не входит ни в одного клиента</span></div>`}
+      ${c&&den&&den.why==='port'?`<div class="step"><span style="color:var(--bad)">${I('x','s')}</span><span>Порт 587 закрыт для всех (почта)</span></div>`:c?`<div class="step"><span style="color:var(--ok)">${I('check','s')}</span><span>Порт 443 разрешён, адрес внешний, не в «запрещено для всех»</span></div><div class="step"><span style="color:var(--bad)">${I('x','s')}</span><span><span class="mono">${esc(r[4].split(':')[0])}</span> нет в политике «${esc(PO(c.pol).own?c.name:PO(c.pol).name)}»</span></div>`:''}</div>
+      <div class="col" style="gap:6px">${c&&den&&den.why==='list'?`<button class="btn pri" data-act="allow" data-c="${c.id}" data-d="${esc(den.d)}">${I('plus','s')}Разрешить домен</button><span class="xs mut">Добавится в политику «${esc(PO(c.pol).own?c.name:PO(c.pol).name)}»${PO(c.pol).own?'':', затронет '+KL(usersOf(c.pol).length)}</span>`:!c?`<button class="btn pri xs" data-act="new-from" data-ip="${r[2]}">${I('plus','s')}Описать ${r[2]} как клиента</button>`:'<span class="sm mut">Это встроенный запрет, разрешить нельзя</span>'}</div>`
+     :`<div class="sm mut">Разрешено политикой «${esc(PO(c.pol).own?c.name:PO(c.pol).name)}».</div><button class="btn xs" data-act="block-dom" data-d="${esc(r[4].split(':')[0].split('/')[0])}">${I('ban','s')}Запретить этот домен для всех</button>`}
+    </aside></div></section>`;
+}
+
+/* ---------- settings ---------- */
+function vSettings(){
+  const sec=[['blocked','ban','Запрещено для всех',D.blocked.length],['protect','shield','Встроенная защита'],['upstream','network','Вышестоящий прокси'],['privacy','eye','Приватность'],['ports','list','Экземпляр и порты'],['certs','lock','Сертификаты TLS'],['dns','globe','DNS'],['timeouts','clock','Таймауты и лимиты'],['cache','server','Кеш в памяти'],['logs','log','Журналы'],['expert','code','squid.conf вручную']];
+  const body={blocked:sBlocked,protect:sProtect,upstream:sUpstream,privacy:sPrivacy,ports:sPorts,certs:sCerts,dns:sDns,timeouts:sTimeouts,cache:sCache,logs:sLogs,expert:sExpert}[S.set]||sBlocked;
+  const cur=sec.find(x=>x[0]===S.set);
+  return `<div class="list"><div class="lh"><span class="b">Настройки</span><div class="sm mut">Общие для всех клиентов. Изменения тоже идут через черновик.</div></div><div class="lb">${sec.map(([k,ic,l,n])=>`<div class="li ${S.set===k?'on':''}" data-set="${k}" tabindex="0" style="grid-template-columns:auto minmax(0,1fr) auto;align-items:center">${I(ic,'s')}<span class="ellip">${l}</span><span class="xs mut">${n||''}</span></div>`).join('')}</div></div>
+   <section class="insp"><div class="ih"><h2 class="pt">${cur[2]}</h2></div><div class="ib" style="border-top:1px solid var(--border)">${body()}</div></section>`;
+}
+const setRow=(l,h,ctl,diff='')=>`<div class="row" style="padding:12px 0;border-bottom:1px solid var(--border);align-items:flex-start;gap:16px"><div class="grow"><div class="m">${l}</div><div class="help">${h}</div>${diff}</div><div style="flex:none">${ctl}</div></div>`;
+function sBlocked(){return `<div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">Эти домены закрыты для всех клиентов, включая «весь веб» и squid.conf вручную. Проверяются сразу после встроенной защиты.</div></div><div class="card"><div class="cb">${domainEditor(D.blocked,'blocked')}</div></div>`;}
+function sProtect(){return `<div class="card"><div class="cb">${setRow('Loopback, link-local, metadata 169.254.169.254','Всегда закрыто. Отключить нельзя',`<span class="badge">${I('lock','s')}всегда</span>`)}${setRow('IPv6-туннели к внутренним адресам','6to4, Teredo, NAT64 local-use',`<span class="badge">${I('lock','s')}всегда</span>`)}${setRow('Опасные порты','SSH, Telnet, SMTP/Submission, POP3, IMAP, Tor',`<span class="badge">${I('lock','s')}всегда</span>`)}${setRow('Частные сети','10/8, 172.16/12, 192.168/16, fc00::/7. Включите, если клиентам нужны внутренние репозитории',`<button class="sw" role="switch" aria-checked="false"></button>`)}</div></div>`;}
+function sUpstream(){return `<div class="card"><div class="cb">${setRow('Отправлять трафик через другой прокси','Например, корпоративный шлюз',`<button class="sw" role="switch" aria-checked="true"></button>`)}<div class="fgrid" style="padding:12px 0"><div class="field"><label>Адрес</label><input class="in mono" value="10.0.0.10"><span class="help">Только IP</span></div><div class="field"><label>Порт</label><input class="in mono" value="3128"></div></div>${setRow('Только через вышестоящий','Если он недоступен, клиенты получат отказ, а не выйдут напрямую',`<button class="sw" role="switch" aria-checked="false"></button>`)}</div></div>`;}
+function sPrivacy(){return `<div class="card"><div class="cb">${setRow('Скрывать адрес клиента','Сайты и вышестоящий прокси не увидят X-Forwarded-For и Via',`<button class="sw" role="switch" aria-checked="false"></button>`)}</div></div>`;}
+function sPorts(){return `<div class="card"><div class="cb">${setRow('Имя экземпляра','Показывается в панели состояния сервера; помогает различать прокси',`<input class="in" value="proxy-01" style="width:160px">`)}${setRow('Порты сайтов для HTTP','Через прокси можно открыть только эти порты',`<input class="in mono" value="80, 443" style="width:160px">`)}${setRow('Порты для HTTPS (CONNECT)','Обычно только 443',`<input class="in mono" value="443" style="width:160px">`)}${setRow('Порты прокси','Задаются при установке контейнера',`<span class="mono mut">3128 · 3129 TLS</span>`)}</div></div>`;}
+function sDns(){return `<div class="card"><div class="cb">${setRow('DNS-серверы','Если пусто, используются DNS контейнера',`<input class="in mono" value="" placeholder="10.0.0.53" style="width:200px">`)}${setRow('Кеш успешных ответов','Чем меньше, тем быстрее видна смена адреса',`<input class="in mono" value="1 мин" style="width:120px">`,'<div class="xs" style="color:var(--mod-fg);margin-top:2px">было 6 ч · в черновике</div>')}${setRow('Кеш ошибок','',`<input class="in mono" value="60 с" style="width:120px">`)}</div></div>`;}
+function sTimeouts(){return `<div class="card"><div class="cb">${setRow('Подключение к сайту','',`<input class="in mono" value="60 с" style="width:120px">`)}${setRow('Чтение ответа','Увеличьте для долгих загрузок образов',`<input class="in mono" value="15 мин" style="width:120px">`)}${setRow('Ожидание запроса','',`<input class="in mono" value="5 мин" style="width:120px">`)}${setRow('Размер тела запроса','0 означает без ограничения',`<input class="in mono" value="0 МБ" style="width:120px">`)}</div></div>`;}
+function sCache(){return `<div class="card"><div class="cb">${setRow('Кеш в памяти','HTTPS не кешируется: туннели проходят насквозь',`<button class="sw" role="switch" aria-checked="false"></button>`)}${setRow('Объём','',`<input class="in mono" value="64 МБ" style="width:120px">`)}</div></div>`;}
+function sLogs(){return `<div class="card"><div class="cb">${setRow('Хранить ротаций access.log','История запросов в панели хранится отдельно: 30 дней',`<input class="in mono" value="3" style="width:120px">`)}</div></div>`;}
+function sExpert(){return `<div class="callout warn"><span class="ic">${I('warn','s')}</span><div class="sm"><span class="m">Аварийный режим.</span> Заменяет клиентов и политики текстом squid.conf. Встроенная защита и «запрещено для всех» остаются. Разрешены только директивы из списка, без файлов, helpers и портов.</div></div>
+ <div class="card"><div class="cb">${setRow('Использовать squid.conf вместо клиентов','Сейчас: выключено',`<button class="sw" role="switch" aria-checked="false"></button>`)}<textarea class="in" rows="7" style="margin-top:12px" placeholder="acl office src 10.8.0.0/16&#10;http_access allow office"></textarea><div class="row" style="margin-top:8px"><button class="btn xs">Подставить из текущих клиентов</button><span class="grow"></span><span class="help">Директивы проверяются при вводе, вся конфигурация проверяется Squid при применении</span></div></div></div>`;}
+
+/* ---------- accounts & audit ---------- */
+const AUD=[
+ {day:'Сегодня',t:'13:58',who:'admin',type:'draft',ic:'diff',title:'Черновик: новый клиент ci-01, dev-laptops → TLS',sum:'в черновике'},
+ {day:'Сегодня',t:'13:40',who:'admin',type:'apply',ic:'play',title:'Применена ревизия r-41',sum:'ok',rev:'r-41',ch:[['a','Запрещено для всех: *.doubleclick.net'],['m','DNS: кеш ответов 6 ч → 1 ч']],steps:[['Проверка правил','0,1 с',1],['Проверка конфигурации в Squid','0,4 с',1],['Запись журнала применения','0,0 с',1],['Squid перечитывает конфигурацию','1,2 с',1],['Подтверждение r-41','0,3 с',1]]},
+ {day:'Сегодня',t:'12:02',who:'admin',type:'apply',ic:'play',title:'Применение r-40 откатилось',sum:'bad',rev:'r-40',ch:[['m','squid.conf вручную: 3 строки']],steps:[['Проверка правил','0,1 с',1],['Проверка конфигурации в Squid','0,3 с',0,'Squid отклонил строку 74 squid.conf вручную; текст ошибки не показывается']],note:'Трафик не прерывался: работала r-39'},
+ {day:'Сегодня',t:'09:12',who:'admin',type:'login',ic:'user',title:'Вход в панель',sum:'',kv:[['IP','10.8.3.17'],['Браузер','Firefox 131, macOS']]},
+ {day:'Вчера',t:'18:15',who:'oncall',type:'login',ic:'user',title:'Вход в панель',sum:'',kv:[['IP','10.8.9.40'],['Браузер','Chrome 130, Windows']]},
+ {day:'Вчера',t:'17:50',who:'oncall',type:'login',ic:'warn',title:'Неудачный вход: неверный пароль',sum:'warn',kv:[['IP','10.8.9.40'],['Попыток','2 подряд, затем успешный вход']]},
+ {day:'Вчера',t:'09:30',who:'admin',type:'acc',ic:'key',title:'Сброшен пароль прокси dev-oleg',sum:'',kv:[['Последствия','Старый пароль перестал работать сразу; активные туннели не разорваны']]},
+ {day:'27 окт',t:'16:02',who:'admin',type:'acc',ic:'key',title:'Заблокирован пользователь contractor',sum:'',kv:[['Сессии','2 завершены']]},
+ {day:'27 окт',t:'11:02',who:'admin',type:'apply',ic:'play',title:'Применена ревизия r-38',sum:'ok',rev:'r-38',ch:[['m','ci-01: источник 10.20.0.14 → 10.20.0.15']],steps:[['Проверка правил','0,1 с',1],['Проверка конфигурации в Squid','0,4 с',1],['Запись журнала применения','0,0 с',1],['Squid перечитывает конфигурацию','1,1 с',1],['Подтверждение r-38','0,2 с',1]]},
+];
+function vAudit(){
+  const e=AUD[S.aud]||AUD[0];let day='';
+  const items=AUD.map((x,i)=>{const h=x.day!==day?(day=x.day,`<div class="lg">${x.day}</div>`):'';return h+`<div class="li ${S.aud===i?'on':''}" data-aud="${i}" tabindex="0" style="grid-template-columns:auto minmax(0,1fr) auto;align-items:start"><span style="color:${x.sum==='bad'?'var(--bad)':x.sum==='warn'?'var(--warn)':'var(--muted-fg)'};margin-top:2px">${I(x.ic,'s')}</span><div><div class="ellip">${esc(x.title)}</div><div class="xs mut">${x.who}</div></div><span class="xs mut num">${x.t}</span></div>`;}).join('');
+  const sumBadge=e.sum==='ok'?'<span class="badge ok">применено и подтверждено</span>':e.sum==='bad'?'<span class="badge bad">откат, трафик не затронут</span>':e.sum==='warn'?'<span class="badge warn">внимание</span>':e.sum?'<span class="badge mod">'+e.sum+'</span>':'';
+  return `<div class="list"><div class="lh"><span class="b">Аудит</span><div class="row wrap"><span class="badge sec">все</span><span class="badge">применения</span><span class="badge">входы</span><span class="badge">учётки</span></div><div class="input">${I('search','s')}Кто, что, ревизия…</div></div><div class="lb">${items}</div></div>
+  <section class="insp"><div class="ih"><div class="row wrap"><h2 class="pt">${esc(e.title)}</h2>${sumBadge}</div><div class="sm mut">${e.day}, ${e.t} · ${e.who}</div></div>
+   <div class="ib" style="border-top:1px solid var(--border)">
+   ${e.type==='apply'?`
+    <div class="card"><div class="ch"><div class="ct grow">Что изменилось</div>${e.rev?`<span class="mono sm mut">${e.rev}</span>`:''}</div>${e.ch.map(([k,t])=>`<div class="change-li"><span class="ci ${k}">${k==='a'?'+':'~'}</span><div>${esc(t)}</div><span></span></div>`).join('')}</div>
+    <div class="card"><div class="ch"><div class="ct grow">Ход применения</div></div><div class="cb steps">${e.steps.map(([n,d,ok,why])=>`<div class="stp"><span style="color:${ok?'var(--ok)':'var(--bad)'}">${I(ok?'check':'x','s')}</span><div><div>${n}</div>${why?`<div class="sm mut">${why}</div>`:''}</div><span class="xs mut">${d}</span></div>`).join('')}${e.sum==='bad'?`<div class="stp"><span style="color:var(--ok)">${I('undo','s')}</span><span>Squid остался на предыдущей ревизии</span><span></span></div>`:''}</div></div>
+    ${e.note?`<div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">${e.note}</div></div>`:''}
+    <div class="row"><button class="btn xs">${I('diff','s')}Сравнить с текущей</button>${e.sum==='ok'&&e.rev!=='r-41'?`<button class="btn xs">${I('undo','s')}Откатить к ${e.rev}</button>`:''}${e.sum==='bad'?'<button class="btn xs">Открыть черновик этой попытки</button>':''}</div>`
+   :e.type==='draft'?`<div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">Черновик сохранён, но не применён. Трафик идёт по r-41.</div></div><button class="btn xs" data-act="review" style="align-self:flex-start">${I('eye','s')}Просмотреть черновик</button>`
+   :`<div class="card"><div class="cb"><dl class="kv"><dt>Кто</dt><dd><button class="btn xs" data-acc="${e.who}">${e.who}</button></dd>${(e.kv||[]).map(([k,v])=>`<dt>${k}</dt><dd>${esc(v)}</dd>`).join('')}</dl></div></div>`}
+   <div class="xs mut">Аудит хранит 90 дней или 5 000 событий. Пароли и содержимое запросов не записываются.</div>
+  </div></section>`;
+}
+const ACC={
+ admin:{t:'panel',role:'admin',on:true,last:'сегодня 09:12, 10.8.3.17',pwd:'12 дней назад',fail:0,sess:[['Firefox 131 · macOS','10.8.3.17','сегодня 09:12','сейчас',1],['Safari · iPadOS','10.8.4.2','вчера 21:40','вчера 22:05',0]]},
+ oncall:{t:'panel',role:'viewer',on:true,last:'вчера 18:15, 10.8.9.40',pwd:'40 дней назад',fail:2,sess:[['Chrome 130 · Windows','10.8.9.40','вчера 18:15','вчера 19:02',0]]},
+ contractor:{t:'panel',role:'viewer',on:false,last:'12 дней назад',pwd:'—',fail:0,sess:[]},
+ backup:{t:'proxy',on:true,clients:['backup-01'],ok:'412',bad:'0',req:'412',ips:[['10.30.1.7',412]],pwd:'3 месяца назад'},
+ 'dev-anna':{t:'proxy',on:true,clients:['dev-laptops'],ok:'5 102',bad:'0',req:'5 410',ips:[['10.40.1.88',5102]],pwd:'2 недели назад'},
+ 'dev-oleg':{t:'proxy',on:true,clients:['dev-laptops'],ok:'3 870',bad:'3',req:'3 900',ips:[['10.40.2.14',3861],['10.40.1.90',9]],pwd:'вчера (сброс)',badLast:'13:12 с 10.40.1.90'},
+};
+const PERMS=[['Смотреть обзор, журнал и аудит',1,1],['Менять клиентов, политики и настройки',1,0],['Применять и откатывать изменения',1,0],['Управлять учётками',1,0]];
+function vAccounts(){
+  const n=ACC[S.acc]?S.acc:'admin';const a=ACC[n];
+  const li=(k)=>{const x=ACC[k];return `<div class="li ${n===k?'on':''}" data-acc="${k}" tabindex="0"><div class="m ${x.t==='proxy'?'mono':''}">${k}</div><div class="xs">${x.on?'':'<span class="badge">заблокирован</span>'}</div><div class="xs mut ellip">${x.t==='panel'?(x.role==='admin'?'Администратор':'Менеджер'):x.clients.join(', ')}</div><div class="xs ${x.fail||+x.bad?'up':'mut'}">${x.fail?cnt(x.fail,'неудачный вход','неудачных входа','неудачных входов'):+x.bad?cnt(+x.bad,'неудачный вход','неудачных входа','неудачных входов'):''}</div></div>`;};
+  const keys=Object.keys(ACC);
+  return `<div class="list"><div class="lh"><div class="row"><span class="b grow">Аккаунты</span><button class="btn xs pri">${I('plus','s')}Новая</button></div><div class="sm mut">Кто входит в панель и какие логины принимает прокси.</div></div><div class="lb">
+   <div class="lg">Панель управления</div>${keys.filter(k=>ACC[k].t==='panel').map(li).join('')}<div class="lg">Логины прокси</div>${keys.filter(k=>ACC[k].t==='proxy').map(li).join('')}</div></div>
+  <section class="insp"><div class="ih"><div class="row wrap"><h2 class="pt ${a.t==='proxy'?'mono':''}">${n}</h2>${n==='admin'?'<span class="badge sec">это вы</span>':''}<span class="badge sec">${a.t==='panel'?'панель':'логин прокси'}</span>${a.on?'<span class="badge ok"><span class="dot"></span>активен</span>':'<span class="badge">заблокирован</span>'}<span class="grow"></span><button class="btn xs">Сменить пароль</button>${n!=='admin'?`<button class="btn xs">${a.on?'Заблокировать':'Разблокировать'}</button>`:''}</div>
+    <div class="sm mut">Пароль изменён ${a.pwd}. Хранится только как Argon2id; смена сразу отзывает ${a.t==='panel'?'все сессии':'старый пароль у прокси'}.</div></div>
+   <div class="ib" style="border-top:1px solid var(--border)">
+   ${a.t==='panel'?`
+    <div class="g2"><div class="card"><div class="ch"><div class="grow"><div class="ct">Роль</div><div class="cd">Последнего администратора нельзя понизить или заблокировать</div></div></div><div class="cb col" style="gap:8px">
+      <div class="opts"><div class="opt ${a.role==='admin'?'on':''}"><span class="radio"></span><div><div class="m">Администратор</div></div></div><div class="opt ${a.role==='viewer'?'on':''}"><span class="radio"></span><div><div class="m">Наблюдатель</div></div></div></div>
+      <table><tbody>${PERMS.map(([p,ad,vw])=>`<tr><td style="padding-left:0">${p}</td><td class="r" style="padding-right:0;color:${(a.role==='admin'?ad:vw)?'var(--ok)':'var(--muted-fg)'}">${I((a.role==='admin'?ad:vw)?'check':'x','s')}</td></tr>`).join('')}</tbody></table></div></div>
+     <div class="card"><div class="ch"><div class="ct grow">Входы</div></div><div class="cb"><dl class="kv"><dt>Последний</dt><dd>${a.last}</dd><dt>Неудачных за 24 ч</dt><dd class="${a.fail?'up':''}">${a.fail||'0'}</dd><dt>Защита</dt><dd>после 5 неудач вход с этого IP закрыт на 15 мин</dd></dl></div></div></div>
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Сессии</div><div class="cd">Сессия истекает через 12 ч или после 30 мин бездействия</div></div>${a.sess.length?'<button class="btn xs">Завершить все</button>':''}</div><div class="cb">${a.sess.length?`<table><thead><tr><th style="padding-left:0">Устройство</th><th>IP</th><th>Начало</th><th>Активность</th><th></th></tr></thead><tbody>${a.sess.map(([d,ip,st,la,cur])=>`<tr><td style="padding-left:0">${d}${cur?' <span class="badge sec">эта</span>':''}</td><td class="mono">${ip}</td><td class="mut">${st}</td><td class="mut">${la}</td><td class="r">${cur?'':'<button class="btn xs ghost">Завершить</button>'}</td></tr>`).join('')}</tbody></table>`:'<span class="sm mut">Активных сессий нет</span>'}</div></div>
+    <div class="card"><div class="ch"><div class="ct grow">Последние действия</div><button class="btn xs ghost" data-nav="audit">Весь аудит ${I('arrow','s')}</button></div><div class="cb">${AUD.map((x,i)=>[x,i]).filter(([x])=>x.who===n).slice(0,4).map(([x,i])=>`<div class="row" style="padding:7px 0;border-bottom:1px solid var(--border)"><span class="mut">${I(x.ic,'s')}</span><span class="grow ellip">${esc(x.title)}</span><span class="xs mut">${x.day}, ${x.t}</span><button class="btn xs ghost" data-aud="${i}" data-nav="audit">Открыть</button></div>`).join('')||'<span class="sm mut">Нет действий за 90 дней</span>'}</div></div>`
+   :`
+    <div class="kpis">${kpi('Успешных входов, 24 ч',a.ok)}${kpi('Неверный пароль, 24 ч',a.bad,a.badLast?'последний '+a.badLast:'',+a.bad?'up':'')}${kpi('Запросов, 24 ч',a.req)}${kpi('Устройств',a.ips.length)}</div>
+    <div class="g2"><div class="card"><div class="ch"><div class="grow"><div class="ct">Где используется</div><div class="cd">Клиенты, которые требуют этот логин</div></div></div><div class="cb col" style="gap:6px">${a.clients.map(c=>{const cl=D.clients.find(x=>x.name===c);return `<div class="row"><button class="btn xs" data-sel="${cl.id}">${c}</button><span class="sm mut mono">${cl.nets.join(', ')}</span><span class="sm mut">TLS :3129</span></div>`;}).join('')}<div class="help">Логин подтверждает, кто подключился. Что ему можно, решает политика клиента</div></div></div>
+     <div class="card"><div class="ch"><div class="grow"><div class="ct">С каких адресов</div><div class="cd">За 24 ч</div></div></div><div class="cb"><table><tbody>${a.ips.map(([ip,c])=>`<tr><td class="mono" style="padding-left:0">${ip}</td><td class="r num" style="padding-right:0">${fmt(c)}</td></tr>`).join('')}</tbody></table>${+a.bad?`<div class="callout warn" style="margin-top:8px"><span class="ic">${I('warn','s')}</span><div class="sm">С 10.40.1.90 было 3 попытки со старым паролем после сброса. Возможно, на устройстве сохранён прежний пароль.</div></div>`:''}</div></div></div>`}
+  </div></section>`;
+}
+function meMenu(){
+  return `<div class="menu" role="menu" aria-label="Профиль">
+   <div class="mh"><span class="avatar" style="margin:0;cursor:default">A</span><div class="grow"><div class="m">admin</div><div class="sm mut">Администратор</div></div></div>
+   <div class="sm mut" style="padding:0 8px 8px;display:flex;flex-direction:column;gap:2px"><span class="row"><span class="dot" style="color:var(--ok)"></span>Сессия с 09:12, IP 10.8.3.17</span><span>Завершится через 11 ч или после 30 мин бездействия</span></div>
+   <div class="sep"></div>
+   <button class="mi" role="menuitem" data-acc="admin">${I('user','s')}Мой аккаунт</button>
+   <button class="mi" role="menuitem" data-act="me-pwd">${I('key','s')}Сменить пароль</button>
+   <button class="mi" role="menuitem" data-act="me-other">${I('x','s')}Завершить другие сессии<span class="grow"></span><span class="sm mut">1</span></button>
+   <div class="sep"></div>
+   <button class="mi danger" role="menuitem" data-act="logout">${I('arrow','s')}Выйти</button></div>`;
+}
+/* ---------- help / FAQ ---------- */
+const DOCS=[
+ {g:'Начало работы',items:[
+  {id:'about',t:'Как устроен Kraken',lead:'Клиенты, политики, черновик и применение: из чего складывается доступ.',h:['Клиент: кто ходит через прокси','Политика: куда можно','Черновик и применение','Что всегда закрыто'],ui:'clients'},
+  {id:'first',t:'Первый запуск',lead:'Что сделать после установки, чтобы первый клиент вышел в интернет.',h:['Вход и смена пароля администратора','Сертификат панели и TLS-прокси','Первый клиент и политика','Проверка с клиента']},
+  {id:'check',t:'Как проверить, что прокси работает',lead:'Индикатор в шапке, журнал и проверка с клиента.',h:['Индикатор состояния','Запрос с клиента через curl','Где искать запрос в журнале']},
+ ]},
+ {g:'Подключение машин',items:[
+  {id:'apt',t:'Ubuntu и Debian: APT',lead:'Чтобы apt-get ходил через прокси, достаточно одного файла.',h:['Узнать адрес прокси','Создать файл настроек APT','Разрешить домены репозиториев','Проверить'],sample:true,ui:'clients'},
+  {id:'env',t:'Linux: переменные окружения',lead:'http_proxy, https_proxy и no_proxy для curl, wget, git и большинства утилит.',h:['Для текущей сессии','Для всех пользователей: /etc/environment','Исключения no_proxy','Systemd-сервисы']},
+  {id:'docker',t:'Docker: демон и контейнеры',lead:'Скачивание образов и прокси внутри контейнеров настраиваются отдельно.',h:['Прокси для docker pull (systemd drop-in)','Прокси внутри контейнеров (~/.docker/config.json)','Сборка образов: build args','Какие домены разрешить']},
+  {id:'lang',t:'pip, npm, Go, Maven',lead:'Менеджеры пакетов, которые не читают переменные окружения или читают их по-своему.',h:['pip и uv','npm, yarn, pnpm','Go modules','Maven и Gradle','Типичные домены для политики']},
+  {id:'win',t:'Windows',lead:'Системный прокси, WinHTTP и PowerShell.',h:['Параметры Windows','netsh winhttp','PowerShell и winget']},
+  {id:'mac',t:'macOS',lead:'Системные настройки сети и терминал.',h:['Настройки сети','Терминал и Homebrew']},
+  {id:'k8s',t:'Kubernetes-узлы',lead:'containerd и kubelet за прокси.',h:['containerd','Исключения для сети кластера','Какие реестры разрешить']},
+  {id:'tls',t:'Подключение по TLS с логином',lead:'Шифрование до прокси и вход по логину на порту 3129.',h:['Когда это нужно','Доверие сертификату прокси','Логин и пароль в URL прокси','Как проверить']},
+ ]},
+ {g:'Сценарии',items:[
+  {id:'why',t:'Клиент получает отказ: что делать',lead:'От сообщения об ошибке на клиенте до исправленного правила.',h:['Найти запрос в журнале','Прочитать причину отказа','Разрешить домен или описать клиента','Применить'],ui:'log'},
+  {id:'newc',t:'Добавить сервер или сеть',lead:'Новый клиент, политика и подключение за несколько минут.',h:['Адреса источника и NAT','Свой список или общая политика','Шаблоны доменов'],ui:'clients'},
+  {id:'shared',t:'Общая политика для группы машин',lead:'Один список доменов на несколько клиентов.',h:['Создать политику','Подключить клиентов','Что увидят остальные при правке'],ui:'policies'},
+  {id:'block',t:'Запретить сайт для всех',lead:'Запрет действует даже для клиентов с доступом «весь веб».',h:['Где задаётся','Поддомены','Как проверить'],ui:'settings'},
+  {id:'upstream',t:'Выход через корпоративный прокси',lead:'Вышестоящий прокси и режим «только через него».',h:['Настройка','Что происходит при его недоступности']},
+  {id:'rollback',t:'Откатить неудачное изменение',lead:'Вернуть прежнюю ревизию из аудита.',h:['Найти применение','Откатить','Что происходит с открытыми соединениями'],ui:'audit'},
+  {id:'users',t:'Администраторы, менеджеры и логины прокси',lead:'Роли, назначение клиентов, блокировка, сброс пароля.',h:['Администратор и менеджер','Назначить менеджеру клиентов и сети','Что менеджер может применить','Сброс пароля из командной строки','Логины прокси']},
+ ]},
+ {g:'Как это работает',items:[
+  {id:'order',t:'Порядок проверки запроса',lead:'Встроенная защита, запрет для всех, клиент, политика, отказ.',h:['Встроенная защита','Запрещено для всех','Определение клиента по IP и логину','Политика клиента','Всё остальное запрещено']},
+  {id:'apply',t:'Применение и откат',lead:'Что происходит после нажатия «Применить».',h:['Проверка конфигурации','Журнал применения','Подтверждение ревизии','Автоматический откат']},
+  {id:'https',t:'HTTPS и что видно в журнале',lead:'Kraken не расшифровывает HTTPS: виден только домен и порт.',h:['CONNECT-туннели','Почему нет путей и параметров','Почему причина отказа — оценка']},
+  {id:'limits',t:'Ограничения',lead:'Что Kraken не делает и что нужно настроить вне него.',h:['Запрет прямого выхода в интернет','Один контейнер, без HA','Хранение журналов']},
+ ]},
+];
+function vHelp(){
+  const all=DOCS.flatMap(g=>g.items);const d=all.find(x=>x.id===S.doc)||all[0];
+  return `<div class="list"><div class="lh"><span class="b">Справка</span><div class="input">${I('search','s')}Поиск по справке…</div></div><div class="lb">${DOCS.map(g=>`<div class="lg">${g.g}</div>${g.items.map(x=>`<div class="li ${d.id===x.id?'on':''}" data-doc="${x.id}" tabindex="0" style="grid-template-columns:minmax(0,1fr)"><div class="ellip">${x.t}</div></div>`).join('')}`).join('')}</div></div>
+  <section class="insp"><div class="ih"><div class="sm mut">${DOCS.find(g=>g.items.includes(d)).g}</div><h2 class="pt">${d.t}</h2><div class="mut">${d.lead}</div>${d.ui?`<div><button class="btn xs" data-nav="${d.ui}">Открыть в интерфейсе ${I('arrow','s')}</button></div>`:''}</div>
+   <div class="ib" style="border-top:1px solid var(--border)">
+    <div class="card"><div class="ch"><div class="ct grow">Содержание</div></div><div class="cb col" style="gap:4px">${d.h.map((h,i)=>`<div class="row"><span class="num mut" style="width:18px">${i+1}</span><span>${h}</span></div>`).join('')}</div></div>
+    ${d.sample?`<div class="col" style="max-width:720px">
+     <h3 class="ct" style="margin:0">1. Узнать адрес прокси</h3><p style="margin:0">Адрес и порт показаны в шапке, в панели состояния: <span class="mono">10.0.0.2:3128</span>. Машина должна быть описана как клиент, иначе прокси ответит отказом.</p>
+     <h3 class="ct" style="margin:0">2. Создать файл настроек APT</h3><p style="margin:0">На клиенте создайте файл <span class="mono">/etc/apt/apt.conf.d/95proxy</span>:</p>
+     <pre class="diff" style="margin:0;padding:10px 12px">Acquire::http::Proxy "http://10.0.0.2:3128/";
+Acquire::https::Proxy "http://10.0.0.2:3128/";</pre>
+     <h3 class="ct" style="margin:0">3. Разрешить домены репозиториев</h3><p style="margin:0">В политике клиента добавьте шаблон «APT Ubuntu»: <span class="chip">*.archive.ubuntu.com</span> <span class="chip">*.security.ubuntu.com</span> <span class="chip">*.ports.ubuntu.com</span>. Примените изменения.</p>
+     <h3 class="ct" style="margin:0">4. Проверить</h3><pre class="diff" style="margin:0;padding:10px 12px">sudo apt-get update</pre><p style="margin:0" class="mut">Если появилась ошибка 403, откройте журнал: запрос будет там с причиной отказа.</p></div>`
+    :`<div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">В прототипе показана только структура статьи. Пример заполненной статьи: «Ubuntu и Debian: APT».</div></div>`}
+   </div></section>`;
+}
+/* ---------- review sheet & palette ---------- */
+function sheet(){
+  const steps=['Проверка правил','Проверка конфигурации в Squid','Запись журнала применения','Squid перечитывает конфигурацию','Подтверждение ревизии r-42'];
+  const ap=S.applying;
+  const diffLines=[['h','@@ запрещено для всех @@'],[33,'+','acl sc_blocked_dst dstdomain -n .doubleclick.net .ngrok.io .tracker.example pastebin.com'],[34,' ','http_access deny sc_blocked_dst'],['h','@@ dev-laptops @@'],[70,'-','http_access allow client_4 sc_http_listener'],[70,'+','http_access allow client_4 sc_tls_listener sc_proxy_user_4 sc_proxy_current'],...(S.draft.some(d=>d.k==='a'&&d.ref&&d.ref.startsWith('dom:'))?[['h','@@ политики @@'],[62,'+','acl destinations_1 dstdomain -n files.pythonhosted.org pypi.org registry.npmjs.org']]:[])];
+  return `<div class="overlay" data-act="close-sheet"><div class="sheet" role="dialog" aria-label="Проверка изменений" onclick="event.stopPropagation()">
+   <div class="sh"><div class="grow"><div class="pt">Проверка изменений</div><div class="sm mut">Черновик против работающей ревизии r-41</div></div><button class="btn ghost icon xs" data-act="close-sheet" aria-label="Закрыть">${I('x','s')}</button></div>
+   <div class="sb">${gate()}
+    <div class="card">${S.draft.map((d,i)=>`<div class="change-li"><span class="ci ${d.k}">${d.k==='a'?'+':d.k==='m'?'~':'−'}</span><div><div class="m">${esc(d.t)}</div><div class="sm mut">${esc(d.d)}</div></div>${ap<0?`<button class="btn xs ghost" data-act="drop" data-i="${i}">Отменить</button>`:''}</div>`).join('')}</div>
+    <div class="col" style="gap:8px"><div class="m">Влияние на трафик</div>
+     ${S.draft.some(d=>d.ref==='dev')?`<div class="callout warn"><span class="ic">${I('warn','s')}</span><div class="sm"><span class="m">dev-laptops:</span> 9 310 запросов за 24 ч шли по HTTP, они начнут получать отказ.</div></div>`:''}
+     ${S.draft.some(d=>d.ref&&d.ref.startsWith('dom:'))?`<div class="callout info"><span class="ic">${I('check','s')}</span><div class="sm">Отказы, которые исчезнут: ${S.draft.filter(d=>d.ref&&d.ref.startsWith('dom:')).map(d=>esc(d.t.split(': ')[1]||d.t)).join(', ')}.</div></div>`:''}
+     <div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">Открытые туннели (12) не разрываются; новые правила действуют для новых соединений.</div></div></div>
+    <details><summary class="m" style="cursor:pointer">Изменённые фрагменты squid.conf</summary><div class="diff" style="margin-top:8px">${diffLines.map(d=>d[0]==='h'?`<span class="h">${d[1]}</span>`:`<div class="${d[1]==='+'?'p':d[1]==='-'?'n':''}"><span class="ln">${d[0]}</span><span>${d[1]}</span><span>${esc(d[2])}</span></div>`).join('')}</div></details>
+    ${ap>=0?`<div class="card"><div class="cb steps">${steps.map((s,i)=>`<div class="stp"><span>${i<ap?`<span style="color:var(--ok)">${I('check','s')}</span>`:i===ap?(S.applyErr?`<span style="color:var(--bad)">${I('x','s')}</span>`:'<span class="spin"></span>'):'<span class="mut">·</span>'}</span><span class="${i>ap?'mut':''}">${s}</span><span class="xs mut">${i<ap?(i===3?'1,2 с':'0,1 с'):''}</span></div>`).join('')}${S.applyErr?`<div class="callout bad" style="margin-top:4px"><span class="ic">${I('ban','s')}</span><div class="sm"><span class="m">Squid отклонил конфигурацию: строка 74.</span> Текст ошибки не показывается, в нём могут быть пароли. Ничего не применено, Squid работает на r-41.</div></div>`:''}</div></div>`:''}
+   </div>
+   <div class="sf">${ap<0?`<span class="sm mut grow">При ошибке Squid автоматически вернётся к r-41</span><button class="btn" data-act="close-sheet">Закрыть</button><button class="btn pri" data-act="apply" ${canApply()?'':'disabled'}>${I('play','s')}Применить</button>`:S.applyErr?`<span class="sm grow">Черновик сохранён без изменений</span><button class="btn" data-act="back-to-draft">Вернуться к черновику</button>`:`<span class="sm grow">Применение… не закрывайте страницу</span>`}</div>
+  </div></div>`;
+}
+function palette(){
+  const g=[['Действия',[['plus','Новый клиент','new-client'],['ban','Запретить домен для всех','blocked'],['eye','Проверить и применить черновик','review'],['key','Новый логин прокси','acc']]],['Клиенты',D.clients.slice(0,4).map(c=>['users',c.name+' · '+c.nets[0],'sel:'+c.id])],['Разделы',[['shield','Политики','nav:policies'],['log','Журнал','nav:log'],['sliders','Настройки','nav:settings'],['book','Справка: подключение машин','nav:help']]]];
+  return `<div class="overlay" data-act="close-pal" style="justify-content:center"><div class="palette" onclick="event.stopPropagation()" role="dialog" aria-label="Команды"><div class="pi">${I('search','s')}<input id="pal-in" class="grow" style="border:0;background:transparent;outline:0;height:40px" placeholder="Клиент, IP, домен или действие"></div>
+   <div style="padding-bottom:8px;max-height:420px;overflow:auto">${g.map(([h,o])=>`<div class="pg">${h}</div>${o.map(([ic,l,a],i)=>`<div class="po ${h==='Действия'&&i===0?'on':''}" data-pal="${a}">${I(ic,'s')}<span class="grow">${esc(l)}</span>${a==='review'?'<span class="kbd">⌘↵</span>':''}</div>`).join('')}`).join('')}</div></div></div>`;
+}
+
+/* ---------- actions ---------- */
+function allow(cid,dom,){const c=C(cid);const p=PO(c.pol);if(!p||p.mode!=='list')return;
+  const d=dom.split(':')[0];if(p.dom.some(x=>x.d===d)){toast('Уже в политике');return;}
+  p.dom.push({d,s:0,h:0,isnew:1});const den=D.denied[cid];if(den){D.denied[cid]=den.filter(x=>x.d!==dom);}
+  addChange({k:'a',t:`${p.own?c.name:p.name}: ${d}`,d:p.own?`Разрешить ${c.name}`:`Затронет: ${usersOf(p.id).map(x=>x.name).join(', ')}`,ref:'dom:'+d});}
+function handle(t){
+  const a=t.dataset.act;
+  if(t.dataset.nav){S.nav=t.dataset.nav;S.newc=null;if(t.dataset.aud!==undefined)S.aud=+t.dataset.aud;if(t.dataset.accMe!==undefined)S.acc='admin';}
+  else if(t.dataset.sel){S.nav='clients';S.sel=t.dataset.sel;S.newc=null;S.tab='overview';}
+  else if(t.dataset.tab){S.tab=t.dataset.tab;}
+  else if(t.dataset.pol){S.pol=t.dataset.pol;}
+  else if(t.dataset.set){S.set=t.dataset.set;}
+  else if(t.dataset.acc){S.acc=t.dataset.acc;S.nav='accounts';S.me=false;}
+  else if(t.dataset.log){S.logSel=+t.dataset.log;}
+  else if(t.dataset.doc){S.doc=t.dataset.doc;}
+  else if(t.dataset.aud!==undefined){S.aud=+t.dataset.aud;}
+  else if(t.dataset.pal){const v=t.dataset.pal;S.palette=false;if(v.startsWith('sel:')){S.nav='clients';S.sel=v.slice(4);S.tab='overview';S.newc=null;}else if(v.startsWith('nav:'))S.nav=v.slice(4);else go(v);return render();}
+  else if(a==='allow'||a==='allow-all-pol'){allow(t.dataset.c,t.dataset.d);}
+  else if(a==='new-client'){S.nav='clients';S.newc={name:'',src:'',mode:'own',dom:[]};}
+  else if(a==='new-from'){const u=D.unknown.find(x=>x.ip===t.dataset.ip);S.nav='clients';S.newc={from:u.ip,name:'',src:u.ip,mode:'own',dom:u.dst};}
+  else if(a==='cancel-new'){S.newc=null;}
+  else if(a==='nmode'){S.newc.mode=t.dataset.v;}
+  else if(a==='save-new'){const name=(document.getElementById('n-name').value||'').trim()||'debian-build';const src=(document.getElementById('n-src').value||'').trim()||'10.20.0.77';
+    const id='n'+Date.now();const pol={id:'p'+id,name,own:true,mode:'list',dom:(S.newc.dom.length?S.newc.dom:['deb.debian.org']).map(d=>({d,s:0,h:0,isnew:1}))};D.policies.push(pol);
+    D.clients.push({id,name,desc:'Новый клиент',kind:'Устройство',nets:src.split(/\s+/),pol:pol.id,tr:'HTTP',login:'',req:0,den:0,bytes:'—',last:'—',sp:Array(24).fill(0),on:true,tun:0,isnew:true});
+    if(S.newc.from)D.unknown=D.unknown.filter(u=>u.ip!==S.newc.from);
+    addChange({k:'a',t:`Новый клиент ${name}`,d:`${src} · ${pol.dom.map(x=>x.d).join(', ')}`,ref:'client'});S.sel=id;S.newc=null;S.tab='overview';}
+  else if(a==='add-dom'){const ctx=t.dataset.ctx;const inp=document.getElementById('add-'+ctx);const vals=(inp.value||'').split(/[\s,]+/).map(s=>s.trim().toLowerCase()).filter(Boolean);
+    if(!vals.length){inp.focus();inp.placeholder='введите домен, например registry.npmjs.org';return;}
+    const list=ctxList(ctx);vals.forEach(v=>{if(!list.some(x=>x.d===v)){list.push({d:v,s:1,h:0,isnew:1});addChange({k:'a',t:(ctx==='blocked'?'Запрещено для всех: *.':PO(ctx.slice(4)).name+': ')+v,d:ctx==='blocked'?'Для всех клиентов':'Изменение политики',ref:'dom:'+v});}});}
+  else if(a==='del-dom'){const list=ctxList(t.dataset.ctx);const x=list[+t.dataset.i];if(x.isnew){list.splice(+t.dataset.i,1);S.draft=S.draft.filter(d=>d.ref!=='dom:'+x.d);}else{x.del=1;addChange({k:'d',t:'Удалить '+domLabel(x),d:t.dataset.ctx==='blocked'?'Из запрещённых для всех':'Из политики «'+PO(t.dataset.ctx.slice(4)).name+'»',ref:'del:'+x.d});}}
+  else if(a==='undo-del'){const list=ctxList(t.dataset.ctx);const x=list[+t.dataset.i];x.del=0;S.draft=S.draft.filter(d=>d.ref!=='del:'+x.d);}
+  else if(a==='toggle-sub'){const list=ctxList(t.dataset.ctx);const x=list[+t.dataset.i];x.s=x.s?0:1;addChange({k:'m',t:`${x.d}: ${x.s?'с поддоменами':'без поддоменов'}`,d:'Изменение списка',ref:'sub:'+x.d});}
+  else if(a==='toggle-client'){const c=C(S.sel);c.on=!c.on;addChange({k:'m',t:`${c.name}: ${c.on?'включён':'отключён'}`,d:c.on?'Правила снова действуют':'Все запросы получат отказ',ref:'cl'});}
+  else if(a==='block-dom'){const d=t.dataset.d;if(!D.blocked.some(x=>x.d===d)){D.blocked.push({d,s:1,h:0,isnew:1});addChange({k:'a',t:'Запрещено для всех: *.'+d,d:'Для всех клиентов',ref:'dom:'+d});}}
+  else if(a==='open-policy'){S.nav='policies';S.pol=t.dataset.p;}
+  else if(a==='promote'){toast('Откроется диалог: имя политики и клиенты, которые её получат');return render();}
+  else if(a==='dup'){toast('Копия клиента откроется формой «Новый клиент» с теми же правилами');return render();}
+  else if(a==='discard'){location.reload();return;}
+  else if(a==='review'){S.sheet=true;S.applying=-1;}
+  else if(a==='close-sheet'){if(S.applying<0)S.sheet=false;}
+  else if(a==='drop'){S.draft.splice(+t.dataset.i,1);if(!S.draft.length)S.sheet=false;}
+  else if(a==='apply'){S.applying=0;const tick=()=>{S.applying++;if(S.applying>4){S.sheet=false;S.applying=-1;S.draft=[];S.applied=true;clearMarks();toast('Ревизия r-42 применена и подтверждена Squid');render();return;}render();setTimeout(tick,S.applying===3?900:450);};setTimeout(tick,450);}
+  else if(a==='palette'){S.palette=true;}
+  else if(a==='me'){S.me=!S.me;return render();}
+  else if(a==='me-pwd'){S.me=false;S.nav='accounts';S.acc='admin';toast('Откроется форма смены пароля; после смены все сессии, кроме этой, завершатся');}
+  else if(a==='me-other'){S.me=false;toast('Другие сессии завершены');}
+  else if(a==='logout'){S.me=false;toast('Выход: сессия завершена, откроется страница входа');}
+  else if(a==='health'){S.hopen=!S.hopen;}
+  else if(a==='theme'){const r=document.documentElement;const dark=r.dataset.theme==='dark'||(!r.dataset.theme&&matchMedia('(prefers-color-scheme: dark)').matches);r.dataset.theme=dark?'light':'dark';}
+  else if(a==='close-pal'){S.palette=false;}
+  else if(a==='noop'){return;}
+  else return;
+  render();
+}
+function clearMarks(){D.policies.forEach(p=>p.dom=p.dom.filter(x=>!x.del).map(x=>({...x,isnew:0})));D.blocked=D.blocked.filter(x=>!x.del).map(x=>({...x,isnew:0}));D.clients.forEach(c=>{c.isnew=false;c.changed='';});}
+function go(v){
+  S.palette=false;S.sheet=false;S.newc=null;
+  if(v==='why'){S.nav='log';S.logSel=0;}
+  else if(v==='newfromlog'){S.nav='clients';S.newc={from:'10.99.1.4',name:'',src:'10.99.1.4',mode:'own',dom:['deb.debian.org','security.debian.org']};}
+  else if(v==='newclient'){S.nav='clients';S.newc={name:'',src:'',mode:'own',dom:[]};}
+  else if(v==='policy'){S.nav='policies';S.pol='build';}
+  else if(v==='blocked'){S.nav='settings';S.set='blocked';}
+  else if(v==='review'){S.sheet=true;S.applying=-1;}
+  else if(v==='palette'){S.palette=true;}
+  else if(v==='acc'){S.nav='accounts';}
+}
+/* ---------- roles, states, dialogs (override layer) ---------- */
+const ALLC=D.clients;
+D.clients.push({id:'arm',name:'build-arm',desc:'ARM-раннеры, команда платформы',kind:'Сеть',nets:['10.21.0.0/24'],pol:'build',tr:'HTTP',login:'',req:7310,den:0,bytes:'5,2 ГБ',last:'сейчас',sp:sp(23,.5),on:true,tun:1});
+D.unknown.push({ip:'10.20.1.9',den:3,dst:['registry.npmjs.org'],last:'7 мин'});
+logs.push(['13:59:41','?','10.20.1.9','CONNECT','registry.npmjs.org:443','403','d']);
+const ME={name:'anna',clients:['build','ci01'],nets:['10.20.0.0/22']};
+const isMgr=()=>S.role==='manager';
+const ip4=s=>{const m=String(s).split('/')[0].split('.').map(Number);return m.length===4&&m.every(x=>x>=0&&x<=255)?((m[0]<<24)>>>0)+(m[1]<<16)+(m[2]<<8)+m[3]:null;};
+function inNet(ip,net){const [a,b]=net.split('/');const x=ip4(ip),n=ip4(a),bits=+(b||32);if(x==null||n==null)return false;const mask=bits?(~0<<(32-bits))>>>0:0;return ((x&mask)>>>0)===((n&mask)>>>0);}
+const inScope=c=>!isMgr()||ME.clients.includes(c.id);
+const ipInScope=ip=>!isMgr()||ME.nets.some(n=>inNet(ip,n));
+const usersAll=pid=>ALLC.filter(c=>c.pol===pid);
+const policyEditable=pid=>!isMgr()||usersAll(pid).every(c=>ME.clients.includes(c.id));
+S.role='admin';S.env='ok';S.applyFail=false;S.confirm=null;S.conflict=false;
+S.draft.forEach(d=>d.owner='admin');
+
+// wrap views that must respect the manager scope
+const _vClients=vClients;vClients=function(){
+  if(S.env==='empty')return emptyClients();
+  const save=[D.clients,D.unknown];D.clients=ALLC.filter(inScope);D.unknown=save[1].filter(u=>ipInScope(u.ip));
+  if(!D.clients.some(c=>c.id===S.sel)&&D.clients[0])S.sel=D.clients[0].id;
+  try{let h=_vClients();if(isMgr())h=h.replace('<span class="b grow">Клиенты</span>','<span class="b grow">Мои клиенты</span>');return h;}finally{[D.clients,D.unknown]=save;}
+};
+const _vPolicies=vPolicies;vPolicies=function(){
+  const save=D.policies,sc=D.clients;D.policies=save.filter(p=>!isMgr()||usersAll(p.id).some(c=>ME.clients.includes(c.id)));D.clients=ALLC.filter(inScope);
+  if(!D.policies.some(p=>p.id===S.pol)&&D.policies[0])S.pol=D.policies[0].id;
+  try{return _vPolicies();}finally{D.policies=save;D.clients=sc;}
+};
+const _domainEditor=domainEditor;domainEditor=function(list,ctx){
+  if(ctx.startsWith('pol:')&&!policyEditable(ctx.slice(4))){const pid=ctx.slice(4);const others=usersAll(pid).filter(c=>!ME.clients.includes(c.id));
+    return `<div class="callout info" style="margin-bottom:10px"><span class="ic">${I('lock','s')}</span><div class="sm">Политика общая ещё с ${KL(others.length)} вне ваших прав. Изменить её может администратор. Чтобы менять список самостоятельно, переведите своего клиента на свою политику.</div></div><div class="row wrap">${list.map(x=>`<span class="chip">${esc(domLabel(x))}</span>`).join('')}</div>`;}
+  return _domainEditor(list,ctx);
+};
+const _vLog=vLog;vLog=function(){
+  if(S.env==='empty')return `<section class="insp"><div class="top"><span class="b">Журнал</span></div><div class="ib">${emptyState('log','Запросов пока нет','Записи появятся, как только первая машина обратится к прокси. Настройте подключение по инструкции из справки.','Как подключить машину','help')}</div></section>`;
+  const save=logs.slice();const vis=save.filter(r=>r[1]==='?'?ipInScope(r[2]):inScope(C(r[1])));logs.length=0;logs.push(...vis);if(S.logSel>=logs.length)S.logSel=0;
+  try{return _vLog();}finally{logs.length=0;logs.push(...save);}
+};
+const _vAudit=vAudit;vAudit=function(){
+  if(!isMgr())return _vAudit();
+  const save=AUD.slice();const vis=save.filter(x=>x.who==='anna'||x.scope==='anna');AUD.length=0;AUD.push(...vis);if(S.aud>=AUD.length)S.aud=0;
+  try{return _vAudit().replace('<span class="b">Аудит</span>','<span class="b">Аудит</span><div class="sm mut">Ваши действия и изменения ваших клиентов</div>');}finally{AUD.length=0;AUD.push(...save);}
+};
+AUD.splice(1,0,{day:'Сегодня',t:'11:20',who:'anna',scope:'anna',type:'apply',ic:'play',title:'Применена ревизия r-40a: ci-01 + files.pythonhosted.org',sum:'ok',rev:'r-40a',ch:[['a','ci-01: files.pythonhosted.org']],steps:[['Проверка правил','0,1 с',1],['Проверка конфигурации в Squid','0,4 с',1],['Запись журнала применения','0,0 с',1],['Squid перечитывает конфигурацию','1,1 с',1],['Подтверждение r-40a','0,2 с',1]]});
+AUD.push({day:'27 окт',t:'10:05',who:'admin',scope:'anna',type:'acc',ic:'key',title:'Менеджеру anna назначены build-runners и ci-01',sum:'',kv:[['Сети для новых клиентов','10.20.0.0/22']]});
+
+const _addChange=addChange;addChange=function(ch){ch.owner=isMgr()?'anna':'admin';_addChange(ch);};
+const _allow=allow;allow=function(cid,dom){const c=C(cid);const p=PO(c.pol);
+  if(p&&!policyEditable(p.id)){toast('Политика общая с клиентами вне ваших прав. Попросите администратора или переведите клиента на свою политику');return;}
+  _allow(cid,dom);};
+
+// apply gate: who may apply what
+function gate(){
+  const foreign=S.draft.filter(d=>isMgr()&&d.owner!=='anna');
+  const out=[];
+  if(S.env==='down')out.push(`<div class="callout bad"><span class="ic">${I('ban','s')}</span><div class="sm"><span class="m">Squid не отвечает.</span> Применить изменения нельзя, пока он не поднимется. Черновик сохранён.</div></div>`);
+  if(S.conflict)out.push(`<div class="callout warn"><span class="ic">${I('warn','s')}</span><div class="grow sm"><span class="m">anna изменила черновик 1 мин назад:</span> ci-01: registry.npmjs.org. Ваши изменения на месте. Обновите список, чтобы применить всё вместе.</div><button class="btn xs" data-act="refresh-draft">Обновить</button></div>`);
+  if(foreign.length)out.push(`<div class="callout info"><span class="ic">${I('lock','s')}</span><div class="sm">В черновике ${cnt(foreign.length,'изменение','изменения','изменений')} администратора вне ваших клиентов. Применить черновик целиком может только администратор. Ваши изменения: ${S.draft.length-foreign.length}.</div></div>`);
+  return out.join('');
+}
+const canApply=()=>S.env!=='down'&&!S.conflict&&!S.draft.some(d=>isMgr()&&d.owner!=='anna');
+
+function emptyState(ic,title,text,btn,nav,act){return `<div class="card" style="padding:28px;display:flex;flex-direction:column;align-items:flex-start;gap:8px;max-width:560px"><span class="mut">${I(ic)}</span><div class="ct">${title}</div><div class="mut">${text}</div>${btn?`<button class="btn xs" ${nav?`data-nav="${nav}"`:`data-act="${act}"`}>${btn}</button>`:''}</div>`;}
+function emptyClients(){
+  return `<div class="list"><div class="lh"><div class="row"><span class="b grow">Клиенты</span><button class="btn xs pri" data-act="new-client">${I('plus','s')}Новый</button></div></div><div class="lb"><div style="padding:16px 14px" class="sm mut">Клиентов пока нет. Пока их нет, прокси отказывает всем.</div>
+   <div class="lg">Неописанные источники</div><div class="li" data-act="new-from" data-ip="10.99.1.4" tabindex="0"><div class="mono">10.99.1.4</div><div class="xs up">${OTK(5)}</div><div class="xs mut ellip">deb.debian.org</div><div class="xs mut">21 мин</div></div></div></div>
+  <section class="insp"><div class="ib" style="max-width:760px">
+   <h2 class="pt">Добро пожаловать в Kraken</h2><div class="mut">Три шага, чтобы первая машина вышла в интернет через прокси.</div>
+   ${[['1','Опишите клиента','Устройство или сеть по IP и что им можно: весь веб или список доменов.','Новый клиент','new-client',''],['2','Настройте машину','Укажите прокси 10.0.0.2:3128 в APT, переменных окружения или Docker.','Инструкции по подключению','','help'],['3','Примените изменения','Kraken проверит конфигурацию и перезагрузит Squid без разрыва соединений.','','','']].map(([n,t,d,b,a,nav])=>`<div class="card"><div class="ch" style="padding-bottom:12px"><span class="ci a" style="font-family:var(--font)">${n}</span><div class="grow"><div class="ct">${t}</div><div class="cd">${d}</div></div>${b?`<button class="btn xs ${a?'pri':''}" ${a?`data-act="${a}"`:`data-nav="${nav}"`}>${b}</button>`:''}</div></div>`).join('')}
+   <div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">С 10.99.1.4 уже были запросы. Его можно описать одним нажатием в списке слева.</div></div></div></section>`;
+}
+function downBanner(){return `<div style="display:flex;gap:10px;align-items:center;padding:8px 14px;background:var(--bad-bg);border-bottom:1px solid var(--border);flex:none"><span style="color:var(--bad)">${I('ban','s')}</span><span class="sm"><span class="m">Squid не отвечает с 14:03.</span> Трафик клиентов сейчас не проходит. Kraken перезапускает Squid автоматически с последней рабочей ревизией r-41.</span><span class="grow"></span><button class="btn xs" data-act="health">Подробнее</button><button class="btn xs ghost" data-doc="check" data-nav="help">Что делать</button></div>`;}
+function confirmDlg(){const c=S.confirm;return `<div class="overlay" data-act="confirm-no" style="justify-content:center;align-items:center"><div class="card" role="alertdialog" aria-label="${esc(c.title)}" onclick="event.stopPropagation()" style="width:min(440px,92%);padding:18px;display:flex;flex-direction:column;gap:10px;box-shadow:0 16px 48px #00000040">
+  <div class="ct">${esc(c.title)}</div><div class="mut">${c.text}</div><div class="row" style="justify-content:flex-end;margin-top:6px"><button class="btn" data-act="confirm-no">Отмена</button><button class="btn ${c.danger?'pri':'pri'}" data-act="confirm-yes" style="${c.danger?'background:var(--bad);border-color:var(--bad);color:#fff':''}">${esc(c.ok)}</button></div></div></div>`;}
+
+// accounts: admin and manager
+const ACC2={
+ admin:{t:'panel',role:'admin',on:true,last:'сегодня 09:12, 10.8.3.17',pwd:'12 дней назад',fail:0,sess:[['Firefox 131 · macOS','10.8.3.17','сегодня 09:12','сейчас',1],['Safari · iPadOS','10.8.4.2','вчера 21:40','вчера 22:05',0]]},
+ anna:{t:'panel',role:'manager',on:true,clients:['build','ci01'],nets:['10.20.0.0/22'],last:'сегодня 11:02, 10.20.0.200',pwd:'неделю назад',fail:0,sess:[['Chrome 130 · Linux','10.20.0.200','сегодня 11:02','14 мин назад',0]]},
+ oleg:{t:'panel',role:'manager',on:true,clients:['vpn','dev'],nets:['10.8.0.0/16','10.40.0.0/22'],last:'вчера 18:15, 10.8.9.40',pwd:'40 дней назад',fail:2,sess:[]},
+ contractor:{t:'panel',role:'manager',on:false,clients:['arm'],nets:[],last:'12 дней назад',pwd:'—',fail:0,sess:[]},
+ backup:ACC.backup,'dev-anna':ACC['dev-anna'],'dev-oleg':ACC['dev-oleg'],
+ 'ci-deploy':{t:'proxy',on:true,owner:'anna',clients:[],ok:'0',bad:'0',req:'0',ips:[],pwd:'сегодня'},
+};
+ACC.backup.owner='admin';ACC['dev-anna'].owner='oleg';ACC['dev-oleg'].owner='oleg';
+const loginVisible=k=>{const x=ACC2[k];if(x.t!=='proxy')return !isMgr();if(!isMgr())return true;if(x.owner==='anna')return true;const ids=x.clients.map(n=>(ALLC.find(c=>c.name===n)||{}).id);return ids.length>0&&ids.every(id=>ME.clients.includes(id));};
+const PERMS2=[['Состояние сервера','да','да'],['Клиенты, журнал, аудит','все','только назначенные'],['Менять клиентов и их политики','все','назначенных'],['Создавать клиентов','любые адреса','в своих сетях'],['Править общие политики','да','если все её клиенты назначены'],['Применять изменения','да','если черновик только про его клиентов'],['Логины прокси','все','создаёт свои; управляет своими и теми, что используют только его клиенты'],['Настройки, запреты для всех, аккаунты','да','нет']];
+const _vAccountsOrig=vAccounts;
+vAccounts=function(){
+  const n=ACC2[S.acc]?S.acc:'admin';const a=ACC2[n];
+  const roleName=r=>r==='admin'?'Администратор':'Менеджер';
+  const li=k=>{const x=ACC2[k];return `<div class="li ${n===k?'on':''}" data-acc="${k}" tabindex="0"><div class="m ${x.t==='proxy'?'mono':''}">${k}</div><div class="xs">${x.on?'':'<span class="badge">заблокирован</span>'}</div><div class="xs mut ellip">${x.t==='panel'?roleName(x.role)+(x.role==='manager'?' · '+KL(x.clients.length):''):x.clients.join(', ')}</div><div class="xs ${x.fail||+x.bad?'up':'mut'}">${x.fail?cnt(x.fail,'неудачный вход','неудачных входа','неудачных входов'):+x.bad?cnt(+x.bad,'неудачный вход','неудачных входа','неудачных входов'):''}</div></div>`;};
+  const keys=Object.keys(ACC2).filter(loginVisible);
+  if(isMgr())return mgrLogins(keys);
+  if(a.t==='proxy'){const save=S.acc;const html=_vAccountsProxy(n);return html;}
+  return `<div class="list"><div class="lh"><div class="row"><span class="b grow">Аккаунты</span><button class="btn xs pri">${I('plus','s')}Новый</button></div><div class="sm mut">Кто входит в панель и какие логины принимает прокси.</div></div><div class="lb">
+   <div class="lg">Панель управления</div>${keys.filter(k=>ACC2[k].t==='panel').map(li).join('')}<div class="lg">Логины прокси</div>${keys.filter(k=>ACC2[k].t==='proxy').map(li).join('')}</div></div>
+  <section class="insp"><div class="ih"><div class="row wrap"><h2 class="pt">${n}</h2>${n==='admin'?'<span class="badge sec">это вы</span>':''}<span class="badge sec">${roleName(a.role)}</span>${a.on?'<span class="badge ok"><span class="dot"></span>активен</span>':'<span class="badge">заблокирован</span>'}<span class="grow"></span><button class="btn xs">Сменить пароль</button>${n!=='admin'?`<button class="btn xs" data-act="block-user" data-u="${n}">${a.on?'Заблокировать':'Разблокировать'}</button>`:''}</div>
+    <div class="sm mut">Пароль изменён ${a.pwd}. Хранится только как Argon2id; смена сразу завершает все сессии.</div></div>
+   <div class="ib" style="border-top:1px solid var(--border)">
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Роль</div><div class="cd">Последнего администратора нельзя понизить или заблокировать</div></div></div><div class="cb col" style="gap:10px">
+     <div class="opts"><div class="opt ${a.role==='admin'?'on':''}"><span class="radio"></span><div><div class="m">Администратор</div><div class="sm mut">Всё, включая настройки и аккаунты</div></div></div><div class="opt ${a.role==='manager'?'on':''}"><span class="radio"></span><div><div class="m">Менеджер</div><div class="sm mut">Только назначенные клиенты</div></div></div></div>
+     <table><thead><tr><th style="padding-left:0">Право</th><th>Администратор</th><th>Менеджер</th></tr></thead><tbody>${PERMS2.map(([p,ad,mg])=>`<tr><td style="padding-left:0">${p}</td><td class="${a.role==='admin'?'m':'mut'}">${ad}</td><td class="${a.role==='manager'?'m':'mut'}">${mg}</td></tr>`).join('')}</tbody></table></div></div>
+    ${a.role==='manager'?`<div class="g2"><div class="card"><div class="ch"><div class="grow"><div class="ct">Назначенные клиенты</div><div class="cd">Менеджер видит и меняет только их</div></div></div><div class="cb col" style="gap:6px">${a.clients.map(id=>{const c=ALLC.find(x=>x.id===id);return `<div class="row"><button class="btn xs" data-sel="${c.id}">${esc(c.name)}</button><span class="sm mut mono grow">${c.nets.join(', ')}</span><button class="btn ghost icon xs" aria-label="Снять">${I('x','s')}</button></div>`;}).join('')}<select class="in" style="max-width:260px"><option>Добавить клиента…</option>${ALLC.filter(c=>!a.clients.includes(c.id)).map(c=>`<option>${esc(c.name)}</option>`).join('')}</select></div></div>
+     <div class="card"><div class="ch"><div class="grow"><div class="ct">Сети для новых клиентов</div><div class="cd">Внутри них менеджер может создавать клиентов и менять адреса своих</div></div></div><div class="cb col" style="gap:6px">${a.nets.length?a.nets.map(x=>`<div class="row"><span class="chip">${x}</span><span class="grow"></span><button class="btn ghost icon xs" aria-label="Удалить">${I('x','s')}</button></div>`).join(''):'<span class="sm mut">Не заданы: создавать клиентов нельзя</span>'}<button class="btn xs dashed" style="align-self:flex-start">${I('plus','s')}Сеть</button></div></div></div>`:''}
+    <div class="g2"><div class="card"><div class="ch"><div class="ct grow">Входы</div></div><div class="cb"><dl class="kv"><dt>Последний</dt><dd>${a.last}</dd><dt>Неудачных за 24 ч</dt><dd class="${a.fail?'up':''}">${a.fail||'0'}</dd><dt>Защита</dt><dd>после 5 неудач вход с этого IP закрыт на 15 мин</dd></dl></div></div>
+     <div class="card"><div class="ch"><div class="grow"><div class="ct">Сессии</div><div class="cd">12 ч или 30 мин бездействия</div></div>${a.sess.length?'<button class="btn xs">Завершить все</button>':''}</div><div class="cb">${a.sess.length?a.sess.map(([d,ip,st,la,cur])=>`<div class="row" style="padding:5px 0"><span class="grow">${d}${cur?' <span class="badge sec">эта</span>':''}<div class="xs mut">${ip} · с ${st} · ${la}</div></span>${cur?'':'<button class="btn xs ghost">Завершить</button>'}</div>`).join(''):'<span class="sm mut">Активных сессий нет</span>'}</div></div></div>
+   </div></section>`;
+};
+function mgrLogins(keys){
+  const n=keys.includes(S.acc)?S.acc:keys[0];const a=ACC2[n];
+  return `<div class="list"><div class="lh"><div class="row"><span class="b grow">Логины прокси</span><button class="btn xs pri" data-act="new-login">${I('plus','s')}Новый</button></div><div class="sm mut">Логины для ваших клиентов, подключённых по TLS.</div></div><div class="lb">${keys.map(k=>{const x=ACC2[k];return `<div class="li ${n===k?'on':''}" data-acc="${k}" tabindex="0"><div class="m mono">${k}</div><div class="xs mut">${x.on?'активен':'выкл'}</div><div class="xs mut ellip">${x.clients.length?x.clients.join(', '):'не используется'}</div><div></div></div>`;}).join('')}</div></div>
+  <section class="insp"><div class="ih"><div class="row wrap"><h2 class="pt mono">${n}</h2><span class="badge sec">логин прокси</span>${a.owner==='anna'?'<span class="badge sec">создан вами</span>':''}<span class="grow"></span><button class="btn xs">Сменить пароль</button><button class="btn xs">${a.on?'Отключить':'Включить'}</button></div><div class="sm mut">Пароль изменён ${a.pwd}. Смена сразу закрывает старый пароль у прокси.</div></div>
+   <div class="ib" style="border-top:1px solid var(--border)">
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Где используется</div><div class="cd">Привязать логин можно к своему клиенту с подключением по TLS</div></div></div><div class="cb col" style="gap:6px">${a.clients.length?a.clients.map(c=>`<div class="row"><span class="m">${esc(c)}</span></div>`).join(''):'<span class="sm mut">Пока ни к одному клиенту не привязан</span>'}<div class="row"><select class="in" style="max-width:260px"><option>Привязать к клиенту…</option>${ALLC.filter(c=>ME.clients.includes(c.id)).map(c=>`<option>${esc(c.name)}${c.tr==='TLS'?'':' (сначала включите TLS)'}</option>`).join('')}</select></div></div></div>
+    <div class="callout info"><span class="ic">${I('info','s')}</span><div class="sm">Логины других менеджеров и общие логины вам не видны. Если имя уже занято, панель скажет об этом, не раскрывая владельца.</div></div></div></section>`;
+}
+function _vAccountsProxy(n){const keep=S.acc;const save={...ACC};Object.keys(ACC).forEach(k=>delete ACC[k]);Object.assign(ACC,ACC2);try{return _vAccountsOrig();}finally{Object.keys(ACC).forEach(k=>delete ACC[k]);Object.assign(ACC,save);}}
+
+meMenu=function(){const m=isMgr();return `<div class="menu" role="menu" aria-label="Профиль">
+   <div class="mh"><span class="avatar" style="margin:0;cursor:default">${m?'An':'A'}</span><div class="grow"><div class="m">${m?'anna':'admin'}</div><div class="sm mut">${m?'Менеджер · '+KL(ME.clients.length):'Администратор'}</div></div></div>
+   <div class="sm mut" style="padding:0 8px 8px;display:flex;flex-direction:column;gap:2px"><span class="row"><span class="dot" style="color:var(--ok)"></span>Сессия с ${m?'11:02, IP 10.20.0.200':'09:12, IP 10.8.3.17'}</span><span>Завершится через 11 ч или после 30 мин бездействия</span></div>
+   <div class="sep"></div>
+   ${m?'':`<button class="mi" role="menuitem" data-acc="admin">${I('user','s')}Мой аккаунт</button>`}
+   <button class="mi" role="menuitem" data-act="me-pwd">${I('key','s')}Сменить пароль</button>
+   <button class="mi" role="menuitem" data-act="me-other">${I('x','s')}Завершить другие сессии</button>
+   <div class="sep"></div>
+   <button class="mi danger" role="menuitem" data-act="logout">${I('arrow','s')}Выйти</button></div>`;};
+
+function sCerts(){const row=(t,cn,san,iss,until,left,warn)=>`<div class="card"><div class="ch"><div class="grow"><div class="ct">${t}</div><div class="cd">${warn?'<span style="color:var(--warn)">Истекает через '+left+'</span>':'Действует ещё '+left}</div></div><span class="badge ${warn?'warn':'ok'}">${warn?'скоро истечёт':'в порядке'}</span></div><div class="cb"><dl class="kv"><dt>Кому выдан</dt><dd class="mono">${cn}</dd><dt>Имена</dt><dd class="mono">${san}</dd><dt>Кем выдан</dt><dd>${iss}</dd><dt>Действует до</dt><dd>${until}</dd></dl></div></div>`;
+ return `${row('Панель управления (HTTPS)','kraken.corp.local','kraken.corp.local, 10.0.0.2','Corp Root CA','12.01.2027',cnt(75,'день','дня','дней'),false)}${row('Прокси по TLS, порт 3129','proxy.corp.local','proxy.corp.local, 10.0.0.2','Corp Root CA','16.11.2026',cnt(18,'день','дня','дней'),true)}
+ <div class="callout info"><span class="ic">${I('info','s')}</span><div class="grow sm">Сертификаты заменяются файлами на сервере и перезапуском контейнера. Kraken не выпускает сертификаты сам.</div><button class="btn xs" data-doc="tls" data-nav="help">Как заменить</button></div>`;}
+
+// unified router for new actions; falls back to the base handler
+function route(t){
+  const a=t.dataset.act;
+  if(t.dataset.doc&&t.dataset.nav){S.doc=t.dataset.doc;S.nav='help';return render();}
+  if(t.dataset.set&&t.dataset.nav){S.nav='settings';S.set=t.dataset.set;S.hopen=false;return render();}
+  if(a==='discard'){S.confirm={title:'Отменить все изменения?',text:`Черновик (${cnt(S.draft.length,'изменение','изменения','изменений')}) будет удалён. Работающая конфигурация не изменится.`,ok:'Отменить изменения',danger:true,act:'do-discard'};return render();}
+  if(a==='toggle-client'){const c=C(S.sel);if(c.on&&c.req){S.confirm={title:`Отключить ${c.name}?`,text:`За 24 ч у клиента ${fmt(c.req)} запросов, сейчас открыто ${cnt(c.tun,'соединение','соединения','соединений')}. После применения все новые запросы получат отказ.`,ok:'Отключить',danger:true,act:'do-toggle'};return render();}return handle(t);}
+  if(a==='block-user'){const u=t.dataset.u;S.confirm={title:`Заблокировать ${u}?`,text:'Активные сессии завершатся сразу. Имя останется в аудите.',ok:'Заблокировать',danger:true,act:'do-block',u};return render();}
+  if(a==='confirm-no'){S.confirm=null;return render();}
+  if(a==='confirm-yes'){const c=S.confirm;S.confirm=null;
+    if(c.act==='do-discard'){S.draft=[];D.policies.forEach(p=>p.dom=p.dom.filter(x=>!x.isnew).map(x=>({...x,del:0})));D.blocked=D.blocked.filter(x=>!x.isnew);toast('Черновик очищен');}
+    if(c.act==='do-toggle'){const cl=C(S.sel);cl.on=false;addChange({k:'m',t:`${cl.name}: отключён`,d:'Все запросы получат отказ',ref:'cl'});}
+    if(c.act==='do-block'){ACC2[c.u].on=!ACC2[c.u].on;toast(ACC2[c.u].on?'Разблокирован':'Заблокирован, сессии завершены');}
+    return render();}
+  if(a==='refresh-draft'){S.conflict=false;S.draft.push({k:'a',t:'ci-01: registry.npmjs.org',d:'Изменение anna',ref:'dom:registry.npmjs.org',owner:'anna'});return render();}
+  if(a==='review'&&S.env==='down'){toast('Squid не отвечает: применить нельзя, черновик сохранён');S.sheet=true;S.applying=-1;return render();}
+  if(a==='apply'){if(!canApply())return;S.applying=0;S.applyErr=false;const tick=()=>{
+      if(S.applyFail&&S.applying===1){S.applyErr=true;render();return;}
+      S.applying++;if(S.applying>4){S.sheet=false;S.applying=-1;S.draft=[];S.applied=true;clearMarks();toast('Ревизия r-42 применена и подтверждена Squid');render();return;}render();setTimeout(tick,S.applying===3?900:450);};setTimeout(tick,450);return render();}
+  if(a==='back-to-draft'){S.applying=-1;S.applyErr=false;return render();}
+  if(a==='save-new'){const name=(document.getElementById('n-name').value||'').trim();const src=(document.getElementById('n-src').value||'').trim();S.newc.name=name;S.newc.src=src;
+    const toks=src.split(/[\s,]+/).filter(Boolean);let err='';
+    if(!name)err='Укажите имя клиента.';
+    else if(!toks.length)err='Укажите хотя бы один адрес или сеть.';
+    else{for(const tk of toks){if(ip4(tk)==null||(tk.includes('/')&&!(+tk.split('/')[1]>=8&&+tk.split('/')[1]<=32))){err=`«${tk}» не похоже на IPv4-адрес или сеть вида 10.20.0.0/24.`;break;}
+      if(isMgr()&&!ME.nets.some(n=>inNet(tk,n))){err=`${tk} вне ваших сетей (${ME.nets.join(', ')}). Добавить такого клиента может администратор.`;break;}
+      const hit=ALLC.find(c=>c.nets.some(n=>inNet(tk,n)));if(hit&&!S.newc.ok){err=`${tk} уже входит в клиента ${hit.name} (${hit.nets.join(', ')}). Пересечение возможно, только если у клиентов разные логины прокси. Нажмите ещё раз, чтобы сохранить с логином.`;S.newc.ok=1;break;}}}
+    S.newc.err=err;if(err)return render();
+    const before=ALLC.length;handle(t);if(isMgr()&&ALLC.length>before)ME.clients.push(ALLC[ALLC.length-1].id);return;}
+  if(a==='new-login'){const name='ci-deploy-2';ACC2[name]={t:'proxy',on:true,owner:isMgr()?'anna':'admin',clients:[],ok:'0',bad:'0',req:'0',ips:[],pwd:'только что'};S.acc=name;toast('Логин создан. Пароль показан один раз: передайте его владельцу машины');return render();}
+  if(a==='new-client'&&isMgr()&&!ME.nets.length){toast('Для вас не заданы сети: создавать клиентов может администратор');return;}
+  return handle(t);
+}
+document.addEventListener('click',e=>{const b=e.target.closest('[data-mode]');if(!b)return;const [k,v]=b.dataset.mode.split(':');
+  b.parentElement.querySelectorAll('button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  if(k==='role'){S.role=v;S.nav='clients';S.newc=null;S.sel=v==='manager'?'ci01':'ci01';S.acc='admin';}
+  if(k==='env'){S.env=v;S.newc=null;S.nav=v==='empty'?'clients':S.nav;}
+  if(k==='apply'){S.applyFail=v==='fail';}
+  if(k==='conflict'){S.conflict=true;S.sheet=true;S.applying=-1;}
+  render();});
+
+/* ---------- overview layout, resizable panes, menus (polish layer) ---------- */
+cOverview=function(c,p,den){
+  const fix=den.filter(d=>d.why==='list');const pname=p?(p.own?c.name:p.name):'';
+  const recent=logs.filter(r=>r[1]===c.id).concat(logs.filter(r=>r[1]!==c.id&&r[1]!=='?').slice(0,2)).slice(0,5);
+  return `${fix.map(d=>`<div class="callout bad"><span class="ic" style="color:var(--bad)">${I('ban','s')}</span><div class="grow"><div class="m">${OTK(d.n)} к <span class="mono">${esc(d.d)}</span> за 24 ч</div><div class="sm mut">Домена нет в политике «${esc(pname)}»</div></div><button class="btn xs pri" data-act="allow" data-c="${c.id}" data-d="${esc(d.d)}">${I('plus','s')}Разрешить</button></div>`).join('')}
+  <div class="kpis">${kpi('Запросы, 24 ч',c.req?fmt(c.req):'—')}${kpi('Отказы, 24 ч',c.den||'—',den.length?[...new Set(den.map(d=>whyText[d.why]))].join('; '):'нет',c.den?'up':'')}${kpi('Трафик, 24 ч',c.bytes)}${kpi('Открытые соединения',c.tun)}</div>
+  <div class="ov"><div class="col">
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Трафик за 24 часа</div></div></div><div class="cb">${traffic('c-'+c.id,series(Math.max(.05,c.req/48210),c.id.length*7,c.den>0),120)}</div></div>
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Куда обращается</div><div class="cd">Топ назначений за 24 ч, включая отказы</div></div></div><div class="cb">${destTable(c,p,den)}</div></div>
+   </div><div class="col">
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Правила</div><div class="cd">${p?p.mode==='all'?'Любые внешние сайты, кроме запрещённых для всех':'Только домены политики':'Нет доступа'}</div></div><button class="btn xs" data-tab="access">Изменить</button></div>
+     <div class="cb col" style="gap:10px">${p&&p.mode==='list'?`<div class="row wrap" style="gap:6px">${p.dom.slice(0,8).map(x=>`<span class="chip">${esc(domLabel(x))}</span>`).join('')}${p.dom.length>8?`<span class="chip"><span class="mut">+${p.dom.length-8}</span></span>`:''}</div>`:''}
+      <dl class="kv"><dt>Политика</dt><dd>${p?esc(p.own?'своя у клиента':p.name+', общая: '+KL(usersOf(p.id).length)):'—'}</dd><dt>Поверх неё</dt><dd>${cnt(D.blocked.length,'запрещённый домен','запрещённых домена','запрещённых доменов')}, встроенная защита</dd><dt>Подключение</dt><dd>${c.tr==='TLS'?'TLS, порт 3129'+(c.login?', логин '+esc(c.login):''):'HTTP, порт 3128'}</dd></dl></div></div>
+    <div class="card"><div class="ch"><div class="grow"><div class="ct">Последние запросы</div></div><button class="btn xs ghost" data-tab="requests">Все</button></div><div class="cb"><div class="feed">${recent.map(r=>`<div class="fr"><span class="xs mut num">${r[0]}</span><span class="mono trunc" title="${esc(r[4])}">${esc(r[4])}</span><span class="badge ${r[6]==='d'?'bad':'ok'}">${r[5]}</span></div>`).join('')}</div></div></div>
+   </div></div>`;
+};
+destTable=function(c,p,den){
+  const rows=[...den.map(d=>({d:d.d,n:d.n,x:1,why:d.why})),...(p&&p.mode==='list'?p.dom.filter(x=>x.h).map(x=>({d:domLabel(x),n:x.h})):[{d:'github.com',n:4210},{d:'archive.ubuntu.com',n:3022},{d:'api.openai.com',n:1880}])].slice(0,7);
+  const max=Math.max(...rows.map(r=>r.n),1);
+  return `<table style="table-layout:fixed"><colgroup><col><col style="width:28%"><col style="width:92px"><col style="width:96px"></colgroup><tbody>${rows.map(r=>`<tr><td style="padding-left:0"><div class="mono trunc" title="${esc(r.d)}">${esc(r.d)}</div>${r.x?`<div class="xs mut trunc">${whyText[r.why]}</div>`:''}</td><td><div class="bar"><i class="${r.x?'d':''}" style="width:${Math.max(2,r.n/max*100)}%"></i></div></td><td class="r num ${r.x?'up m':''}">${r.x?OTK(r.n):fmt(r.n)}</td><td class="r" style="padding-right:0">${r.why==='list'?`<button class="btn xs" data-act="allow" data-c="${c.id}" data-d="${esc(r.d)}">Разрешить</button>`:''}</td></tr>`).join('')}</tbody></table>`;
+};
+// resizable list pane and request aside, with limits; persisted per viewer
+const PANES={list:{min:220,max:440,def:300,v:'--list-w'},aside:{min:280,max:520,def:340,v:'--aside-w'}};
+try{for(const k in PANES){const v=+localStorage.getItem('kraken-pane-'+k);if(v)document.getElementById('app').style.setProperty(PANES[k].v,v+'px');}}catch(e){}
+function addResizers(){const app=document.getElementById('app');
+  app.querySelectorAll('.body > .list').forEach(l=>{if(!l.querySelector(':scope>.resizer'))l.insertAdjacentHTML('beforeend','<div class="resizer" data-resize="list" role="separator" aria-orientation="vertical" aria-label="Ширина списка" tabindex="0"></div>');});
+  app.querySelectorAll('.req-aside').forEach(a=>{if(!a.querySelector(':scope>.resizer'))a.insertAdjacentHTML('afterbegin','<div class="resizer" data-resize="aside" role="separator" aria-orientation="vertical" aria-label="Ширина панели" tabindex="0"></div>');});}
+const _render=render;render=function(){_render();addResizers();};
+const NAVS=['clients','policies','log','audit','accounts','help','settings'];
+function fromHash(){const h=location.hash.slice(1);if(NAVS.includes(h)){S.nav=h;render();}}
+window.addEventListener('hashchange',fromHash);
+document.addEventListener('mousedown',e=>{const h=e.target.closest('.resizer');if(!h)return;e.preventDefault();const k=h.dataset.resize,P=PANES[k],app=document.getElementById('app');const pane=h.parentElement;const r=pane.getBoundingClientRect();
+  h.classList.add('drag');document.body.classList.add('resizing');let w=r.width;
+  const mv=ev=>{w=k==='list'?ev.clientX-r.left:r.right-ev.clientX;w=Math.round(Math.min(P.max,Math.max(P.min,w)));app.style.setProperty(P.v,w+'px');};
+  const up=()=>{h.classList.remove('drag');document.body.classList.remove('resizing');document.removeEventListener('mousemove',mv);document.removeEventListener('mouseup',up);try{localStorage.setItem('kraken-pane-'+k,w);}catch(e){}};
+  document.addEventListener('mousemove',mv);document.addEventListener('mouseup',up);});
+document.addEventListener('dblclick',e=>{const h=e.target.closest('.resizer');if(!h)return;const P=PANES[h.dataset.resize];document.getElementById('app').style.setProperty(P.v,P.def+'px');try{localStorage.removeItem('kraken-pane-'+h.dataset.resize);}catch(e){}});
+document.addEventListener('keydown',e=>{const h=e.target.closest&&e.target.closest('.resizer');if(!h||(e.key!=='ArrowLeft'&&e.key!=='ArrowRight'))return;const k=h.dataset.resize,P=PANES[k],app=document.getElementById('app');const cur=parseInt(getComputedStyle(app).getPropertyValue(P.v))||P.def;const d=(e.key==='ArrowRight'?1:-1)*(k==='list'?1:-1)*16;app.style.setProperty(P.v,Math.min(P.max,Math.max(P.min,cur+d))+'px');e.preventDefault();});
+const _route=route;route=function(t){const a=t.dataset.act;
+  if(a==='more'){S.more=!S.more;return render();}
+  if(S.more&&a!=='more')S.more=false;
+  if(a==='del-client'){const c=C(S.sel);S.confirm={title:`Удалить ${c.name}?`,text:'Клиент исчезнет из правил после применения. История запросов и аудит сохранятся.',ok:'Удалить',danger:true,act:'do-del'};return render();}
+  if(a==='confirm-yes'&&S.confirm&&S.confirm.act==='do-del'){const c=C(S.sel);S.confirm=null;addChange({k:'d',t:`Удалить клиента ${c.name}`,d:c.nets.join(', '),ref:'cl'});return render();}
+  return _route(t);};
+
+const app=document.getElementById('app');
+app.addEventListener('click',e=>{if(S.me&&!e.target.closest('.menu,[data-act="me"]')){S.me=false;if(!e.target.closest('[data-act],[data-nav],[data-sel],[data-tab],[data-pol],[data-set],[data-acc],[data-log],[data-pal],[data-aud],[data-doc]'))return render();}const t=e.target.closest('[data-act],[data-nav],[data-sel],[data-tab],[data-pol],[data-set],[data-acc],[data-log],[data-pal],[data-aud],[data-doc]');if(t&&!t.disabled)route(t);});
+app.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.matches('[tabindex]'))e.target.click();if(e.key==='Enter'&&e.target.id&&e.target.id.startsWith('add-')){const b=app.querySelector(`[data-act="add-dom"][data-ctx="${e.target.id.slice(4)}"]`);if(b)handle(b);}});
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==='k'){e.preventDefault();S.palette=!S.palette;render();}if(e.key==='Escape'&&(S.palette||S.sheet||S.me)){S.palette=false;S.me=false;if(S.applying<0)S.sheet=false;render();}});
+document.querySelector('.try').addEventListener('click',e=>{const b=e.target.closest('[data-go]');if(b){go(b.dataset.go);render();}});
+
+render();fromHash();
+</script>
+</body></html>
