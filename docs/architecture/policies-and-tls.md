@@ -132,6 +132,15 @@ body limit и rotation. По умолчанию private destinations запре�
 allow_private_destinations открывает их для внутренних ресурсов, но не loopback
 или link-local/metadata. Source kind — метаданные, фактическая идентичность IP.
 
+`upstream_proxy` (`address`, `port`, `exclusive`) отправляет трафик через
+вышестоящий прокси: `cache_peer <address> parent <port> 0 no-query no-digest default
+name=sc_upstream`, при `exclusive` ещё `never_direct allow all`, без него Squid
+при недоступном parent идёт напрямую. Адрес — IP-литерал без zone вне
+`protectedDestinations`; private-адрес допустим независимо от
+`allow_private_destinations`: это выбор администратора, клиентам private-назначения
+он не открывает. Защитные запреты проверяются по адресу назначения запроса и
+действуют до выбора peer.
+
 Expert mode заменяет визуальный ACL-блок; защитные `http_access deny` рендерятся
 до него и не переопределяются. Валидатор (`validateExpert`) принимает только
 директивы из `expertDirectives` ([ADR 0007](../adr/0007-general-clients-expert-configuration.md)):
@@ -139,7 +148,7 @@ Expert mode заменяет визуальный ACL-блок; защитные
 - токен директивы — строго `[a-z0-9_]+`, без кавычек и экранирования;
 - параметры из файлов (`"/…"`, `parameters(…)`) запрещены во всех директивах;
 - `deny_info` — только `ERR_*`, `http(s)://` URL (опционально с кодом 30x) или `TCP_RESET`;
-- `cache_peer` — IP-литерал вне `protectedDestinations`; адрес из
+- `cache_peer` — IP-литерал без zone вне `protectedDestinations`; адрес из
   `privateDestinations` только при `allow_private_destinations`; опции-пути запрещены;
 - `sc_` имена допустимы только как `sc_http_listener`/`sc_tls_listener` в `http_access`.
 

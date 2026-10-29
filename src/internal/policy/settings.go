@@ -11,22 +11,31 @@ import (
 
 // Settings holds actual Squid options, separate from client access policies.
 type Settings struct {
-	HTTPPort                 int      `json:"http_port"`
-	TLSPort                  int      `json:"tls_port"`
-	SafePorts                []int    `json:"safe_ports"`
-	ConnectPorts             []int    `json:"connect_ports"`
-	CacheEnabled             bool     `json:"cache_enabled"`
-	CacheMemoryMB            int      `json:"cache_memory_mb"`
-	MaximumObjectKB          int      `json:"maximum_object_kb"`
-	DNSNameservers           []string `json:"dns_nameservers"`
-	PositiveDNSTTL           int      `json:"positive_dns_ttl_seconds"`
-	NegativeDNSTTL           int      `json:"negative_dns_ttl_seconds"`
-	ConnectTimeout           int      `json:"connect_timeout_seconds"`
-	ReadTimeout              int      `json:"read_timeout_seconds"`
-	RequestTimeout           int      `json:"request_timeout_seconds"`
-	MaxRequestBodyMB         int      `json:"max_request_body_mb"`
-	LogRotations             int      `json:"log_rotations"`
-	AllowPrivateDestinations bool     `json:"allow_private_destinations"`
+	HTTPPort                 int            `json:"http_port"`
+	TLSPort                  int            `json:"tls_port"`
+	SafePorts                []int          `json:"safe_ports"`
+	ConnectPorts             []int          `json:"connect_ports"`
+	CacheEnabled             bool           `json:"cache_enabled"`
+	CacheMemoryMB            int            `json:"cache_memory_mb"`
+	MaximumObjectKB          int            `json:"maximum_object_kb"`
+	DNSNameservers           []string       `json:"dns_nameservers"`
+	PositiveDNSTTL           int            `json:"positive_dns_ttl_seconds"`
+	NegativeDNSTTL           int            `json:"negative_dns_ttl_seconds"`
+	ConnectTimeout           int            `json:"connect_timeout_seconds"`
+	ReadTimeout              int            `json:"read_timeout_seconds"`
+	RequestTimeout           int            `json:"request_timeout_seconds"`
+	MaxRequestBodyMB         int            `json:"max_request_body_mb"`
+	LogRotations             int            `json:"log_rotations"`
+	AllowPrivateDestinations bool           `json:"allow_private_destinations"`
+	Upstream                 *UpstreamProxy `json:"upstream_proxy,omitempty"`
+}
+
+// UpstreamProxy sends client traffic through a parent Squid peer instead of
+// going direct. Exclusive forces never_direct so Squid never bypasses the peer.
+type UpstreamProxy struct {
+	Address   string `json:"address"`
+	Port      int    `json:"port"`
+	Exclusive bool   `json:"exclusive"`
 }
 
 func DefaultSettings() Settings {
@@ -99,6 +108,15 @@ func validateSettings(v Settings) error {
 	if v.MaxRequestBodyMB < 0 || v.MaxRequestBodyMB > 10240 || v.LogRotations < 0 || v.LogRotations > 30 {
 		return errors.New("invalid request body limit/log rotations")
 	}
+	if v.Upstream != nil {
+		addr, e := netip.ParseAddr(v.Upstream.Address)
+		if e != nil || addr.IsUnspecified() || addr.IsMulticast() || !peerAddrAllowed(addr, true) {
+			return errors.New("upstream proxy must be a non-loopback, non-link-local IP literal with port 1–65535")
+		}
+		if v.Upstream.Port < 1 || v.Upstream.Port > 65535 {
+			return errors.New("upstream proxy must be a non-loopback, non-link-local IP literal with port 1–65535")
+		}
+	}
 	return nil
 }
 func portList(ports []int) string {
@@ -113,7 +131,12 @@ func renderSettings(b *strings.Builder, v Settings) {
 	if len(v.DNSNameservers) > 0 {
 		fmt.Fprintf(b, "dns_nameservers %s\n", strings.Join(v.DNSNameservers, " "))
 	}
-
+	if v.Upstream != nil {
+		fmt.Fprintf(b, "cache_peer %s parent %d 0 no-query no-digest default name=sc_upstream\n", v.Upstream.Address, v.Upstream.Port)
+		if v.Upstream.Exclusive {
+			b.WriteString("never_direct allow all\n")
+		}
+	}
 }
 
 var reservedName = regexp.MustCompile(`(?i)\bsc_[a-z0-9_]+\b`)
@@ -266,6 +289,10 @@ func validateCachePeer(fields []string, allowPrivate bool, lineNo int) error {
 // ranges always and in private ranges unless allowPrivate. The same prefix lists
 // render the runtime ACLs.
 func peerAddrAllowed(addr netip.Addr, allowPrivate bool) bool {
+	// Prefix.Contains never matches a zoned address, and a zone is free text.
+	if addr.Zone() != "" {
+		return false
+	}
 	candidates := []netip.Addr{addr, addr.Unmap()}
 	for _, a := range candidates {
 		for _, cidr := range protectedDestinations {

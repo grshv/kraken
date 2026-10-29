@@ -364,3 +364,33 @@ func TestConfigDiffEmptyInputHunkCoordinates(t *testing.T) {
 		}
 	}
 }
+
+// TestUpstreamProxyComparisonNilEqualsAbsent verifies that an explicit
+// "upstream_proxy": null in JSON and an omitted field are the same setting:
+// the omitempty tag drops nil on marshal, so comparisonSnapshot normalizes
+// both to a nil pointer and no false "Изменены настройки Squid" is reported.
+func TestUpstreamProxyComparisonNilEqualsAbsent(t *testing.T) {
+	absent := policy.Empty()
+	// Rebuild an identical snapshot through JSON with an explicit null key.
+	raw, _ := json.Marshal(absent)
+	var generic map[string]any
+	if e := json.Unmarshal(raw, &generic); e != nil {
+		t.Fatal(e)
+	}
+	if settings, ok := generic["settings"].(map[string]any); ok {
+		settings["upstream_proxy"] = nil
+	}
+	rawNull, _ := json.Marshal(generic)
+	var withNull policy.Snapshot
+	if e := json.Unmarshal(rawNull, &withNull); e != nil {
+		t.Fatal(e)
+	}
+	if got := semanticDiff(absent, withNull); len(got) != 0 {
+		t.Fatalf("nil vs absent produced false change: %v", got)
+	}
+	// A real upstream value is detected as a settings change.
+	withNull.Settings.Upstream = &policy.UpstreamProxy{Address: "1.1.1.1", Port: 3128}
+	if got := semanticDiff(absent, withNull); len(got) != 1 || got[0] != "Изменены настройки Squid" {
+		t.Fatalf("upstream change not detected: %v", got)
+	}
+}

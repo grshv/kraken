@@ -282,3 +282,121 @@ func TestUserSectionLine(t *testing.T) {
 		})
 	}
 }
+
+func TestUpstreamProxyValidation(t *testing.T) {
+	o := Options{StateDir: "/data", LogPath: "/data/log"}
+	accept := []struct {
+		name    string
+		address string
+		private bool
+	}{
+		{"public IPv4", "1.1.1.1", false},
+		{"public IPv6", "2606:4700:4700::1111", false},
+		{"private IPv4 when private closed", "10.0.0.5", false},
+		{"private IPv4 when private open", "10.0.0.5", true},
+	}
+	for _, tc := range accept {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fixture()
+			v := DefaultSettings()
+			v.AllowPrivateDestinations = tc.private
+			v.Upstream = &UpstreamProxy{Address: tc.address, Port: 3128}
+			s.Settings = &v
+			if e := Validate(s, o); e != nil {
+				t.Fatalf("rejected valid upstream: %v", e)
+			}
+		})
+	}
+	reject := []struct {
+		name    string
+		address string
+		port    int
+	}{
+		{"loopback v4", "127.0.0.1", 3128},
+		{"loopback v6", "::1", 3128},
+		{"link-local v4", "169.254.169.254", 3128},
+		{"v4-mapped link-local", "::ffff:169.254.169.254", 3128},
+		{"unspecified v4", "0.0.0.0", 3128},
+		{"multicast v4", "224.0.0.1", 3128},
+		{"hostname", "peer.example", 3128},
+		{"port zero", "1.1.1.1", 0},
+		{"port too high", "1.1.1.1", 65536},
+	}
+	for _, tc := range reject {
+		t.Run(tc.name, func(t *testing.T) {
+			s := fixture()
+			v := DefaultSettings()
+			v.Upstream = &UpstreamProxy{Address: tc.address, Port: tc.port}
+			s.Settings = &v
+			if e := Validate(s, o); e == nil {
+				t.Fatal("accepted invalid upstream")
+			}
+		})
+	}
+}
+
+func TestUpstreamProxyRender(t *testing.T) {
+	o := Options{StateDir: "/data", LogPath: "/data/log"}
+	sNil := fixture()
+	v := DefaultSettings()
+	sNil.Settings = &v
+	cNil, e := Render(sNil, o)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if strings.Contains(cNil, "cache_peer") || strings.Contains(cNil, "never_direct") {
+		t.Fatal("nil upstream leaked cache_peer/never_direct")
+	}
+	// Non-exclusive upstream: only the cache_peer line is added.
+	s := fixture()
+	v = DefaultSettings()
+	v.Upstream = &UpstreamProxy{Address: "1.1.1.1", Port: 3128}
+	s.Settings = &v
+	c, e := Render(s, o)
+	if e != nil {
+		t.Fatal(e)
+	}
+	want := "cache_peer 1.1.1.1 parent 3128 0 no-query no-digest default name=sc_upstream\n"
+	if !strings.Contains(c, want) {
+		t.Fatalf("missing cache_peer line\nwant: %q\ngot: %q", want, c)
+	}
+	if strings.Contains(c, "never_direct") {
+		t.Fatal("non-exclusive upstream emitted never_direct")
+	}
+	// Exclusive upstream additionally emits never_direct allow all.
+	s2 := fixture()
+	v = DefaultSettings()
+	v.Upstream = &UpstreamProxy{Address: "1.1.1.1", Port: 3128, Exclusive: true}
+	s2.Settings = &v
+	c2, e := Render(s2, o)
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(c2, want) || !strings.Contains(c2, "never_direct allow all\n") {
+		t.Fatalf("exclusive upstream missing directives: %q", c2)
+	}
+	// IPv6 address rendered as-is, without brackets.
+	s3 := fixture()
+	v = DefaultSettings()
+	v.Upstream = &UpstreamProxy{Address: "2606:4700:4700::1111", Port: 3128}
+	s3.Settings = &v
+	c3, e := Render(s3, o)
+	if e != nil {
+		t.Fatal(e)
+	}
+	want6 := "cache_peer 2606:4700:4700::1111 parent 3128 0 no-query no-digest default name=sc_upstream\n"
+	if !strings.Contains(c3, want6) {
+		t.Fatalf("IPv6 address not rendered as-is\nwant: %q\ngot: %q", want6, c3)
+	}
+}
+
+func TestPeerAddressRejectsZone(t *testing.T) {
+	s := DefaultSettings()
+	s.Upstream = &UpstreamProxy{Address: "2606:4700::1%x\nhttp_port 1", Port: 3128}
+	if validateSettings(s) == nil {
+		t.Fatal("zoned upstream address accepted")
+	}
+	if e := validateExpert("cache_peer fe80::1%eth0 parent 3128 0", false); e == nil {
+		t.Fatal("zoned expert cache_peer accepted")
+	}
+}
