@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -68,8 +66,7 @@ func seedManifestClients(t *testing.T, s *Server) {
 		{ID: "c-mine", Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, PolicyID: "p"},
 		{ID: "c-foreign", Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, PolicyID: "p"},
 	}
-	b, _ := json.Marshal(m)
-	if e = os.WriteFile(filepath.Join(s.Runtime.Dir, "lkg.json"), b, 0600); e != nil {
+	if e = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", m); e != nil {
 		t.Fatal(e)
 	}
 }

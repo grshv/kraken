@@ -12,15 +12,20 @@ import (
 	"kraken.local/kraken/internal/policy"
 )
 
-// oldBundleCode strips the compiler header from active.conf/lkg.json and lies
-// about the compiler version so service-update has work to do. Runs inside the
-// proxy volume via a throwaway python container, exactly as smoke.py does.
-const oldBundleCode = `import json,pathlib
-root=pathlib.Path('/data/runtime');manifest=json.loads((root/'lkg.json').read_text())
+// oldBundleCode regresses the last-good manifest stored in the control DB so
+// service-update has work to do: it strips the compiler header from the stored
+// config text and sets compiler_version to "5". Runs inside a throwaway python
+// container with the volume mounted, exactly as smoke.py does.
+const oldBundleCode = `import json,sqlite3
+db=sqlite3.connect('/var/lib/kraken/data/control.sqlite3')
+db.execute('PRAGMA busy_timeout=5000')
+row=db.execute("SELECT value FROM kv WHERE key='runtime.last_good'").fetchone()
+manifest=json.loads(row[0])
 lines=manifest['config'].splitlines(True)
 manifest['config']=''.join(line for line in lines if not line.startswith('# kraken compiler='))
 manifest['compiler_version']='5'
-(root/'active.conf').write_text(manifest['config']);(root/'lkg.json').write_text(json.dumps(manifest))
+db.execute("UPDATE kv SET value=? WHERE key='runtime.last_good'",(json.dumps(manifest),))
+db.commit();db.close()
 `
 
 // heldCode opens a CONNECT to allowed.test:443 through the proxy, prints READY,
@@ -108,17 +113,14 @@ func TestSmoke(t *testing.T) {
 			_, ok := dockerOK(t, "exec", "--user", "13:13", proxy, "cat", path)
 			return !ok
 		}
-		if !proxyCannot("/data/app/control.sqlite3") {
+		if !proxyCannot("/var/lib/kraken/data/control.sqlite3") {
 			t.Error("proxy read panel database")
 		}
-		if !proxyCannot("/data/certs/panel.key") {
+		if !proxyCannot("/var/lib/kraken/certs/panel.key") {
 			t.Error("proxy read panel key")
 		}
-		if !proxyCannot("/data/app/manager-token") {
-			t.Error("proxy read manager token")
-		}
-		if out, _ := dockerExecUser(proxy, "13:13", "cat", "/data/runtime/active.conf"); out == "" {
-			t.Error("proxy cannot read active.conf")
+		if out, _ := dockerExecUser(proxy, "13:13", "cat", "/dev/shm/kraken/squid.conf"); out == "" {
+			t.Error("proxy cannot read squid.conf")
 		}
 		// ps -e -o uid=,comm=,args=: squid runs as 13, kraken serve as 10013.
 		ps := docker(t, "exec", proxy, "ps", "-e", "-o", "uid=,comm=,args=")
@@ -163,12 +165,25 @@ func TestSmoke(t *testing.T) {
 	inst.panel.putDraft(t, dirty, draftBeforeVer)
 	dirtyDraftBefore := inst.panel.draftOK(t)
 	writeFile(filepath.Join(fixtures, "old_bundle.py"), []byte(oldBundleCode))
-	docker(t, "run", "--rm", "--user", controlUser, "-v", inst.volume+":/data", "-v", fixtures+":/fixtures:ro", pythonImage, "python", "/fixtures/old_bundle.py")
-	docker(t, "exec", proxy, "pebble", "restart", "squid")
+	docker(t, "run", "--rm", "--user", controlUser, "-v", inst.volume+":/var/lib/kraken", "-v", fixtures+":/fixtures:ro", pythonImage, "python", "/fixtures/old_bundle.py")
+	// Remove the serving config so the control process recreates it from the
+	// regressed LKG on the next recovery cycle. Restart control (not squid):
+	// serve re-runs Recover, sees squid.conf missing, and rewrites it from the
+	// regressed last-good config in the DB. Squid stays running; kraken check
+	// verifies the hash (unchanged) so it passes without a squid restart.
+	docker(t, "exec", proxy, "rm", "-f", "/dev/shm/kraken/squid.conf")
+	docker(t, "exec", proxy, "pebble", "restart", "control")
 	waitFor(t, 30, func() error {
 		_, ok := dockerOK(t, "exec", "--user", controlUser, proxy, "kraken", "check")
 		if !ok {
 			return errf("kraken check")
+		}
+		return nil
+	})
+	// Panel restarts with control; wait for it to come back before checking status.
+	waitFor(t, 60, func() error {
+		if inst.panel.status() == nil {
+			return errf("panel not ready")
 		}
 		return nil
 	})
@@ -279,7 +294,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	}
 	inst.panel.apply(t, snap, inst.panel.draftVersion())
 	firstApplied, _ := inst.panel.status()["applied_revision"].(string)
-	baselineManifest := lkgManifest(t, proxy)
+	baselineManifest := lkgManifest(t, inst.volume)
 	baselineManifestBytes, _ := json.Marshal(baselineManifest)
 	waitFor(t, 30, func() error {
 		if smFetch(client, "http://allowed.test/", false, false) != 200 {
@@ -381,7 +396,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	})
 
 	// Independent process restart and container startup recovery.
-	squidPID := docker(t, "exec", proxy, "cat", "/data/squid/squid.pid")
+	squidPID := strings.TrimSpace(docker(t, "exec", proxy, "sh", "-c", "pgrep -o squid || true"))
 	docker(t, "exec", proxy, "pebble", "restart", "control")
 	waitFor(t, 30, func() error {
 		if inst.panel.status() == nil {
@@ -389,7 +404,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 		}
 		return nil
 	})
-	if docker(t, "exec", proxy, "cat", "/data/squid/squid.pid") != squidPID {
+	if strings.TrimSpace(docker(t, "exec", proxy, "sh", "-c", "pgrep -o squid || true")) != squidPID {
 		t.Fatal("squid pid changed across control restart")
 	}
 	held.write(t, "continue\n")
@@ -513,7 +528,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	})
 
 	// Expert allowlist enforcement at save; real parse failure preserves traffic.
-	for _, ec := range []string{"include /data/app/*", "err_page_stylesheet /run/secrets/proxy.key", "this_is_not_a_squid_directive yes"} {
+	for _, ec := range []string{"include /var/lib/kraken/data/*", "err_page_stylesheet /run/secrets/proxy.key", "this_is_not_a_squid_directive yes"} {
 		rejected := deepCopySnap(changed)
 		rejected.Expert = ec
 		_, st := inst.panel.api("PUT", "/configuration/draft", map[string]any{"expected_version": inst.panel.draftVersion(), "snapshot": rejected}, "")
@@ -579,7 +594,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 		t.Fatalf("source should be denied in expert mode: %d", st)
 	}
 	docker(t, "exec", proxy, "pebble", "stop", "control")
-	candidateManifest := lkgManifest(t, proxy)
+	candidateManifest := lkgManifest(t, inst.volume)
 	journal := map[string]any{
 		"operation_id": randID(),
 		"stage":        "reloading",
@@ -587,17 +602,15 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 		"candidate":    candidateManifest,
 	}
 	jb, _ := json.Marshal(journal)
-	dockerIn(t, string(jb), "exec", "-i", "--user", controlUser, proxy, "tee", "/data/runtime/journal.json")
+	dbKVWrite(t, inst.volume, "runtime.journal", jb)
 	docker(t, "restart", proxy)
-	waitFor(t, 60, func() error {
+	waitFor(t, 120, func() error {
 		if inst.panel.status() == nil {
 			return errf("no status")
 		}
 		return nil
 	})
-	recoveredJournalRaw, _ := dockerExec(proxy, "cat", "/data/runtime/journal.json")
-	var recoveredJournal map[string]any
-	json.Unmarshal([]byte(recoveredJournalRaw), &recoveredJournal)
+	recoveredJournal := dbKV(t, inst.volume, "runtime.journal")
 	if recoveredJournal["stage"] != "terminal" || recoveredJournal["outcome"] != "rolled_back" {
 		t.Fatalf("recovery journal: %v", recoveredJournal)
 	}
@@ -665,7 +678,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	for _, v := range inst.panel.apiOK(t, "GET", "/events?limit=200", nil, "")["items"].([]any) {
 		beforeRotate[v.(map[string]any)["id"]] = true
 	}
-	docker(t, "exec", "--user", "13:13", proxy, "/usr/sbin/squid", "-f", "/data/runtime/active.conf", "-k", "rotate")
+	docker(t, "exec", "--user", "13:13", proxy, "/usr/sbin/squid", "-f", "/dev/shm/kraken/squid.conf", "-k", "rotate")
 	docker(t, "exec", proxy, "pebble", "restart", "control")
 	waitFor(t, 30, func() error {
 		if inst.panel.status() == nil {
@@ -854,7 +867,38 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 // strPtr returns a pointer to s, for policy.TLSProfile.CertRef.
 func strPtr(s string) *string { return &s }
 
-// policySnapFromBytes parses a marshalled manifest (lkg.json) into a Snapshot.
+// dbKV reads a JSON value from the control DB kv table via a Python sidecar
+// container with the volume mounted. The LKG and journal are no longer files
+// on the volume; they live inside data/control.sqlite3.
+func dbKV(t *testing.T, volume, key string) map[string]any {
+	t.Helper()
+	out, err := dockerErr("run", "--rm", "--user", controlUser, "-v", volume+":/var/lib/kraken", pythonImage, "python", "-c",
+		"import json,sqlite3;db=sqlite3.connect('/var/lib/kraken/data/control.sqlite3');db.execute('PRAGMA busy_timeout=5000');row=db.execute(\"SELECT value FROM kv WHERE key=?\",('"+key+"',)).fetchone();db.close();print(row[0] if row else '{}')")
+	if err != nil {
+		t.Fatalf("dbKV %s: %v: %s", key, err, out)
+	}
+	var m map[string]any
+	if json.Unmarshal([]byte(strings.TrimSpace(out)), &m) != nil {
+		t.Fatalf("dbKV parse %s: %s", key, out)
+	}
+	return m
+}
+
+// dbKVWrite writes a JSON value into the control DB kv table via a Python
+// sidecar container. Used by the recovery test to inject a non-terminal journal.
+func dbKVWrite(t *testing.T, volume, key string, value []byte) {
+	t.Helper()
+	script := "import sqlite3,sys;db=sqlite3.connect('/var/lib/kraken/data/control.sqlite3');db.execute('PRAGMA busy_timeout=5000');db.execute(\"INSERT INTO kv VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value\",('" + key + "',sys.stdin.read()));db.commit();db.close()"
+	dockerIn(t, string(value), "run", "--rm", "-i", "--user", controlUser, "-v", volume+":/var/lib/kraken", pythonImage, "python", "-c", script)
+}
+
+// lkgManifest reads the last-good manifest from the control DB as generic JSON.
+func lkgManifest(t *testing.T, volume string) map[string]any {
+	t.Helper()
+	return dbKV(t, volume, "runtime.last_good")
+}
+
+// policySnapFromBytes parses a marshalled manifest (last-good from the control DB) into a Snapshot.
 func policySnapFromBytes(b []byte) policy.Snapshot {
 	var m map[string]any
 	json.Unmarshal(b, &m)

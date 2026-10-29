@@ -3,6 +3,7 @@ package runtime
 import (
 	"bufio"
 	"context"
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -21,9 +22,9 @@ func TestDefaultReloadSendsTokenAndRejectsDenied(t *testing.T) {
 	defer ln.Close()
 	m := testManager(t)
 	m.Reload = m.defaultReload
-	token, e := m.retrieveToken()
-	if e != nil {
-		t.Fatal(e)
+	token := m.secret
+	if token == "" || !managerToken.MatchString(token) {
+		t.Fatalf("no valid secret after recover: %q", token)
 	}
 	status := make(chan string, 4)
 	lines := make(chan string, 4)
@@ -62,19 +63,25 @@ func TestSquidReadableStateModes(t *testing.T) {
 	if out, e := m.Apply(context.Background(), "op", "rev", "", s); e != nil {
 		t.Fatal(out, e)
 	}
-	for _, name := range []string{"active.conf", "lkg.json", "journal.json", "manager-auth.conf"} {
+	for _, name := range []string{"squid.conf", "manager-auth.conf"} {
 		st, e := os.Stat(filepath.Join(m.Dir, name))
-		if e != nil || st.Mode().Perm() != 0640 {
-			t.Fatalf("%s: %v %v", name, st.Mode(), e)
+		if e != nil {
+			t.Fatalf("%s: %v", name, e)
+		}
+		if st.Mode().Perm() != 0640 {
+			t.Fatalf("%s: mode %o", name, st.Mode().Perm())
 		}
 	}
-	if st, e := os.Stat(filepath.Join(m.AppDir, "manager-token")); e != nil || st.Mode().Perm() != 0600 {
-		t.Fatalf("token mode: %v", e)
+	// No manager token file is persisted anywhere on disk; the secret lives
+	// only in memory and the manager-auth.conf include.
+	if _, e := os.Stat(filepath.Join(m.Dir, "manager-token")); !errors.Is(e, os.ErrNotExist) {
+		t.Fatal("manager-token file must not exist")
 	}
-	if e := os.WriteFile(filepath.Join(m.AppDir, "manager-token"), []byte("\n"), 0600); e != nil {
+	// A malformed manager auth include must be rejected on recovery.
+	if e := os.WriteFile(filepath.Join(m.Dir, "manager-auth.conf"), []byte("\n"), 0640); e != nil {
 		t.Fatal(e)
 	}
 	if e := m.Recover(context.Background(), true); e == nil {
-		t.Fatal("empty manager token accepted")
+		t.Fatal("malformed manager auth include accepted")
 	}
 }

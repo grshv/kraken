@@ -23,20 +23,24 @@ COPY --from=build /out/kraken /usr/local/bin/kraken
 COPY --from=build /out/pebble /usr/local/bin/pebble
 COPY deploy/pebble/001-services.yaml /var/lib/pebble/default/layers/001-services.yaml
 # Squid (proxy) and the panel (kraken, extra group proxy) use distinct UIDs
-# (ADR 0015): Squid reads runtime files and the proxy cert through the group but
-# not the panel database, panel key or manager token. Setgid directories give
-# new files group proxy without CAP_CHOWN.
+# (ADR 0015): Squid reads derivative files in the tmpfs run directory and the
+# proxy cert through the group, but never the panel database, panel key or the
+# manager auth secret. The volume holds only state: the control database under
+# data/ (kraken-only), certificates under certs/ (setgid proxy), and Squid logs
+# under log/ (proxy). Setgid directories give new files group proxy without
+# CAP_CHOWN. Derivative runtime files (squid.conf, manager-auth.conf,
+# proxy-accounts export, apply.lock) live only in the tmpfs run directory and
+# are never persisted.
 RUN (getent group proxy >/dev/null || groupadd -g 13 proxy) \
     && groupadd -g 10013 kraken \
     && useradd -u 10013 -g kraken -G proxy -r -s /usr/sbin/nologin kraken \
-    && install -d -o kraken -g proxy -m 0750 /data \
-    && install -d -o kraken -g kraken -m 0700 /data/app \
-    && install -d -o kraken -g proxy -m 2750 /data/certs \
-    && install -d -o kraken -g proxy -m 2750 /data/runtime \
-    && install -d -o proxy -g proxy -m 2750 /data/squid \
-    && install -d -o proxy -g proxy -m 2750 /data/logs
+    && install -d -o kraken -g proxy -m 0750 /var/lib/kraken \
+    && install -d -o kraken -g kraken -m 0700 /var/lib/kraken/data \
+    && install -d -o kraken -g kraken -m 0700 /var/lib/kraken/data/telemetry \
+    && install -d -o kraken -g proxy -m 2750 /var/lib/kraken/certs \
+    && install -d -o proxy -g proxy -m 2750 /var/lib/kraken/log
 ENV PEBBLE=/var/lib/pebble/default
 EXPOSE 8443 3128 3129
-VOLUME /data
+VOLUME /var/lib/kraken
 ENTRYPOINT ["/usr/local/bin/pebble"]
 CMD ["run", "--verbose"]

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -8,8 +9,6 @@ import (
 	"kraken.local/kraken/internal/store"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -147,8 +146,7 @@ func TestDraftPreviewDoesNotCreateRevisionAndSeparatesRuntimeUpdate(t *testing.T
 	}
 	manifest.Compiler = "legacy"
 	manifest.Config = strings.Replace(manifest.Config, "# kraken compiler="+policy.CompilerVersion, "# kraken compiler=legacy", 1)
-	body, _ := json.Marshal(manifest)
-	if e = s.Runtime.Persist(filepath.Join(s.Runtime.Dir, "lkg.json"), body); e != nil {
+	if e = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", manifest); e != nil {
 		t.Fatal(e)
 	}
 	w = request(h, "GET", "/configuration/preview", nil, cookie, "", "")
@@ -200,8 +198,7 @@ func TestDraftRejectsInstallationPortChange(t *testing.T) {
 		t.Fatal(e)
 	}
 	manifest.Snapshot.Settings.HTTPPort = 8080
-	body, _ := json.Marshal(manifest)
-	if e = s.Runtime.Persist(filepath.Join(s.Runtime.Dir, "lkg.json"), body); e != nil {
+	if e = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", manifest); e != nil {
 		t.Fatal(e)
 	}
 	original.Snapshot.Settings.HTTPPort = 8080
@@ -257,7 +254,7 @@ func TestRevisionOperationsCannotChangeInstalledListeners(t *testing.T) {
 func TestDraftPreviewUnavailableRuntimeIsSafe503(t *testing.T) {
 	s, h := fixtureServer(t)
 	cookie, _ := loginTest(t, h)
-	if e := os.Remove(filepath.Join(s.Runtime.Dir, "lkg.json")); e != nil {
+	if _, e := s.Store.DB.Exec("DELETE FROM kv WHERE key='runtime.last_good'"); e != nil {
 		t.Fatal(e)
 	}
 	w := request(h, "GET", "/configuration/preview", nil, cookie, "", "")

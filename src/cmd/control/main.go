@@ -44,11 +44,31 @@ func env(key, def string) string {
 	}
 	return def
 }
+
+// stateDir and runDir are the two roots everything else derives from. The
+// defaults match the Dockerfile layout; docker exec inherits them because the
+// CLI runs in the same container.
+func stateDir() string { return env("KRAKEN_STATE_DIR", "/var/lib/kraken") }
+func runDir() string   { return env("KRAKEN_RUN_DIR", "/dev/shm/kraken") }
+
+// defaultDBPath is the control database location derived from the state dir.
+func defaultDBPath() string { return filepath.Join(stateDir(), "data", "control.sqlite3") }
+
+// writeProxyAccounts regenerates the helper export in the run directory from
+// the control database. serve calls it before Squid starts so squid-start can
+// hand the export to the proxy-auth helper.
+func writeProxyAccounts(st *store.Store, m *local.Manager) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	accounts, e := st.EnabledProxyAccountsContext(ctx)
+	if e != nil {
+		return e
+	}
+	return proxyauth.WriteExport(m.Options.ProxyAccounts, accounts)
+}
+
 func manager() *local.Manager {
-	m := local.New(env("KRAKEN_RUNTIME_STATE_DIR", "/data/runtime"), env("KRAKEN_SQUID_BINARY", "/usr/sbin/squid"), env("KRAKEN_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("KRAKEN_PROXY_CERT"), os.Getenv("KRAKEN_PROXY_KEY"), baseImage)
-	m.AppDir = env("KRAKEN_APP_DIR", "/data/app")
-	m.Options.SquidDir = env("KRAKEN_SQUID_DIR", "/data/squid")
-	m.Options.ProxyAccounts = env("KRAKEN_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")
+	m := local.New(runDir(), env("KRAKEN_SQUID_BINARY", "/usr/sbin/squid"), env("KRAKEN_ACCESS_LOG", filepath.Join(stateDir(), "log", "access.log")), os.Getenv("KRAKEN_PROXY_CERT"), os.Getenv("KRAKEN_PROXY_KEY"), baseImage)
 	return m
 }
 func main() {
@@ -80,7 +100,7 @@ func run() error {
 	case "proxy-auth":
 		f := flag.NewFlagSet(cmd, flag.ContinueOnError)
 		stateOnly := f.Bool("state", false, "check authenticated verifier generation")
-		accounts := f.String("accounts", env("KRAKEN_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json"), "exported proxy accounts")
+		accounts := f.String("accounts", env("KRAKEN_PROXY_ACCOUNTS", filepath.Join(runDir(), "proxy-accounts.json")), "exported proxy accounts")
 		if e := f.Parse(os.Args[2:]); e != nil {
 			return e
 		}
@@ -89,9 +109,13 @@ func run() error {
 		}
 		return proxyauth.Run(*accounts, os.Stdin, os.Stdout)
 	case "squid-start":
-		// squid-start runs as the proxy user and never writes runtime state:
-		// it waits for serve (kraken) to persist a consistent active.conf
-		// and journal, then execs squid with a private umask.
+		// squid-start runs as the proxy user and never writes runtime state or
+		// opens the control database: it waits for serve to persist a
+		// consistent squid.conf plus the manager-auth include and the proxy
+		// accounts export in the run directory, then execs squid with a
+		// private umask. The PID file lives in Squid's own tmpfs directory
+		// (0700 proxy), so Squid never needs write access to the panel run
+		// directory and a container restart clears it.
 		deadline := time.Now().Add(120 * time.Second)
 		for {
 			ready, e := m.SquidReady()
@@ -106,14 +130,8 @@ func run() error {
 			}
 			time.Sleep(200 * time.Millisecond)
 		}
-		// A forced kill (SIGKILL, OOM, power loss) leaves a stale squid.pid that
-		// makes Squid abort with "already running" on the next launch. Remove it
-		// before exec unless it still names a live squid; this is the only runtime
-		// state squid-start mutates, and it never logs the file contents.
-		if removed, e := local.RemoveStalePID(filepath.Join(m.Options.SquidDir, "squid.pid"), local.ProcComm); e != nil {
+		if e := local.PrepareSquidRunDir(m.Options.SquidDir); e != nil {
 			return e
-		} else if removed {
-			slog.Info("removed stale squid pid file")
 		}
 		syscall.Umask(0o027)
 		return syscall.Exec(m.Binary, []string{m.Binary, "-N", "-f", m.ActivePath()}, os.Environ())
@@ -121,11 +139,12 @@ func run() error {
 		if len(os.Args) != 2 {
 			return errors.New("usage: kraken service-update")
 		}
-		st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
+		st, e := store.Open(env("KRAKEN_DATABASE_PATH", defaultDBPath()))
 		if e != nil {
 			return e
 		}
 		defer st.Close()
+		m.State = st
 		operationCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
 		defer cancel()
 		op, e := httpapi.ApplyServiceUpdate(operationCtx, st, m, baseImage)
@@ -134,6 +153,12 @@ func run() error {
 		}
 		return e
 	case "check":
+		st, e := store.Open(env("KRAKEN_DATABASE_PATH", defaultDBPath()))
+		if e != nil {
+			return e
+		}
+		defer st.Close()
+		m.State = st
 		v, e := m.ReadManifest()
 		if e != nil {
 			return e
@@ -154,7 +179,7 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
+		st, e := store.Open(env("KRAKEN_DATABASE_PATH", defaultDBPath()))
 		if e != nil {
 			return e
 		}
@@ -174,12 +199,26 @@ func run() error {
 		}
 		return nil
 	case "serve":
-		if e := os.MkdirAll(filepath.Dir(m.Options.LogPath), 0700); e != nil {
+		// The run directory is tmpfs: derivative files (squid.conf, the
+		// manager-auth include, the proxy-accounts export, apply.lock) never
+		// persist and are regenerated from the control database on every start.
+		if e := local.PrepareRunDir(runDir()); e != nil {
 			return e
 		}
-		// Offline recovery first: durable on-disk state is restored without
-		// touching the live process so a crashed promotion is rolled back even
-		// if Squid has not started yet.
+		if e := os.MkdirAll(filepath.Dir(m.Options.LogPath), 0750); e != nil {
+			return e
+		}
+		st, e := store.Open(env("KRAKEN_DATABASE_PATH", defaultDBPath()))
+		if e != nil {
+			return e
+		}
+		defer st.Close()
+		m.State = st
+		// Offline recovery first: durable state in the database is restored
+		// without touching the live process so a crashed promotion is rolled
+		// back even if Squid has not started yet. Recovery also rewrites
+		// squid.conf from the last-good manifest (no re-render) onto the fresh
+		// tmpfs and ensures the manager-auth include exists.
 		for i := 0; i < 50; i++ {
 			e := m.Recover(ctx, true)
 			if errors.Is(e, local.ErrBusy) {
@@ -190,6 +229,16 @@ func run() error {
 				return e
 			}
 			break
+		}
+		// Write the proxy-accounts export before Squid starts: squid-start gates
+		// on its presence, and the helper cannot read the control database.
+		if e := writeProxyAccounts(st, m); e != nil {
+			return e
+		}
+		// The export is read by the proxy-auth helper (proxy user); chown it to
+		// the proxy group so Squid can open it alongside squid.conf.
+		if e := local.ChownProxyGroup(m.Options.ProxyAccounts); e != nil {
+			return e
 		}
 		// Online recovery: reload+verify against the running Squid. Squid and
 		// serve start concurrently under Pebble, so a transient reload/verify
@@ -205,12 +254,7 @@ func run() error {
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
-		if e != nil {
-			return e
-		}
-		defer st.Close()
-		telDir := env("KRAKEN_TELEMETRY_DIR", filepath.Join(filepath.Dir(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")), "telemetry"))
+		telDir := env("KRAKEN_TELEMETRY_DIR", filepath.Join(filepath.Dir(env("KRAKEN_DATABASE_PATH", defaultDBPath())), "telemetry"))
 		retentionDays, _ := strconv.Atoi(env("KRAKEN_EVENTS_RETENTION_DAYS", "90"))
 		budgetMB, _ := strconv.Atoi(env("KRAKEN_EVENTS_BUDGET_MB", "5120"))
 		if retentionDays <= 0 {
@@ -227,7 +271,7 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		s.PanelCert = env("KRAKEN_PANEL_CERT", "/data/certs/panel.crt")
+		s.PanelCert = env("KRAKEN_PANEL_CERT", filepath.Join(stateDir(), "certs", "panel.crt"))
 		// Docker forwards the published port to the container interface, not its
 		// loopback. Host exposure is restricted by Compose port bindings.
 		server := &http.Server{Addr: env("KRAKEN_PANEL_LISTEN", ":8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{
@@ -317,7 +361,7 @@ func run() error {
 			}
 		}()
 		slog.Info("HTTPS panel listening", "address", server.Addr)
-		e = server.ListenAndServeTLS(env("KRAKEN_PANEL_CERT", "/data/certs/panel.crt"), env("KRAKEN_PANEL_KEY", "/data/certs/panel.key"))
+		e = server.ListenAndServeTLS(env("KRAKEN_PANEL_CERT", filepath.Join(stateDir(), "certs", "panel.crt")), env("KRAKEN_PANEL_KEY", filepath.Join(stateDir(), "certs", "panel.key")))
 		s.Wait()
 		if errors.Is(e, http.ErrServerClosed) {
 			return nil
@@ -336,7 +380,7 @@ func run() error {
 	}
 }
 func devCert() error {
-	dir := env("KRAKEN_CERT_DIR", "/data/certs")
+	dir := env("KRAKEN_CERT_DIR", filepath.Join(stateDir(), "certs"))
 	if e := os.MkdirAll(dir, 0750); e != nil {
 		return e
 	}
@@ -417,7 +461,7 @@ func fail(msg string) error {
 }
 
 func openStore() (*store.Store, error) {
-	st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
+	st, e := store.Open(env("KRAKEN_DATABASE_PATH", defaultDBPath()))
 	if e != nil {
 		return nil, fail("Не удалось открыть базу данных: " + e.Error())
 	}
@@ -469,7 +513,7 @@ func printHelp() {
   password-reset   Сменить пароль и отозвать сессии
   user             Учётные записи: list, enable, disable, role
   sessions         Отзыв сессий: revoke [--user <имя>]
-  status           Ревизия, Squid, пользователи, место на /data
+  status           Ревизия, Squid, пользователи, место на /var/lib/kraken
   backup           Онлайн-копия данных в tar
   dev-cert         Самоподписанные dev-сертификаты (только разработка)
   check            Проверка образа и работающего Squid
@@ -591,6 +635,12 @@ func runSessions(args []string) error {
 
 func runStatus(m *local.Manager) error {
 	ctx := context.Background()
+	st, e := store.Open(env("KRAKEN_DATABASE_PATH", defaultDBPath()))
+	if e != nil {
+		return fail("Хранилище недоступно: " + e.Error())
+	}
+	defer st.Close()
+	m.State = st
 	rev, e := m.ReadManifest()
 	revision := "(нет)"
 	if e == nil && rev.Revision != "" {
@@ -604,26 +654,20 @@ func runStatus(m *local.Manager) error {
 		squid = "ошибка: " + ve.Error()
 	}
 	fmt.Printf("Squid: %s\n", squid)
-	if st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")); e == nil {
-		var n int
-		_ = st.Read.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
-		st.Close()
-		fmt.Printf("Пользователей: %d\n", n)
-	} else {
-		fmt.Printf("Пользователей: (база недоступна)\n")
-	}
-	dataDir := env("KRAKEN_DATA_DIR", "/data")
-	fmt.Printf("Свободно на %s: %s\n", dataDir, humanBytes(diskFree(dataDir)))
+	var n int
+	_ = st.Read.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+	fmt.Printf("Пользователей: %d\n", n)
+	fmt.Printf("Свободно на %s: %s\n", stateDir(), humanBytes(diskFree(stateDir())))
 	return nil
 }
 
 func runBackup() error {
 	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
-	out := fs.String("out", "", "путь к tar-архиву (по умолчанию /data/backups/kraken-<UTC>.tar)")
+	out := fs.String("out", "", "путь к tar-архиву (по умолчанию /var/lib/kraken/backups/kraken-<UTC>.tar)")
 	if e := fs.Parse(os.Args[2:]); e != nil {
 		return errQuiet
 	}
-	dataDir := env("KRAKEN_DATA_DIR", "/data")
+	root := stateDir()
 	st, e := openStore()
 	if e != nil {
 		return e
@@ -631,11 +675,11 @@ func runBackup() error {
 	defer st.Close()
 	target := *out
 	if target == "" {
-		target = filepath.Join(dataDir, "backups", "kraken-"+time.Now().UTC().Format("20060102-150405")+".tar")
+		target = filepath.Join(root, "backups", "kraken-"+time.Now().UTC().Format("20060102-150405")+".tar")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
-	if e := admin.Backup(ctx, st, dataDir, target); e != nil {
+	if e := admin.Backup(ctx, st, root, target); e != nil {
 		return fail("Ошибка копии: " + e.Error())
 	}
 	fmt.Println(target)

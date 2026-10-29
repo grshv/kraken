@@ -23,12 +23,14 @@ import (
 // The archive never overwrites an existing file; it is written to a temporary
 // file next to out and renamed, with mode 0600. Paths inside are relative to
 // dataDir:
-//   - app/control.sqlite3 is a consistent online copy produced by VACUUM INTO,
+//   - data/control.sqlite3 is a consistent online copy produced by VACUUM INTO,
 //     never the live file or its -wal/-shm sidecars;
-//   - app/telemetry/rollups.db, if present, is copied the same way;
-//   - runtime/** and certs/** are copied verbatim without following symlinks.
+//   - data/telemetry/rollups.db, if present, is copied the same way;
+//   - certs/** is copied verbatim without following symlinks.
 //
-// logs/, monthly event files and WAL sidecars are not included.
+// logs/, monthly event files and WAL sidecars are not included. Runtime state
+// (journal, last-good manifest) lives inside control.sqlite3; derivative files
+// in the tmpfs run directory are never on the volume.
 func Backup(ctx context.Context, st *store.Store, dataDir, out string) error {
 	if e := ctx.Err(); e != nil {
 		return e
@@ -54,12 +56,12 @@ func Backup(ctx context.Context, st *store.Store, dataDir, out string) error {
 		_ = os.Remove(tmpOut)
 	}
 	tw := tar.NewWriter(f)
-	if e := addVacuumed(ctx, tw, st.DB, filepath.Join(dataDir, "app", "control.sqlite3"), "app/control.sqlite3", tmpOut); e != nil {
+	if e := addVacuumed(ctx, tw, st.DB, filepath.Join(dataDir, "data", "control.sqlite3"), "data/control.sqlite3", tmpOut); e != nil {
 		tw.Close()
 		cleanup()
 		return e
 	}
-	rollups := filepath.Join(dataDir, "app", "telemetry", "rollups.db")
+	rollups := filepath.Join(dataDir, "data", "telemetry", "rollups.db")
 	if _, e := os.Stat(rollups); e == nil {
 		rdb, e := sql.Open("sqlite", "file:"+rollups+"?_pragma=busy_timeout(5000)")
 		if e != nil {
@@ -70,7 +72,7 @@ func Backup(ctx context.Context, st *store.Store, dataDir, out string) error {
 		// Keep a single connection: VACUUM INTO runs on the owner connection and
 		// the snapshot must be taken from one handle, not pooled.
 		rdb.SetMaxOpenConns(1)
-		e = addVacuumed(ctx, tw, rdb, rollups, "app/telemetry/rollups.db", tmpOut)
+		e = addVacuumed(ctx, tw, rdb, rollups, "data/telemetry/rollups.db", tmpOut)
 		rdb.Close()
 		if e != nil {
 			tw.Close()
@@ -82,7 +84,7 @@ func Backup(ctx context.Context, st *store.Store, dataDir, out string) error {
 		cleanup()
 		return e
 	}
-	for _, sub := range []string{"runtime", "certs"} {
+	for _, sub := range []string{"certs"} {
 		root := filepath.Join(dataDir, sub)
 		if _, e := os.Stat(root); errors.Is(e, os.ErrNotExist) {
 			continue

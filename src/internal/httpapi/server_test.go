@@ -33,9 +33,13 @@ func fixtureServer(t *testing.T) (*Server, http.Handler) {
 		t.Fatal(e)
 	}
 	rt := local.New(dir, "/unused", "/dev/null", "", "", "test-image")
-	rt.AppDir = dir
+	rt.State = st
 	rt.Options.ProxyAccounts = filepath.Join(dir, "proxy-accounts.json")
 	rt.Options.SquidDir = dir
+	// httpapi tests do not run under the proxy group; skip the group chown
+	// that Persist normally does. File ownership is tested in the runtime
+	// package where TestMain sets the proxy group to the runner's GID.
+	rt.Persist = func(path string, b []byte) error { return local.AtomicMode(path, b, 0640) }
 	rt.Command = func(context.Context, ...string) error { return nil }
 	rt.Reload = func(context.Context, string) error { return nil }
 	rt.Probe = func(context.Context, string) error { return nil }
