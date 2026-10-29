@@ -1,6 +1,6 @@
 # ADR 0009: single-process concurrency assumption
 
-Дата: 2026-10-27. Статус: Accepted (в сочетании с ADR 0006).
+Дата: 2026-10-27. Статус: Superseded ADR 0018 ([параллельный доступ к управляющей БД](0018-storage-concurrency.md)).
 
 ## Контекст
 
