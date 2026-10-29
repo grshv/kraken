@@ -21,7 +21,8 @@ Kraken — web-панель управления исходящим доступ
 | --- | --- |
 | `make docs-check` | Ссылки, реестр ADR, структура docs, OpenAPI, пример политики |
 | `make check` | docs-check, сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` |
-| `make image` / `make integration` | Сборка контейнера / smoke на реальном Squid (нужен image) |
+| `make image` / `make integration` | Сборка контейнера / smoke, network, apt и ops на реальном Squid (нужен image) |
+| `make integration-ops` | Эксплуатационные проверки: копия/восстановление /data, замена сертификата, обновление образа, заполненный диск (нужен `kraken:ops`) |
 | `make build`, `make dev-cert`, `make bootstrap`, `make up`, `make down`, `make password-reset` | Локальная сборка и запуск |
 
 Go module — `src/` (`kraken.local/kraken`), npm — `src/web/`.
