@@ -17,9 +17,10 @@ ADR фиксирует существенное решение: границы �
 | [0008](0008-kv-blob-mvp.md) | kv-blob MVP без реляционных таблиц | Accepted |
 | [0009](0009-single-process-concurrency.md) | Single-process concurrency: mutex, SetMaxOpenConns(1), flock | Accepted |
 | [0010](0010-session-and-recovery-safety.md) | Stateless anonymous CSRF, atomic migrations и verified recovery | Accepted |
-| [0011](0011-durable-diagnostics.md) | История запросов, checkpoint и аудит с retention/cursor | Accepted |
+| [0011](0011-durable-diagnostics.md) | История запросов в управляющей БД; заменён ADR 0017 | Superseded |
 | [0012](0012-local-users-and-proxy-passwords.md) | Proxy accounts и управляемый auth helper (роли заменены ADR 0016) | Accepted |
 | [0013](0013-read-only-squid-metrics.md) | Read-only метрики Squid manager на loopback | Accepted |
 | [0014](0014-documentation-discipline.md) | Одна инструкция агентам, один статус, проверяемые правила docs | Accepted |
 | [0015](0015-separate-squid-uid.md) | Отдельный UID для Squid, reload через manager, экспорт proxy-верификаторов | Accepted |
 | [0016](0016-admin-and-manager-roles.md) | Роли admin и manager, область менеджера | Accepted |
+| [0017](0017-telemetry-storage.md) | Телеметрия в месячных файлах SQLite и агрегатах на 3 года | Accepted |
