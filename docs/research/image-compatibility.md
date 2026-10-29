@@ -64,7 +64,7 @@ Probe использует отдельный listener 127.0.0.1:3130, кото�
   parse/reload/rollback/crash/drift, PHC/reset, expert guards), frontend typecheck/build,
   vitest (логика каркаса) и docs.
 - `make image`: multi-stage image из [deploy](../../deploy/Dockerfile).
-- `make integration`: [реальные сетевые fixtures](../../src/tests/integration/smoke.py),
+- `make integration`: [реальные сетевые fixtures](../../src/tests/integration/smoke_test.go),
   без default password, с проверкой цепочки сертификатов.
 - [Web unit-тесты](../../src/web/tests/unit): логика каркаса (пределы панелей,
   навигация по ролям, конечный автомат применения) на vitest, без браузера.

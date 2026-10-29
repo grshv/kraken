@@ -40,7 +40,7 @@ info/5min/counters без трафика дали +0 origin requests. Все ш�
 manager reports (`info`, `counters`, `5min`, `active_requests`, `shutdown`, `config`)
 на public proxy listener вернули 403 даже при разрешённом обычном HTTP трафике.
 Это исследование reports/ACL; полный application integration дополнительно
-проверяет renderer и API (см. `src/tests/integration/smoke.py`).
+проверяет renderer и API (см. `src/tests/integration/smoke_test.go`).
 
 В полном конфиге с первым canary listener 3130 Squid переписывает authority
 URI active_requests report на `kraken:3130`, хотя local socket остаётся

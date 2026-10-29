@@ -36,10 +36,7 @@ image:
 	docker build -f deploy/Dockerfile -t kraken:dev .
 
 integration:
-	python3 src/tests/integration/smoke.py
-	python3 src/tests/integration/network.py
-	python3 src/tests/integration/apt.py
-	python3 src/tests/integration/ops.py
+	cd src && go test -tags integration -count=1 -timeout 60m $(if $(RUN),-run $(RUN),) ./tests/integration/...
 
 integration-network:
 	python3 src/tests/integration/network.py

@@ -80,20 +80,22 @@ journal/drift; restart control запускает reconciliation. Не реда�
 
 ## Проверки разработчика
 
-`make check`, `make image`, `make integration` из корня. Smoke создаёт уникальные
-containers/network/volume и удаляет их в finally, не трогая пользовательский Compose.
-Нужен свободный тестовый subnet 11.250.17.0/24; origins и client identities синтетические.
-Доступ к интернету нужен для pull/build зависимостей, не для проверки HTTP origins.
-Web unit-тесты (`npm --prefix src/web run test`) гоняют vitest без браузера и
-образа; e2e на ключевые потоки — отдельный срез.
+`make check`, `make image`, `make integration` из корня. `make integration` —
+`go test -tags integration` (пакет `src/tests/integration`), фильтр через `RUN=`
+(например `make integration RUN=TestSmoke`). Тесты создают уникальные
+containers/network/volume и удаляют их в `t.Cleanup`, не трогая пользовательский
+Compose. Нужен свободный тестовый subnet 11.250.17.0/24; origins и client
+identities синтетические. Доступ к интернету нужен для pull/build зависимостей,
+не для проверки HTTP origins. Web unit-тесты (`npm --prefix src/web run test`)
+гоняют vitest без браузера и образа; e2e на ключевые потоки — отдельный срез.
 
-`make integration-ops` (`src/tests/integration/ops.py`) поднимает отдельные
+`make integration RUN=TestOps` (`ops_test.go`) поднимает отдельные
 disposable контейнеры/сети/volumes с уникальным префиксом и проверяет
 процедуры runbook на образе `kraken:ops` (`docker build -f deploy/Dockerfile
 -t kraken:ops .`, тег параметризуется через `KRAKEN_TEST_IMAGE`): копия и
 восстановление `/data`, замена серверного сертификата панели и прокси, обновление
 образа на том же volume, поведение при заполненном диске (tmpfs-backed `/data`).
-Сертификаты и ключи генерируются во временный каталог и не коммитятся.
+Сертификаты и ключи генерируются в `t.TempDir()` через `crypto/x509` и не коммитятся.
 
 ## Новые настройки и сброс
 
