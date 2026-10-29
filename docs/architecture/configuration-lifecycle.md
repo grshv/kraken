@@ -84,13 +84,15 @@ mutations. При недоступной DB новая mutation не начин�
 5. Semantic validation: неизменность защитных правил, неизвестная VM deny,
    отсутствие пустого allow-all, соответствие политики и ACL. Parse недостаточно.
 6. Зафиксировать journal `promoting` до замены. Атомарно заменить активный config
-   файл `active.conf` через rename в том же каталоге, затем fsync каталога.
+   `squid.conf` в tmpfs `/dev/shm/kraken` через rename в том же каталоге.
+   Journal и LKG хранятся в управляющей БД (ключи `runtime.journal`,
+   `runtime.last_good`), применения сериализует flock `apply.lock` в tmpfs.
    Конфигурация — один файл: каждое применение переписывает её целиком.
 7. Journal `reloading`. Выполнить проверенный для image control command Squid
    без shell и без сигнала PID 1 наугад. Timeout ограничен; stdout/stderr обрезаны.
 8. Journal `verifying`. Проверить process health, наблюдаемые ошибки reload,
    соответствие активного bundle и поведенческие allow/deny probes.
-9. После успешных probes атомарно заменить LKG manifest с fsync, затем durable
+9. После успешных probes записать LKG manifest в БД, затем durable
    terminal journal `succeeded` с hash/результатами и запись applied/audit в DB.
    Это не общая транзакция: crash между шагами разбирается recovery, при
    неопределённости сохраняется консервативный откат к recorded previous LKG.
@@ -105,8 +107,12 @@ mutations. При недоступной DB новая mutation не начин�
 
 Recover после рестарта читает journal. Незавершённый apply восстанавливает
 recorded previous manifest. На первом запуске durable first_run marker пишется
-до active.conf. Если LKG ещё нет, инициализация повторяется; если LKG уже есть,
-проверяется совпадение candidate/LKG и active.conf, затем сохраняется initialised.
+до squid.conf. Если LKG ещё нет, инициализация повторяется; если LKG уже есть,
+проверяется совпадение candidate/LKG и squid.conf, затем сохраняется initialised.
+При каждом старте `serve` пишет `squid.conf` в tmpfs из точного текста LKG (без
+повторного рендера) и экспорт логинов прокси из БД; только после этого
+`squid-start` запускает Squid. Ошибка чтения journal или LKG из БД — ошибка
+recovery, а не «первый запуск».
 Offline recovery перед стартом Squid восстанавливает файлы, сохраняя pending
 journal. Online recovery закрывает journal как rolled_back только после успешных
 reload и fingerprint probe. Ошибка, включая ещё не запущенный Squid, сохраняет

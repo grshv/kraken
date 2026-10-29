@@ -63,7 +63,7 @@ reset'ом сессия не воскрешается (recheck existence). Пе�
 `PRAGMA wal_checkpoint(PASSIVE)` раз в 10 мин (не ждёт читателей и не держит запись), `PRAGMA optimize` суточно.
 
 Онлайн-копию делает `kraken backup` (`VACUUM INTO` управляющей БД и `rollups.db`,
-runtime и сертификаты); остановленная копия /data тоже согласована. Копирование
+runtime и сертификаты); остановленная копия `/var/lib/kraken` тоже согласована. Копирование
 только main DB при активном WAL недопустимо.
 [SQLite WAL](https://www.sqlite.org/wal.html),
 [Backup API](https://www.sqlite.org/backup.html).
@@ -205,7 +205,7 @@ proxy_accounts — отдельная таблица username/password_hash/enab
 owner — username менеджера или NULL (admin). Менеджер видит и меняет свои логины (owner = он)
 и логины, которыми пользуются только его клиенты; созданный менеджером логин принадлежит ему.
 Пароль не входит в snapshot; Client.proxy_username — только ссылка. Фиксированные
-helper режимы читают не БД, а экспорт `/data/runtime/proxy-accounts.json`
+helper режимы читают не БД, а экспорт `/dev/shm/kraken/proxy-accounts.json` (tmpfs, пересоздаётся из БД)
 (username и verifier включённых аккаунтов, 0640), который Go атомарно перезаписывает
 после каждой мутации и при старте; при ошибке записи мутация отвечает 503. Generation
 SHA-256 от PHC verifier привязывает Basic auth к текущему состоянию без передачи

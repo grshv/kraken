@@ -99,13 +99,15 @@ LKG либо отдельное согласованное изменение м
 Онлайн-копия без остановки панели выполняется CLI внутри контейнера:
 
 ```sh
-docker exec <контейнер> kraken backup                      # /data/backups/kraken-<UTC>.tar
-docker exec <контейнер> kraken backup --out /data/backups/manual.tar
+docker exec <контейнер> kraken backup                      # /var/lib/kraken/backups/kraken-<UTC>.tar
+docker exec <контейнер> kraken backup --out /var/lib/kraken/backups/manual.tar
 ```
 
-Архив содержит консистентную онлайн-копию `app/control.sqlite3` (через
-`VACUUM INTO`, без живого файла и `-wal`/`-shm`), `runtime/**`, `certs/**` и
-при наличии `app/telemetry/rollups.db` (также через `VACUUM INTO`). Логи,
+Архив содержит консистентную онлайн-копию `data/control.sqlite3` (через
+`VACUUM INTO`, без живого файла и `-wal`/`-shm`; в ней же журнал применения и
+последняя рабочая конфигурация), `certs/**` и при наличии
+`data/telemetry/rollups.db` (также через `VACUUM INTO`). Производные файлы tmpfs
+(конфиг Squid, экспорт логинов, пароль менеджера) не нужны: они пересоздаются из БД. Логи,
 месячные файлы событий и WAL sidecar не включаются. Файл принадлежит UID 10013,
 права 0600, не перезаписывается. Состав архива и консистентность копии при
 параллельной записи проверяются unit-тестами пакета `admin`.
@@ -113,37 +115,37 @@ docker exec <контейнер> kraken backup --out /data/backups/manual.tar
 Готовый архив вынести наружу:
 
 ```sh
-docker cp <контейнер>:/data/backups/kraken-<UTC>.tar ./kraken-backup.tar
+docker cp <контейнер>:/var/lib/kraken/backups/kraken-<UTC>.tar ./kraken-backup.tar
 ```
 
 Для полной копии состояния с остановкой (включая WAL checkpoint и промежуточные
 файлы) вариант с остановкой: остановить контейнер (`docker stop` с grace для
-штатного shutdown Squid и панели), скопировать весь named volume `/data` с
+штатного shutdown Squid и панели), скопировать весь named volume `/var/lib/kraken` с
 сохранением прав/UID, запустить тот же контейнер. Это не требует работающей панели
-и захватывает `logs/`. Периодичность и место внешней копии выбирает оператор.
+и захватывает `log/`. Периодичность и место внешней копии выбирает оператор.
 
-Телеметрия (`/data/app/telemetry`) отделена от управляющей БД: `control.sqlite3`
+Телеметрия (`/var/lib/kraken/data/telemetry`) отделена от управляющей БД: `control.sqlite3`
 обязателен (учётные записи, ревизии, аудит); `rollups.db` рекомендован (без него
 агрегаты пересобираются из хранимых месячных файлов); месячные `events-YYYY-MM.db`
 необязательны — их потеря не ломает панель и агрегаты.
 
 ## Восстановление копии
 
-1. Создать новый volume и распаковать архив `kraken backup` в `/data` с прежними
+1. Создать новый volume и распаковать архив `kraken backup` в `/var/lib/kraken` с прежними
    правами/UID (kraken 10013:10013, proxy 13:13). Не публиковать восстановленный
    proxy в пользовательские сети при проверке. Подключить сохранённые внешние
-   TLS-файлы и параметры, если они хранились вне `/data`.
+   TLS-файлы и параметры, если они хранились вне тома.
 2. Запустить совместимый сохранённый image: `docker run -d --name <новый> -v
-   <новый-volume>:/data <image>`. Проверить recovery, вход и реальный
+   <новый-volume>:/var/lib/kraken <image>`. Проверить recovery, вход и реальный
    разрешённый/запрещённый запрос. Откат image не выполняет down migration SQLite.
 3. Копия БД содержит прежние session verifiers. Для реального возврата старой копии
    явно отозвать доступ: `docker exec -it <новый> kraken sessions revoke --yes`
    или `docker exec -it <новый> kraken password-reset --username <имя>` — последний
    задаёт новый hash и удаляет sessions, не восстанавливает исходный пароль.
 
-Для полной остановленной копии процедура та же: вернуть `/data` целиком с прежними
-правами и запустить контейнер. При остановленной копии WAL уже чекпоинчен, Squid
-`stale PID` удаляется squid-start перед запуском.
+Для полной остановленной копии процедура та же: вернуть `/var/lib/kraken` целиком с
+прежними правами и запустить контейнер. PID Squid и прочие производные файлы живут в
+tmpfs и в копию не попадают.
 
 Готовые backup/restore команды заявлены и проверяются unit-тестами; упражнение
 восстановления на пользовательской установке отмечается в [status](../status.md)
@@ -187,6 +189,6 @@ Host publish настраивается при установке через Com
 В expert mode визуальные клиентские политики не действуют; общие настройки
 остаются исходными значениями. Helpers/includes/cache_dir и служебные paths
 запрещены. При parse failure исправить expert section, создать новую ревизию;
-ручная правка active.conf создаёт drift. При degraded после ошибки persistence
+ручная правка `/dev/shm/kraken/squid.conf` создаёт drift и пропадает при рестарте. При degraded после ошибки persistence
 сначала устранить проблему хранилища, затем перезапустить control для reconciliation
 и проверить runtime status до следующего apply.

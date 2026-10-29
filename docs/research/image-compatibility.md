@@ -30,7 +30,7 @@ Pebble PID 1 управляет сервисами отдельно; `run --hold
 поэтому production command нашего image — `run --verbose`.
 
 Перед запуском Squid подрежим того же executable восстанавливает journal/LKG,
-затем exec `/usr/sbin/squid -N -f /data/runtime/active.conf`.
+затем exec `/usr/sbin/squid -N -f /dev/shm/kraken/squid.conf`.
 Apply перед изменением проверяет old runtime canary; в startup gap запрос не
 может примениться к ещё не запущенному Squid. Общий filesystem lock защищает gate.
 

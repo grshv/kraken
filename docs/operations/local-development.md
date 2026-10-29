@@ -27,8 +27,10 @@ Frontend, backend и Squid в одном контейнере. Node и Go на h
 
 ## Данные
 
-Compose named volume `/data`: `app/` (SQLite, в т.ч. `telemetry/` — события и
-агрегаты), `runtime/` (LKG/journal/active config), `logs/` и `certs/`.
+Compose named volume `/var/lib/kraken`: `data/` (управляющая SQLite с журналом
+применения и LKG, `telemetry/` — события и агрегаты), `certs/` и `log/`. Конфиг Squid,
+экспорт логинов прокси и пароль менеджера — в tmpfs `/dev/shm/kraken`, пересоздаются
+при старте.
 `docker compose -f deploy/compose.yaml down` сохраняет volume. Не используйте
 `down -v`, если данные нужны. Cache отключён. Секреты в volume не являются
 резервной копией.
@@ -49,7 +51,7 @@ docker exec -it kraken kraken dev-cert
 Public certificate панели можно получить командой:
 
 ```sh
-docker compose -f deploy/compose.yaml cp kraken:/data/certs/panel.crt /tmp/kraken-panel.crt
+docker compose -f deploy/compose.yaml cp kraken:/var/lib/kraken/certs/panel.crt /tmp/kraken-panel.crt
 ```
 
 Для HTTP клиента используйте `--cacert /tmp/kraken-panel.crt`; не отключайте
@@ -99,7 +101,7 @@ docker compose -f deploy/compose.yaml exec kraken pebble restart control
 Последняя команда перезапускает только Go. Полный container/image upgrade прерывает
 и Squid. Любой старт Squid проходит recovery gate. Apply блокируется при unfinished
 journal/drift; restart control запускает reconciliation. Не редактировать journal
-и active.conf вручную вместо recovery.
+в БД и `squid.conf` в tmpfs вручную вместо recovery.
 
 ## Проверки разработчика
 
@@ -116,8 +118,8 @@ identities синтетические. Доступ к интернету нуж
 disposable контейнеры/сети/volumes с уникальным префиксом и проверяет
 процедуры runbook на образе `kraken:ops` (`docker build -f deploy/Dockerfile
 -t kraken:ops .`, тег параметризуется через `KRAKEN_TEST_IMAGE`): копия и
-восстановление `/data`, замена серверного сертификата панели и прокси, обновление
-образа на том же volume, поведение при заполненном диске (tmpfs-backed `/data`).
+восстановление `/var/lib/kraken`, замена серверного сертификата панели и прокси, обновление
+образа на том же volume, поведение при заполненном диске (tmpfs-backed `/var/lib/kraken`).
 Сертификаты и ключи генерируются в `t.TempDir()` через `crypto/x509` и не коммитятся.
 
 ## Новые настройки и сброс

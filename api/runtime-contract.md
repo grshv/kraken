@@ -34,16 +34,18 @@ validation. Cert references выбираются из локально уста�
 Parse выполняется бинарником Squid из того же итогового image, в том же контейнере,
 на candidate bundle с изолированными writable runtime paths. Проверить, что parse
 не пишет live PID/cache/log; при невозможности validation отклоняется.
-Reload и rotate — manager-запрос с токеном на `127.0.0.1:3131`, не сигнал и не Pebble PID 1. Docker API и запуск соседних контейнеров нет.
+Reload и rotate — manager-запрос с паролем (новый на каждый старт контейнера, только в tmpfs) на `127.0.0.1:3131`, не сигнал и не Pebble PID 1. Docker API и запуск соседних контейнеров нет.
 
 ## Journal, lock и startup gate
 
-Filesystem journal хранит stage, предыдущий/candidate bundle, hashes, secret refs
-и terminal outcome. SQLite хранит пользовательскую операцию и audit. Это один
-процесс приложения, но DB/files/Squid не образуют общую транзакцию.
+Journal (`runtime.journal`) и LKG (`runtime.last_good`) хранятся в управляющей
+SQLite: stage, предыдущий/candidate bundle, hashes и terminal outcome. Там же
+пользовательская операция и audit. Конфиг Squid — производный файл в tmpfs; DB, файл и
+Squid не образуют общую транзакцию, расхождения разбирает recovery.
 
-Межпроцессный file lock нужен также короткому recovery подрежиму **того же**
-executable, запускаемому перед каждым стартом Squid. Gate не требует доступной
+Межпроцессный flock `apply.lock` в tmpfs сериализует применение в `serve` и в CLI
+(`kraken service-update`). `serve` при старте восстанавливает journal и пишет конфиг
+Squid из LKG; `squid-start` ждёт готовых файлов в tmpfs. Gate не требует доступной
 web-сессии или HTTP сервера. При незавершённой операции восстанавливается LKG;
 если recovery нельзя доказать, неизвестный candidate не запускается.
 После restart web worker согласует DB с journal до новых mutations.

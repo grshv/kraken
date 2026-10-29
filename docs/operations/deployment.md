@@ -48,13 +48,24 @@ egress VM, реализовать на контролируемой сетево
 Пользователи в image: `kraken` 10013:10013 (Go, доп. группа `proxy`) и
 `proxy` 13:13 (Squid и helpers). Права по [ADR 0015](../adr/0015-separate-squid-uid.md):
 
+Постоянное состояние — один том `/var/lib/kraken`; всё производное Go пересоздаёт из
+управляющей БД в tmpfs `/dev/shm/kraken` при старте и при каждом применении.
+
 | Путь | Владелец | Режим |
 | --- | --- | --- |
-| `/data` | kraken:proxy | 0750 |
-| `/data/app` (SQLite, `manager-token`) | kraken:kraken | 0700 |
-| `/data/certs`, `/data/runtime` | kraken:proxy | 2750, файлы для Squid 0640 |
-| `/data/certs/panel.*` | kraken | 0600 |
-| `/data/squid` (PID, cache.log), `/data/logs` | proxy:proxy | 2750 |
+| `/var/lib/kraken` (том) | kraken:proxy | 0750 |
+| `/var/lib/kraken/data` (`control.sqlite3`, `telemetry/`) | kraken:kraken | 0700 |
+| `/var/lib/kraken/certs` | kraken:proxy | 2750; `panel.*` 0600 kraken, `proxy.*` 0640 |
+| `/var/lib/kraken/log` (access.log и ротации, cache.log) | proxy:proxy | 2750 |
+| `/var/lib/kraken/backups` (создаёт `kraken backup`) | kraken | 0700, архивы 0600 |
+| `/dev/shm/kraken` (tmpfs: `squid.conf`, `proxy-accounts.json`, `manager-auth.conf`, `apply.lock`) | kraken:proxy | 2750, файлы для Squid 0640; Squid только читает |
+| `/dev/shm/kraken-squid` (tmpfs: PID Squid) | proxy | 0700, создаёт `squid-start` |
+
+`serve` отказывается стартовать, если `KRAKEN_RUN_DIR` не на tmpfs или каталог
+принадлежит другому пользователю. Пароль к менеджеру Squid (`manager-auth.conf`)
+новый на каждый старт контейнера, не хранится на томе и в бэкапе; при перезапуске
+только панели переиспользуется из tmpfs. Корни переопределяются `KRAKEN_STATE_DIR` и
+`KRAKEN_RUN_DIR`.
 
 Внешние TLS-файлы прокси (`compose.tls.yaml`) должны читаться UID или группой 13,
 ключ панели — UID 10013. Нет обещания, что внутренний модуль скроет секрет от
@@ -65,7 +76,7 @@ Config монтируется каталогом, atomic rename должен б�
 Read-only rootfs/capabilities/non-root проверяются на реальном image, не включаются
 наугад ценой неработающего Pebble/helper. Cache init не выполняется при каждом apply.
 
-Телеметрия (события прокси и агрегаты) по умолчанию лежит в `/data/app/telemetry`
+Телеметрия (события прокси и агрегаты) по умолчанию лежит в `/var/lib/kraken/data/telemetry`
 (тот же volume и владелец 10013:10013), отдельная от управляющей `control.sqlite3`.
 Перенос каталога — `KRAKEN_TELEMETRY_DIR`; retention сырых событий —
 `KRAKEN_EVENTS_RETENTION_DAYS` (90), бюджет диска — `KRAKEN_EVENTS_BUDGET_MB`

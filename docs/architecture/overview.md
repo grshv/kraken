@@ -52,22 +52,23 @@ container
     kraken  HTTPS 8443 (публикуется на management-интерфейс хоста)
     squid   HTTP 3128, TLS 3129 (порты задаются установкой)
             127.0.0.1:3130 — probe, 127.0.0.1:3131 — manager, без публикации
-  volume /data
-    app/       SQLite панели, ключи сессий        kraken 0700
+  volume /var/lib/kraken
+    data/      control.sqlite3 (в т.ч. журнал применения и LKG), telemetry/   kraken 0700
     certs/     сертификаты панели и прокси        kraken:proxy 2750
-    runtime/   journal, LKG, active.conf, экспорт верификаторов прокси
-    squid/     pid, cache.log                     proxy
-    logs/      access.log и ротации               proxy
+    log/       access.log и ротации, cache.log    proxy
+  tmpfs /dev/shm/kraken                           kraken:proxy 2750, Squid только читает
+    squid.conf, proxy-accounts.json, manager-auth.conf, apply.lock
+  tmpfs /dev/shm/kraken-squid                     proxy 0700: PID Squid
 ```
 
 Go работает как `kraken` (10013, доп. группа `proxy`), Squid — как `proxy` (13).
-Squid читает `runtime/` и сертификат прокси через группу; SQLite, ключ панели и
-токен manager ему недоступны ([ADR 0015](../adr/0015-separate-squid-uid.md),
+Squid читает файлы `/dev/shm/kraken` и сертификат прокси через группу, но не может
+их создавать, заменять или удалять; SQLite и ключ панели ему недоступны ([ADR 0015](../adr/0015-separate-squid-uid.md),
 [deployment](../operations/deployment.md#файлы-и-права)).
 
 ## Локальное управление
 
-Squid запускается только с фиксированными argv: `-N -f active.conf` и `-k parse`.
+Squid запускается только с фиксированными argv: `-N -f /dev/shm/kraken/squid.conf` и `-k parse`.
 Reload и rotate — запрос `cache_object://127.0.0.1/<action>@<token>` на loopback 3131
 ([ADR 0013](../adr/0013-read-only-squid-metrics.md)); shell и произвольные пути из UI
 не используются, соседние контейнеры и Docker API не трогаются.

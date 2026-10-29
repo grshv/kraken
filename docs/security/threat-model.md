@@ -23,7 +23,7 @@ Runtime module не является security boundary: он в том же exec
 | XSS в логах | Экранирование, CSP, bounded parser | HTML как текст |
 | CSRF и session theft | Token/Origin/cookie flags, verifier hash | Cross-origin mutations и revoke tests |
 | Перебор пароля | Argon2id, rate limit, local bootstrap | Login throttling/reset |
-| Apply/crash расширяет доступ | Durable journal, LKG, lock, startup gate | Crash на каждой границе и restart Squid |
+| Apply/crash расширяет доступ | Durable journal и LKG в управляющей БД, flock в tmpfs, startup gate: конфиг Squid пишется из LKG до его старта | Crash на каждой границе и restart Squid |
 | Disk full | Quotas/rotation/watermarks | DB/journal/log failures без silent apply |
 | Утечка TLS key | Узкие UID/file permissions, local provisioning | Отсутствие keys в image/export/logs |
 | Подмена dependencies | Locks/digests/scans/SBOM | Проверенный единый release image |
@@ -39,10 +39,12 @@ control API в сеть. Go использует локальный Squid contro
 и проверить identities/permissions до включения; общий root control не выдаётся web.
 
 Squid (`proxy`) и Go (`kraken`) работают под разными UID
-([ADR 0015](../adr/0015-separate-squid-uid.md)). Squid не может открыть SQLite,
-ключ панели и токен manager; он видит active config, Argon2id-верификаторы
-включённых proxy accounts в экспорте и ключ прокси. Reload/rotate — manager-действия
-с токеном только на loopback 3131; запросы с loopback не пишутся в access log.
+([ADR 0015](../adr/0015-separate-squid-uid.md)). Squid не может открыть SQLite и
+ключ панели; он читает (но не может создать, заменить или удалить) свой конфиг,
+Argon2id-верификаторы включённых proxy accounts и пароль менеджера в tmpfs
+`/dev/shm/kraken`, а также ключ прокси. Пароль менеджера случайный, новый на каждый
+старт контейнера и не хранится на томе и в бэкапах. Reload/rotate — manager-действия
+с этим паролем только на loopback 3131; запросы с loopback не пишутся в access log.
 Go состоит в группе `proxy` и читает логи Squid: обратной изоляции нет.
 Web не запускается root; CLI-подкоманды, кроме `squid-start` и `proxy-auth`, root отклоняют.
 
