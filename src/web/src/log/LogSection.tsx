@@ -504,6 +504,7 @@ export function LogSection(props: SectionProps) {
                         <Badge variant={denied ? "destructive" : "secondary"}>
                           {e.proxy_result}
                           {denied ? " отказ" : ""}
+                          {e.count && e.count > 1 ? ` ×${e.count}` : ""}
                         </Badge>
                       </td>
                     </tr>
@@ -739,6 +740,12 @@ function LogDetail({
             {denied ? " отказ" : ""}
           </Badge>
         </dd>
+        {event.count != null && event.count > 1 && (
+          <>
+            <dt>Повторов</dt>
+            <dd className="num">{event.count}</dd>
+          </>
+        )}
         {event.revision_id && (
           <>
             <dt>Ревизия</dt>

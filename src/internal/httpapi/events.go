@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"net/http"
 	"net/netip"
 	"sort"
@@ -15,8 +16,11 @@ import (
 	"kraken.local/kraken/internal/telemetry"
 )
 
-// CollectEvents is called by one background reader, never by a request handler.
-func (s *Server) CollectEvents() error {
+// CollectEvents is called by the background collector (RunCollector); never by
+// a request handler. It reads one batch (≤ BatchBytes) and returns backlog=true
+// when the checkpoint port indicates more data is pending, so the caller keeps
+// reading without waiting for the interval.
+func (s *Server) CollectEvents() (backlog bool, err error) {
 	// Below storageLowBytes event collection pauses so telemetry ingestion
 	// cannot fill the disk or block the control DB. The next tick after space
 	// frees resumes from the last checkpoint automatically.
@@ -24,7 +28,7 @@ func (s *Server) CollectEvents() error {
 		if free, e := s.freeBytes(); e == nil && free < storageLowBytes {
 			s.setIngestion("storage_low")
 			s.maybeLogStorageLow()
-			return nil
+			return false, nil
 		}
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -32,17 +36,17 @@ func (s *Server) CollectEvents() error {
 	cp, e := s.Telemetry.Checkpoint(ctx)
 	if e != nil {
 		s.setIngestion("error")
-		return e
+		return false, e
 	}
 	items, next, e := events.Read(s.Runtime.Options.LogPath, cp)
 	if e != nil {
 		s.setIngestion("error")
-		return e
+		return false, e
 	}
 	manifest, e := s.Runtime.ReadManifest()
 	if e != nil {
 		s.setIngestion("error")
-		return e
+		return false, e
 	}
 	for i := range items {
 		ip, e := netip.ParseAddr(items[i].SourceIP)
@@ -84,10 +88,37 @@ func (s *Server) CollectEvents() error {
 	}
 	if e := s.Telemetry.Ingest(ctx, items, next); e != nil {
 		s.setIngestion("error")
-		return e
+		return false, e
 	}
 	s.setIngestion("ok")
-	return nil
+	return next.Backlog, nil
+}
+
+// RunCollector drives CollectEvents in a loop: when a batch returns backlog
+// (and no error) it reads the next batch immediately; otherwise it waits for
+// interval or ctx cancellation. It returns when ctx is cancelled, no later
+// than after the current batch — ctx is checked before each backlog-driven
+// continuation so a continuously-growing log cannot stall shutdown.
+func (s *Server) RunCollector(ctx context.Context, interval time.Duration) {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		backlog, err := s.CollectEvents()
+		if err != nil {
+			slog.Warn("event collection failed", "error", err)
+		}
+		if backlog && err == nil {
+			if ctx.Err() != nil {
+				return
+			}
+			continue
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
 }
 func queryLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	limit := 50

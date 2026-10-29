@@ -453,10 +453,14 @@ func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v 
 		if active.decision == draft.decision {
 			continue
 		}
+		n := int(ev.Count)
+		if n <= 0 {
+			n = 1
+		}
 		if draft.decision == "allowed" {
-			totalAllowed++
+			totalAllowed += n
 		} else {
-			totalDenied++
+			totalDenied += n
 		}
 		if ev.ClientID != nil {
 			b := perClient[*ev.ClientID]
@@ -465,9 +469,9 @@ func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v 
 				perClient[*ev.ClientID] = b
 			}
 			if draft.decision == "allowed" {
-				b.allowed++
+				b.allowed += n
 			} else {
-				b.denied++
+				b.denied += n
 			}
 		}
 	}

@@ -61,12 +61,12 @@ func (t *Store) Ingest(ctx context.Context, items []events.Event, cp events.Chec
 		return e
 	}
 	defer hostInsert.Close()
-	evInsert, e := tx.PrepareContext(ctx, "INSERT INTO event(ts,client_id,client_name,source_ip,host_id,port,method,result,http_status,duration_ms,bytes,failed,proxy_username,revision_id,match_basis,tls_mode,source_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_id) DO NOTHING")
+	evInsert, e := tx.PrepareContext(ctx, "INSERT INTO event(ts,client_id,client_name,source_ip,host_id,port,method,result,http_status,duration_ms,bytes,count,failed,proxy_username,revision_id,match_basis,tls_mode,source_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_id) DO NOTHING")
 	if e != nil {
 		return e
 	}
 	defer evInsert.Close()
-	for _, v := range items {
+	for _, v := range coalesceBatch(items) {
 		ts, e := parseStamp(v.Timestamp)
 		if e != nil {
 			return fmt.Errorf("telemetry: invalid timestamp: %w", e)
@@ -104,7 +104,7 @@ func (t *Store) Ingest(ctx context.Context, items []events.Event, cp events.Chec
 		if v.ID != "" {
 			sourceID = v.ID
 		}
-		if _, e = evInsert.ExecContext(ctx, ts, clientID, clientName, v.SourceIP, hid, hostPort(v.Destination), v.Method, v.ProxyResult, httpStatus, v.Duration, v.Bytes, failed, proxyUser, revID, v.ClientMatchBasis, v.TLSMode, sourceID); e != nil {
+		if _, e = evInsert.ExecContext(ctx, ts, clientID, clientName, v.SourceIP, hid, hostPort(v.Destination), v.Method, v.ProxyResult, httpStatus, v.Duration, v.Bytes, v.Count, failed, proxyUser, revID, v.ClientMatchBasis, v.TLSMode, sourceID); e != nil {
 			return e
 		}
 	}
@@ -147,9 +147,9 @@ func scanEventRow(mfKey string, sc func(...any) error) (events.Event, error) {
 	var rid int64
 	var clientID, clientName, sourceIP, hostName, method, result, matchBasis, tlsMode sql.NullString
 	var proxyUser, revID sql.NullString
-	var port, httpStatus, duration, bytes sql.NullInt64
+	var port, httpStatus, duration, bytes, count sql.NullInt64
 	var failed int
-	if e := sc(&rid, &ts, &clientID, &clientName, &sourceIP, &hostName, &port, &method, &result, &httpStatus, &duration, &bytes, &failed, &proxyUser, &revID, &matchBasis, &tlsMode); e != nil {
+	if e := sc(&rid, &ts, &clientID, &clientName, &sourceIP, &hostName, &port, &method, &result, &httpStatus, &duration, &bytes, &count, &failed, &proxyUser, &revID, &matchBasis, &tlsMode); e != nil {
 		return v, e
 	}
 	v.ID = compactMonth(mfKey) + "-" + fmt.Sprintf("%d", rid)
@@ -184,11 +184,15 @@ func scanEventRow(mfKey string, sc func(...any) error) (events.Event, error) {
 	}
 	v.Duration = duration.Int64
 	v.Bytes = bytes.Int64
+	v.Count = count.Int64
+	if v.Count <= 0 {
+		v.Count = 1
+	}
 	v.Destination = reconstructDestination(hostName.String, int(port.Int64))
 	return v, nil
 }
 
-var eventColumns = `e.id,e.ts,e.client_id,e.client_name,e.source_ip,h.name,e.port,e.method,e.result,e.http_status,e.duration_ms,e.bytes,e.failed,e.proxy_username,e.revision_id,e.match_basis,e.tls_mode`
+var eventColumns = `e.id,e.ts,e.client_id,e.client_name,e.source_ip,h.name,e.port,e.method,e.result,e.http_status,e.duration_ms,e.bytes,e.count,e.failed,e.proxy_username,e.revision_id,e.match_basis,e.tls_mode`
 
 func splitEventID(id string) (string, int64, bool) {
 	if len(id) < 8 || id[6] != '-' {
@@ -228,4 +232,102 @@ func parseInt64(s string) (int64, error) {
 		n = n*10 + int64(c-'0')
 	}
 	return n, nil
+}
+
+// coalesceKey is the grouping key for collapsing identical requests into one
+// row with a count: the UTC second of the event timestamp plus the fields that
+// identify an identical request for journal/rollup purposes.
+type coalesceKey struct {
+	second           int64
+	clientID         string
+	clientName       string
+	sourceIP         string
+	host             string
+	port             int
+	method           string
+	proxyResult      string
+	proxyHTTPStatus  int
+	failed           bool
+	proxyUsername    string
+	revisionID       string
+	clientMatchBasis string
+	tlsMode          string
+}
+
+// coalesceBatch folds identical events within one batch into a single record
+// carrying a count, preserving first-appearance order. ts/source_id come from
+// the first event of each group; count is the sum of input counts (<=0 reads
+// as 1), bytes is summed, duration_ms is the max. Repeating a batch from the
+// same checkpoint is idempotent because source_id (the first event's id) is
+// preserved and ON CONFLICT(source_id) DO NOTHING deduplicates the replay.
+func coalesceBatch(items []events.Event) []events.Event {
+	if len(items) == 0 {
+		return items
+	}
+	out := make([]events.Event, 0, len(items))
+	agg := map[coalesceKey]int{}
+	for _, v := range items {
+		ts, e := parseStamp(v.Timestamp)
+		if e != nil {
+			// Invalid timestamps fall through as their own rows; the insert
+			// path rejects them with the same error as before.
+			out = append(out, v)
+			continue
+		}
+		host := hostOf(v.Destination)
+		port := hostPort(v.Destination)
+		clientID, clientName, proxyUser, revID := "", "", "", ""
+		if v.ClientID != nil {
+			clientID = *v.ClientID
+		}
+		if v.ClientName != nil {
+			clientName = *v.ClientName
+		}
+		if v.ProxyUsername != nil {
+			proxyUser = *v.ProxyUsername
+		}
+		if v.RevisionID != nil {
+			revID = *v.RevisionID
+		}
+		httpStatus := 0
+		if v.ProxyHTTPStatus != nil {
+			httpStatus = *v.ProxyHTTPStatus
+		}
+		k := coalesceKey{
+			second:           ts / 1000,
+			clientID:         clientID,
+			clientName:       clientName,
+			sourceIP:         v.SourceIP,
+			host:             host,
+			port:             port,
+			method:           v.Method,
+			proxyResult:      v.ProxyResult,
+			proxyHTTPStatus:  httpStatus,
+			failed:           eventFailed(v),
+			proxyUsername:    proxyUser,
+			revisionID:       revID,
+			clientMatchBasis: v.ClientMatchBasis,
+			tlsMode:          v.TLSMode,
+		}
+		if idx, ok := agg[k]; ok {
+			first := &out[idx]
+			c := v.Count
+			if c <= 0 {
+				c = 1
+			}
+			first.Count += c
+			first.Bytes += v.Bytes
+			if v.Duration > first.Duration {
+				first.Duration = v.Duration
+			}
+			continue
+		}
+		agg[k] = len(out)
+		merged := v
+		if merged.Count <= 0 {
+			merged.Count = 1
+		}
+		out = append(out, merged)
+	}
+	return out
 }

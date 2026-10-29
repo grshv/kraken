@@ -34,7 +34,7 @@ func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {
 	if e = os.WriteFile(path, []byte(line), 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.CollectEvents(); e != nil {
+	if _, e = s.CollectEvents(); e != nil {
 		t.Fatal(e)
 	}
 	w := request(h, "GET", "/events?limit=1", nil, cookie, "", "")
@@ -67,7 +67,7 @@ func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {
 	m.Snapshot.Clients = nil
 	b, _ = json.Marshal(m)
 	_ = os.WriteFile(filepath.Join(s.Runtime.Dir, "lkg.json"), b, 0600)
-	if e = s.CollectEvents(); e != nil {
+	if _, e = s.CollectEvents(); e != nil {
 		t.Fatal(e)
 	}
 	p, e := s.Telemetry.Events(context.Background(), telemetry.EventQuery{Limit: 20})
@@ -88,7 +88,7 @@ func TestHistorySurvivesSourceFailureAndReportsFreshness(t *testing.T) {
 		t.Fatal(e)
 	}
 	s.Runtime.Options.LogPath = t.TempDir() // a directory is not a valid log source
-	if e := s.CollectEvents(); e == nil {
+	if _, e := s.CollectEvents(); e == nil {
 		t.Fatal("invalid source ignored")
 	}
 	w := request(h, "GET", "/events", nil, cookie, "", "")
@@ -106,7 +106,7 @@ func TestHistorySurvivesSourceFailureAndReportsFreshness(t *testing.T) {
 		t.Fatal("failed reader fabricated fresh/empty data: " + w.Body.String())
 	}
 	s.Runtime.Options.LogPath = filepath.Join(t.TempDir(), "not-created.log")
-	if e := s.CollectEvents(); e != nil {
+	if _, e := s.CollectEvents(); e != nil {
 		t.Fatal(e)
 	}
 	w = request(h, "GET", "/events", nil, cookie, "", "")

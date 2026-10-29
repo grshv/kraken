@@ -236,7 +236,7 @@ func TestStorageLowPausesEventCollection(t *testing.T) {
 	// Below storageLow but above storageFull: reads work, collection pauses.
 	var low uint64 = storageFullBytes + 1
 	s.freeBytes = func() (uint64, error) { return low, nil }
-	if e := s.CollectEvents(); e != nil {
+	if _, e := s.CollectEvents(); e != nil {
 		t.Fatalf("CollectEvents under storage_low should return nil, got %v", e)
 	}
 	if state := s.ingestion()["state"]; state != "storage_low" {
@@ -245,7 +245,7 @@ func TestStorageLowPausesEventCollection(t *testing.T) {
 	// Restore space — collection resumes. It may still error (no log file) but
 	// the state must not stay "storage_low".
 	s.freeBytes = func() (uint64, error) { return 1 << 40, nil }
-	_ = s.CollectEvents()
+	_, _ = s.CollectEvents()
 	state := s.ingestion()["state"]
 	if state == "storage_low" {
 		t.Fatal("ingestion state stuck at storage_low after disk recovered")

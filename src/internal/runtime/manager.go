@@ -30,6 +30,16 @@ import (
 var ErrBusy = errors.New("runtime busy")
 var ErrDrift = errors.New("configuration drift detected")
 
+// RotateHardCap is the per-log size that forces rotation regardless of the
+// collector gate: a Squid rotate action rotates both logs at once, so letting
+// either grow unbounded risks filling the disk. At this size rotation loses
+// tail access-log records the collector has not read, as before the gate.
+const RotateHardCap = 256 << 20
+
+// rotateThreshold is the size above which a log is a candidate for rotation;
+// the gate decides whether rotation proceeds now or waits for the collector.
+const rotateThreshold = 10 * 1024 * 1024
+
 // ParseError reports the rendered-config line Squid rejected; Squid output is withheld.
 type ParseError struct{ Line int } // 1-based line of the rendered config, 0 if unknown
 
@@ -77,10 +87,14 @@ type Manager struct {
 	// the included <StateDir>/manager-auth.conf. Cross-UID signalling via
 	// `-k reconfigure/rotate` would require a shared UID, so cachemgr over
 	// TCP is used instead.
-	Reload  func(context.Context, string) error
-	mu      sync.Mutex
-	Persist func(string, []byte) error
-	Probe   func(context.Context, string) error
+	Reload func(context.Context, string) error
+	// RotateGate gates log rotation in Maintain: when set, Maintain rotates only
+	// if RotateGate(size) returns true (in addition to the >10 MiB threshold).
+	// nil means rotation is always allowed when the size threshold is crossed.
+	RotateGate func(size int64) bool
+	mu         sync.Mutex
+	Persist    func(string, []byte) error
+	Probe      func(context.Context, string) error
 	// ParseTimeout bounds `squid -k parse` calls. ReloadTimeout bounds
 	// `squid -k reconfigure` acknowledgement (not full reload, which Squid
 	// performs asynchronously). VerifyBudget is the worst-case time the verify
@@ -785,12 +799,28 @@ func (m *Manager) Maintain(ctx context.Context, prune func() error) error {
 	if e := m.ensureManagerAuth(); e != nil {
 		return e
 	}
-	rotate := false
+	// Squid rotates both logs on a single "rotate" action, so the gate must
+	// cover cache.log too: otherwise a big cache.log would tear access.log
+	// away from the collector. Rotation proceeds when some log exceeds the
+	// threshold and the gate allows it (collector caught up), or when any log
+	// hits the hard cap (bounded growth at the cost of tail records).
+	var accessSize int64
+	overThreshold := false
+	hardCap := false
 	for _, p := range []string{m.Options.LogPath, filepath.Join(m.Options.SquidDir, "cache.log")} {
-		if st, e := os.Stat(p); e == nil && st.Size() > 10*1024*1024 {
-			rotate = true
+		st, e := os.Stat(p)
+		if e != nil || st.Size() <= rotateThreshold {
+			continue
+		}
+		overThreshold = true
+		if p == m.Options.LogPath {
+			accessSize = st.Size()
+		}
+		if st.Size() >= RotateHardCap {
+			hardCap = true
 		}
 	}
+	rotate := hardCap || (overThreshold && (m.RotateGate == nil || m.RotateGate(accessSize)))
 	if rotate {
 		c, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()

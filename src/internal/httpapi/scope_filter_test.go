@@ -46,7 +46,7 @@ func seedEventsForScope(t *testing.T, h http.Handler, s *Server, myClientID, for
 	if e = os.WriteFile(path, []byte(line), 0600); e != nil {
 		t.Fatal(e)
 	}
-	if e = s.CollectEvents(); e != nil {
+	if _, e = s.CollectEvents(); e != nil {
 		t.Fatal(e)
 	}
 }

@@ -13,6 +13,7 @@ export type LogEvent = {
   method: string;
   proxy_result: string;
   proxy_http_status: number | null;
+  count?: number;
 };
 
 export type LogQuery = {
@@ -157,6 +158,12 @@ export function buildFacetsParams(
 ): FacetsParams {
   const to = new Date(now);
   const from = new Date(to.getTime() - window.minutes * 60000);
+  // The server's fast aggregate path requires From/To aligned to 15-minute UTC
+  // boundaries for windows over 24h; align the 7-day window down so it is used.
+  if (window.minutes > 24 * 60) {
+    alignDown15m(from);
+    alignDown15m(to);
+  }
   const p: FacetsParams = {
     from: from.toISOString(),
     to: to.toISOString(),
@@ -186,6 +193,12 @@ export function toFacetsQuery(p: FacetsParams): string {
     sp.set(k, String(v));
   }
   return sp.toString();
+}
+
+// alignDown15m floors a Date to the previous 15-minute UTC boundary in place.
+const MS_15M = 15 * 60 * 1000;
+function alignDown15m(d: Date): void {
+  d.setTime(Math.floor(d.getTime() / MS_15M) * MS_15M);
 }
 
 // FacetsResponse mirrors the GET /events/facets response body.
