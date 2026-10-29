@@ -365,7 +365,10 @@ body.resizing {
   font-size: var(--text-sm);
 }
 .list-item {
-  display: block;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 1px 8px;
+  align-items: center;
   width: 100%;
   text-align: left;
   background: transparent;
@@ -375,6 +378,13 @@ body.resizing {
   cursor: pointer;
   font-size: var(--text-base);
   color: var(--foreground);
+}
+.list-item > * {
+  min-width: 0;
+}
+.list-item > :nth-child(2n) {
+  white-space: nowrap;
+  justify-self: end;
 }
 .list-item:hover {
   background: var(--muted);
@@ -1082,5 +1092,225 @@ body.resizing {
   *::after {
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
+  }
+}
+
+/* ---------- clients & policies screens ---------- */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.card {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  min-width: 0;
+}
+.card-head {
+  padding: 12px 14px 4px;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.card-title {
+  font-weight: 600;
+  font-size: var(--text-lg);
+}
+.card-body {
+  padding: 8px 14px 12px;
+}
+.link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--accent);
+  font-weight: 500;
+  cursor: pointer;
+  font: inherit;
+}
+.link:hover {
+  text-decoration: underline;
+}
+.in {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--input);
+  border-radius: 8px;
+  background: var(--background);
+  font-size: var(--text-base);
+  min-width: 0;
+  width: 100%;
+}
+textarea.in {
+  height: auto;
+  padding: 8px 10px;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  resize: vertical;
+}
+.err {
+  font-size: var(--text-sm);
+  color: var(--bad);
+}
+.help {
+  font-size: var(--text-sm);
+  color: var(--muted-foreground);
+}
+.tw {
+  overflow-x: auto;
+}
+.fgrid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+.tabs {
+  display: flex;
+  gap: 18px;
+  border-bottom: 1px solid var(--border);
+  padding: 0 20px;
+  flex: none;
+  overflow-x: auto;
+}
+.tab {
+  padding: 9px 0;
+  color: var(--muted-foreground);
+  font-weight: 500;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  cursor: pointer;
+  white-space: nowrap;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.tab.selected {
+  color: var(--foreground);
+  border-color: var(--accent);
+}
+.kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.kpi {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 10px 14px;
+  min-width: 0;
+}
+.kpis > .kpi {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  border-left: 1px solid var(--border);
+}
+.kpis > .kpi:first-child {
+  border-left: 0;
+}
+.kpi > :first-child {
+  font-size: var(--text-xl);
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 6px;
+  background: var(--muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  white-space: nowrap;
+}
+.bar {
+  height: 6px;
+  border-radius: 3px;
+  background: var(--muted);
+  overflow: hidden;
+  min-width: 50px;
+}
+.bar > i {
+  display: block;
+  height: 100%;
+  background: var(--s-allow);
+  border-radius: 3px;
+}
+.spark {
+  display: block;
+}
+.opts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.opt {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+  align-items: start;
+  text-align: left;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+}
+.opt.selected {
+  border-color: var(--foreground);
+  box-shadow: 0 0 0 1px var(--foreground);
+}
+.opt:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.radio {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 1px solid var(--input);
+  margin-top: 1px;
+  display: grid;
+  place-items: center;
+}
+.opt.selected .radio::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--foreground);
+}
+/* FilterChip uses raw .badge on a <button>, styled here (not the shadcn Badge
+   component, which has its own cva class string). */
+.badge.badge-selected {
+  background: var(--accent);
+  color: var(--accent-foreground);
+  border-color: transparent;
+}
+.domain-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@media (max-width: 1180px) {
+  .fgrid,
+  .opts {
+    grid-template-columns: 1fr;
   }
 }

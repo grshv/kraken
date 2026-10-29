@@ -77,8 +77,8 @@ type EventScope struct {
 	Networks  []string
 }
 type AuditQuery struct {
-	Actor, Action, Cursor string
-	Limit                 int
+	Actor, Action, EntityID, Cursor string
+	Limit                           int
 	// Scope filters audit to a manager's view: his actor records and entities
 	// in his scope. Empty for admin.
 	Scope *AuditScope
@@ -275,7 +275,7 @@ func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
 	if q.Scope != nil {
 		scopeFP = scopeFingerprint(*q.Scope)
 	}
-	c, e := pageStart(q.Cursor, "audit\x00"+q.Actor+"\x00"+q.Action+"\x00"+scopeFP)
+	c, e := pageStart(q.Cursor, "audit\x00"+q.Actor+"\x00"+q.Action+"\x00"+q.EntityID+"\x00"+scopeFP)
 	if e != nil {
 		return p, e
 	}
@@ -288,6 +288,10 @@ func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
 	if q.Action != "" {
 		clause += " AND action=?"
 		args = append(args, q.Action)
+	}
+	if q.EntityID != "" {
+		clause += " AND entity_id=?"
+		args = append(args, q.EntityID)
 	}
 	// Manager sees audit where actor = him OR entity in his scope (client IDs).
 	if q.Scope != nil {

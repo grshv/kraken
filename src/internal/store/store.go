@@ -229,9 +229,12 @@ func (s *Store) ListOperationBodies() ([]struct{ ID, Body string }, error) {
 	return out, rows.Err()
 }
 
-// ChangeDraftWithAssignments writes the draft and assigns new manager clients
-// in one transaction so a crash cannot leave a created client unassigned.
-func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected int, username string, newClientIDs []string) error {
+// ChangeDraftWithAssignments writes the draft, the draft-level audit row, one
+// audit row per changed client/policy and assigns new manager clients in one
+// transaction so a crash cannot leave a created client unassigned. entityIDs
+// are the client/policy IDs that differ from the active snapshot; they receive
+// action-specific audit rows alongside the legacy "draft" row.
+func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string) error {
 	tx, e := s.DB.Begin()
 	if e != nil {
 		return e
@@ -258,11 +261,101 @@ func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected
 	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", time.Now().Unix()); e != nil {
+	now := time.Now().Unix()
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
 		return e
+	}
+	for _, id := range entityIDs {
+		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
+			return e
+		}
 	}
 	for _, id := range newClientIDs {
 		if _, e = tx.Exec("INSERT OR IGNORE INTO manager_clients(username,client_id) VALUES(?,?)", username, id); e != nil {
+			return e
+		}
+	}
+	return tx.Commit()
+}
+
+// ChangeDraft writes the draft and the draft-level plus per-entity audit rows
+// in one transaction. The admin path: no manager assignments are needed.
+func (s *Store) ChangeDraft(v any, actor, action string, expected int, entityIDs []string) error {
+	tx, e := s.DB.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	var raw string
+	e = tx.QueryRow("SELECT value FROM kv WHERE key='draft'").Scan(&raw)
+	if e != nil {
+		return e
+	}
+	var old struct {
+		Version int `json:"version"`
+	}
+	if e = json.Unmarshal([]byte(raw), &old); e != nil {
+		return e
+	}
+	if old.Version != expected {
+		return ErrConflict
+	}
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
+		return e
+	}
+	now := time.Now().Unix()
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
+		return e
+	}
+	for _, id := range entityIDs {
+		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
+			return e
+		}
+	}
+	return tx.Commit()
+}
+
+// DiscardDraft resets the draft to the active snapshot (passed already formed by
+// the handler), bumps the version by one, and writes the draft-level plus
+// per-entity audit rows in one transaction. entityIDs are the client/policy IDs
+// that differed between the discarded draft and the active snapshot.
+func (s *Store) DiscardDraft(v any, actor string, expected int, entityIDs []string) error {
+	tx, e := s.DB.Begin()
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	var raw string
+	e = tx.QueryRow("SELECT value FROM kv WHERE key='draft'").Scan(&raw)
+	if e != nil {
+		return e
+	}
+	var old struct {
+		Version int `json:"version"`
+	}
+	if e = json.Unmarshal([]byte(raw), &old); e != nil {
+		return e
+	}
+	if old.Version != expected {
+		return ErrConflict
+	}
+	b, e := json.Marshal(v)
+	if e != nil {
+		return e
+	}
+	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
+		return e
+	}
+	now := time.Now().Unix()
+	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", "draft", now); e != nil {
+		return e
+	}
+	for _, id := range entityIDs {
+		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", id, now); e != nil {
 			return e
 		}
 	}

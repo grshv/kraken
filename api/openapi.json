@@ -159,6 +159,36 @@
         "description": "Available to admin and manager (manager sees only his scope)."
       }
     },
+    "/configuration/active": {
+      "get": {
+        "operationId": "getActiveConfiguration",
+        "summary": "Read the currently applied configuration snapshot",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveConfiguration"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [],
+        "description": "Returns the runtime manifest snapshot, or policy.Empty() when no revision is applied. Manager receives his scoped view (managerDraftView) and an empty expert_config, mirroring GET /configuration/draft. Requires the configure permission."
+      }
+    },
     "/configuration/draft": {
       "get": {
         "operationId": "getDraft",
@@ -236,6 +266,55 @@
           }
         },
         "description": "Atomic update; expected_version mismatch returns 409. CIDR overlap and references revalidated in transaction. Does not apply traffic changes. Admin-only; manager receives 403 admin_required. HTTP/TLS listener changes are rejected with 422 installation_setting; existing installed custom ports are preserved."
+      },
+      "delete": {
+        "operationId": "discardDraft",
+        "summary": "Reset the draft back to the active snapshot",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Draft"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DiscardDraft"
+              }
+            }
+          }
+        },
+        "description": " Resets the draft to the active snapshot (manifest; or empty when none) and increments version by 1. expected_version mismatch returns 409 revision_conflict. Manager with out-of-scope draft changes receives 403 draft_out_of_scope and the draft is left untouched. Writes one audit row per changed client/policy (action discard_draft, entity_id set) in the same transaction. Admin and manager (within scope) may call."
       }
     },
     "/revisions": {
@@ -767,7 +846,7 @@
       "get": {
         "operationId": "listAuditEvents",
         "summary": "Read administrative audit history",
-        "description": "Admin-only. Exact actor/action filters, stable earlier-page cursor. Retention 90 days and 5000 rows. Audit records accepted administrative actions; operation outcome is read from its operation object. No raw configuration, password, token or key bodies. Available to admin and manager (manager sees only his scope).",
+        "description": "Admin-only. Exact actor/action/entity_id filters, stable earlier-page cursor (fingerprint includes every filter). Retention 90 days and 5000 rows. Audit records accepted administrative actions; operation outcome is read from its operation object. No raw configuration, password, token or key bodies. Available to admin and manager (manager sees only his scope). entity_id limits to records for one client or policy; values over 256 characters return 400 invalid_filter.",
         "parameters": [
           {
             "name": "cursor",
@@ -802,6 +881,15 @@
               "type": "string",
               "maxLength": 128
             }
+          },
+          {
+            "name": "entity_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            },
+            "description": "Limit to audit rows for one client or policy id. Values over 256 characters return 400 invalid_filter."
           }
         ],
         "responses": {
@@ -811,6 +899,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/AuditPage"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_filter: entity_id over 256 characters.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
                 }
               }
             }
@@ -2016,6 +2114,31 @@
             "type": "integer",
             "minimum": 1
           },
+          "snapshot": {
+            "$ref": "#/components/schemas/ConfigurationSnapshot"
+          }
+        }
+      },
+      "DiscardDraft": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "expected_version"
+        ],
+        "properties": {
+          "expected_version": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "ActiveConfiguration": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "snapshot"
+        ],
+        "properties": {
           "snapshot": {
             "$ref": "#/components/schemas/ConfigurationSnapshot"
           }

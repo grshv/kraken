@@ -4,9 +4,7 @@ import {
   History,
   KeyRound,
   Activity,
-  ShieldCheck,
   SlidersHorizontal,
-  Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -21,6 +19,7 @@ import type {
   Revision,
   RevisionSummary,
   Session,
+  Snapshot,
   Status,
 } from "./model";
 import { navItems, type NavId } from "./shell/nav";
@@ -29,6 +28,9 @@ import type { ConfirmOptions } from "./shell/ConfirmDialog";
 import { useApplyFlow } from "./draft/useApplyFlow";
 import { HelpView } from "./help/HelpView";
 import { PlaceholderSection } from "./sections/PlaceholderSection";
+import { ClientsSection } from "./clients/ClientsSection";
+import { PoliciesSection } from "./policies/PoliciesSection";
+import type { CommitResult } from "./sections/sectionProps";
 import { ErrorState } from "./shell/ErrorState";
 import "./theme.css";
 import "./style.css";
@@ -62,6 +64,7 @@ function App() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState<Draft | null>(null);
+  const [active, setActive] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [history, setHistory] = useState<RevisionSummary[]>([]);
@@ -156,14 +159,17 @@ function App() {
   async function load(who: Session | null = session) {
     setStatus(await api<Status>("/status"));
     if (allowed("configure", who)) {
-      const [d, h] = await Promise.all([
+      const [d, h, a] = await Promise.all([
         api<Draft>("/configuration/draft"),
         api<{ items: RevisionSummary[] }>("/revisions"),
+        api<{ snapshot: import("./model").Snapshot }>("/configuration/active"),
       ]);
       setDraft(d);
       setHistory(h.items);
+      setActive(a.snapshot);
     } else {
       setDraft(null);
+      setActive(null);
       setHistory([]);
     }
   }
@@ -295,6 +301,65 @@ function App() {
     },
   );
 
+  // commitDraft PUTs the next snapshot with the current expected_version and
+  // returns the stable server error code so sections can surface field errors.
+  // 409 reloads draft+active and toasts, returning revision_conflict.
+  async function commitDraft(next: Snapshot): Promise<CommitResult> {
+    if (!draft) return { ok: false, code: "no_draft" };
+    try {
+      const result = await api<Draft>("/configuration/draft", "PUT", {
+        expected_version: draft.version,
+        snapshot: next,
+      });
+      setDraft(result);
+      return { ok: true };
+    } catch (e) {
+      if (e instanceof ApiError) {
+        if (e.status === 409) {
+          showToast("Черновик изменён другим. Обновляем…");
+          try {
+            const [d, a] = await Promise.all([
+              api<Draft>("/configuration/draft"),
+              api<{ snapshot: Snapshot }>("/configuration/active"),
+            ]);
+            setDraft(d);
+            setActive(a.snapshot);
+          } catch {
+            // transport error already surfaced by api()
+          }
+          return { ok: false, code: "revision_conflict" };
+        }
+        return { ok: false, code: e.code, message: e.message };
+      }
+      return { ok: false, message: (e as Error).message };
+    }
+  }
+
+  // discardDraftNow DELETEs the draft (resets to active snapshot) and reloads.
+  async function discardDraftNow(): Promise<void> {
+    if (!draft) return;
+    await work(async () => {
+      try {
+        const result = await api<Draft>("/configuration/draft", "DELETE", {
+          expected_version: draft.version,
+        });
+        setDraft(result);
+        const a = await api<{ snapshot: Snapshot }>("/configuration/active");
+        setActive(a.snapshot);
+        showToast("Черновик сброшен");
+      } catch (e) {
+        if (e instanceof ApiError && e.status === 409) {
+          showToast("Черновик уже изменён. Обновляем…");
+          setDraft(await api<Draft>("/configuration/draft"));
+        } else if (e instanceof ApiError) {
+          setError(e.message);
+        } else if (!(e instanceof ConnectionError)) {
+          setError((e as Error).message);
+        }
+      }
+    });
+  }
+
   const handlers: ShellHandlers = {
     onLogout: () => {
       void logout();
@@ -335,16 +400,7 @@ function App() {
     setConfirm(null);
     setPendingAction(null);
     if (action === "discard") {
-      // Discard endpoint is not part of this slice; reload the draft so the
-      // tray reflects the current server state and surface the limitation.
-      void work(async () => {
-        setDraft(await api<Draft>("/configuration/draft"));
-      }).catch(async (e) => {
-        if (e instanceof ApiError) setError(e.message);
-        else if (!(e instanceof ConnectionError))
-          setError((e as Error).message);
-      });
-      showToast("Сброс черновика появится в следующем срезе");
+      void discardDraftNow();
     }
   }
 
@@ -393,13 +449,36 @@ function App() {
     if (navId === "help") return <HelpView request={request} />;
     if (navId === "clients")
       return (
-        <PlaceholderSection title="Клиенты" icon={<Users aria-hidden />} />
+        <ClientsSection
+          request={request}
+          draft={draft}
+          active={active}
+          session={session!}
+          onCommit={commitDraft}
+          onDiscard={async () => {
+            await discardDraftNow();
+            return { ok: true };
+          }}
+          onToast={showToast}
+          onNavigate={setNavId}
+          onConfirm={(o) => setConfirm(o)}
+        />
       );
     if (navId === "policies")
       return (
-        <PlaceholderSection
-          title="Политики"
-          icon={<ShieldCheck aria-hidden />}
+        <PoliciesSection
+          request={request}
+          draft={draft}
+          active={active}
+          session={session!}
+          onCommit={commitDraft}
+          onDiscard={async () => {
+            await discardDraftNow();
+            return { ok: true };
+          }}
+          onToast={showToast}
+          onNavigate={setNavId}
+          onConfirm={(o) => setConfirm(o)}
         />
       );
     if (navId === "log")

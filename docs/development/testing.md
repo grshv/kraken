@@ -19,8 +19,8 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | --- | --- |
 | `policy` | Валидация CIDR, доменов, портов, settings; детерминированный рендер; порядок защитных ACL; expert allowlist, файлы-параметры, deny_info, cache_peer; эквивалентность разбора строк валидатором и Squid; proxy auth ACL |
 | `runtime` | Parse/reload/verify, fingerprint, journal, LKG, recovery, rollback, drift, lock; ENOSPC на каждой записи; SIGKILL отдельного процесса на durable-границах; номер строки parse без вывода Squid; manager reports |
-| `httpapi` | Auth, CSRF, Origin, throttle, роли и last-admin; stale draft conflict; идемпотентность операций; preview без ревизий; service-update из LKG; статистика и события; findings операции; индекс и статья справки (401 анонимно, 404 неизвестный slug) |
-| `store` | Миграции: атомарность при отказе, отказ для несовместимой БД; FK сессий; сессии и reset; события, checkpoint, cursor, фильтры, retention |
+| `httpapi` | Auth, CSRF, Origin, throttle, роли и last-admin; stale draft conflict; идемпотентность операций; preview без ревизий; service-update из LKG; статистика и события; findings операции; индекс и статья справки (401 анонимно, 404 неизвестный slug); `GET /configuration/active` (admin/manager/anonymous); `DELETE /configuration/draft` (успех, 409, менеджер с чужими изменениями → 403 без изменения, менеджер со своими → 200); `GET /audit?entity_id=` (только свои записи, пустой список для чужого клиента менеджера, фильтр длиннее 256 → 400) |
+| `store` | Миграции: атомарность при отказе, отказ для несовместимой БД; FK сессий; сессии и reset; события, checkpoint, cursor, фильтры, retention; `ChangeDraft`/`DiscardDraft` с per-entity audit по `changedEntityIDs` |
 | `events` | Чтение access log: частичные/битые строки, rotation, truncation, возврат файла |
 | `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
 | `credentials` | Argon2id PHC; отказ для verifier без версии и параметров |
@@ -28,14 +28,19 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 
 ## Web unit-тесты
 
-`npm --prefix src/web run test` (vitest) покрывает чистую логику каркаса в
-`src/web/src/shell` и `src/web/src/draft`, без браузера и DOM:
+`npm --prefix src/web run test` (vitest) покрывает чистую логику каркаса и
+экранов в `src/web/src/shell`, `src/web/src/draft`, `src/web/src/clients` и
+`src/web/src/policies`, без браузера и DOM:
 
 | Модуль | Что покрыто |
 | --- | --- |
 | `shell/layout` | `PANE_LIMITS` и `clampPane`: диапазоны list/detail, clamp по границам, NaN → min, округление дробных пикселей |
 | `shell/nav` | `navItems(role)`: фиксированный порядок main-разделов, group `bottom`, отсутствие Настроек у manager, русские подписи |
 | `draft/applyFlow` | `applyReducer`: start → running/revision, step, error 409 → conflict, иная error → failed с кодом и шагом, operation validated/succeeded/rolled_back/rejected, игнор вне running, reset |
+| `clients/networks` | `parseNetwork`: bare address → /32 или /128, host bits и длина вне диапазона → null, IPv6 canonical; `networksOverlap` и `networkWithin` для v4/v6, разных семейств и мусора |
+| `policies/domains` | `parseDomainInput`: схема, путь, порт, завершающая точка, `*.x`/`.x`; IP-литералы, пробелы, `_` → null; `mergeDestinations`: дедуп по domain, OR `include_subdomains`, без мутации |
+| `draft/marks` | `entityMarks`: new/changed/deleted по глубокому равенству, неизменённые пропущены, порядок ключей не важен |
+| `draft/edits` | `addDomainToClientPolicy`, `changeClientPolicy`, `createClientFromIP` (включая fresh own-policy из неописанного IP), `clientsOfPolicy`, no-op на missing inputs, без мутации |
 
 E2e (Playwright) на ключевые потоки — отдельный срез; `@playwright/test` и
 `tests/*.spec.ts` удалены вместе со старыми экранами.

@@ -80,7 +80,11 @@ secret references и terminal outcome. Он связывается с запис
   HTTP handlers не используется.
 - `audit_events` — отдельная таблица `(id, actor, action, entity_id,
   created_at INTEGER)` — unix секунды; range-queries на Prune используют индекс
-  на created_at.
+  на created_at. PUT и DELETE draft пишут по одной строке на каждого
+  изменённого клиента и политику в той же транзакции: `entity_id` = их id,
+  `action` = `update_draft` (PUT) или `discard_draft` (DELETE). `GET /audit`
+  принимает фильтр `entity_id` (до 256 символов, иначе 400 `invalid_filter`);
+  отпечаток cursor учитывает фильтр, менеджер видит только свои записи.
 - `sessions` — только авторизованные sessions с hash случайного cookie token,
   FK на `users` с `ON DELETE CASCADE`. Анонимные CSRF holders подписываются в
   памяти без DB rows.

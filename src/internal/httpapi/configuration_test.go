@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"database/sql"
 	"encoding/json"
 	"io"
 	"kraken.local/kraken/internal/policy"
@@ -393,4 +394,135 @@ func TestUpstreamProxyComparisonNilEqualsAbsent(t *testing.T) {
 	if got := semanticDiff(absent, withNull); len(got) != 1 || got[0] != "Изменены настройки Squid" {
 		t.Fatalf("upstream change not detected: %v", got)
 	}
+}
+
+// TestActiveConfigurationForAdminManagerAnonymous covers GET
+// /configuration/active: admin sees the applied snapshot, manager sees only
+// his scope with expert_config hidden, anonymous gets 401.
+func TestActiveConfigurationForAdminManagerAnonymous(t *testing.T) {
+	h, admin, _, mgr, _ := scopeFixture(t)
+	// Anonymous: 401.
+	if w := request(h, "GET", "/configuration/active", nil, nil, "", ""); w.Code != 401 {
+		t.Fatalf("anonymous active: %d", w.Code)
+	}
+	// Admin: the applied snapshot (manifest) with the seeded clients/policies.
+	w := request(h, "GET", "/configuration/active", nil, admin, "", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var adminOut struct {
+		Snapshot policy.Snapshot `json:"snapshot"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &adminOut)
+	if !hasClient(adminOut.Snapshot, "c-a") || !hasClient(adminOut.Snapshot, "c-b") {
+		t.Fatalf("admin active missing clients: %+v", adminOut.Snapshot.Clients)
+	}
+	// Manager: only his clients, expert_config empty, foreign clients absent.
+	w = request(h, "GET", "/configuration/active", nil, mgr, "", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var mgrOut struct {
+		Snapshot policy.Snapshot `json:"snapshot"`
+	}
+	json.Unmarshal(w.Body.Bytes(), &mgrOut)
+	if !hasClient(mgrOut.Snapshot, "c-a") || hasClient(mgrOut.Snapshot, "c-b") || hasClient(mgrOut.Snapshot, "c-d") {
+		t.Fatalf("manager active scope wrong: %+v", mgrOut.Snapshot.Clients)
+	}
+	if mgrOut.Snapshot.Expert != "" {
+		t.Fatal("manager active leaked expert_config")
+	}
+}
+
+// discardDraftRows counts audit_events for a given action/entity directly so a
+// discard test can assert per-entity rows without going through the API.
+func discardDraftRows(t *testing.T, db *sql.DB, action, entity string) int {
+	t.Helper()
+	var n int
+	if e := db.QueryRow("SELECT COUNT(*) FROM audit_events WHERE action=? AND entity_id=?", action, entity).Scan(&n); e != nil {
+		t.Fatal(e)
+	}
+	return n
+}
+
+// TestDiscardDraftSuccessConflictAndManagerScope covers DELETE
+// /configuration/draft: admin success bumps version and writes per-entity
+// discard_draft audit rows; stale version yields 409; a manager with foreign
+// draft changes gets 403 without touching the draft; a manager with only own
+// changes can discard.
+func TestDiscardDraftSuccessConflictAndManagerScope(t *testing.T) {
+	s, h := fixtureServer(t)
+	admin, acsrf := loginTest(t, h)
+	// Seed an applied config with two clients via the scope fixture helpers
+	// built on this server: admin applies, then we exercise discard.
+	myCID, foreignCID, _ := seedDraftWithTwoClients(t, h, admin, acsrf)
+	if acceptApply(t, h, admin, acsrf, admin, acsrf, "discard-admin-seed") != 201 {
+		t.Fatal("admin apply failed")
+	}
+	createManagerUser(t, h, admin, acsrf, "mgr", []string{"10.1.0.0/16"}, []string{myCID})
+	mgr, mcsrf := loginAs(t, h, "mgr", "manager-password-123")
+	// Admin edits a client in the draft (differs from active), then discards.
+	d := acceptDraft(t, h, admin)
+	for i := range d.Snapshot.Clients {
+		if d.Snapshot.Clients[i].ID == myCID {
+			d.Snapshot.Clients[i].Description = "pending change"
+		}
+	}
+	acceptCode(t, acceptPut(h, admin, acsrf, d), 200, "")
+	edited := acceptDraft(t, h, admin)
+	w := request(h, "DELETE", "/configuration/draft", map[string]any{"expected_version": edited.Version}, admin, acsrf, origin)
+	acceptCode(t, w, 200, "")
+	var after Draft
+	json.Unmarshal(w.Body.Bytes(), &after)
+	if after.Version != edited.Version+1 {
+		t.Fatalf("version = %d, want %d", after.Version, edited.Version+1)
+	}
+	// Discarded draft equals the active snapshot; myCID description reverted.
+	var c policy.Client
+	for _, x := range after.Snapshot.Clients {
+		if x.ID == myCID {
+			c = x
+		}
+	}
+	if c.Description != "" {
+		t.Fatalf("discard did not reset %s: %+v", myCID, c)
+	}
+	// Per-entity discard_draft audit row for the changed client.
+	if n := discardDraftRows(t, s.Store.DB, "discard_draft", myCID); n == 0 {
+		t.Fatalf("no discard_draft audit row for %s", myCID)
+	}
+	// 409 on a stale expected_version.
+	stale := after.Version - 1
+	w = request(h, "DELETE", "/configuration/draft", map[string]any{"expected_version": stale}, admin, acsrf, origin)
+	acceptCode(t, w, 409, "revision_conflict")
+
+	// Manager path: admin stages a foreign change; manager discard → 403 and draft unchanged.
+	ad := acceptDraft(t, h, admin)
+	for i := range ad.Snapshot.Clients {
+		if ad.Snapshot.Clients[i].ID == foreignCID {
+			ad.Snapshot.Clients[i].Description = "foreign pending"
+		}
+	}
+	acceptCode(t, acceptPut(h, admin, acsrf, ad), 200, "")
+	beforeMgr := acceptDraft(t, h, mgr)
+	w = request(h, "DELETE", "/configuration/draft", map[string]any{"expected_version": beforeMgr.Version}, mgr, mcsrf, origin)
+	acceptCode(t, w, 403, "draft_out_of_scope")
+	if got := acceptDraft(t, h, mgr); got.Version != beforeMgr.Version {
+		t.Fatalf("403 discard changed draft version: %d -> %d", beforeMgr.Version, got.Version)
+	}
+	// Admin clears the foreign pending change so the manager's own change is
+	// the only diff against active.
+	ad = acceptDraft(t, h, admin)
+	acceptCode(t, request(h, "DELETE", "/configuration/draft", map[string]any{"expected_version": ad.Version}, admin, acsrf, origin), 200, "")
+	// Manager with only his own change can discard.
+	md := acceptDraft(t, h, mgr)
+	for i := range md.Snapshot.Clients {
+		if md.Snapshot.Clients[i].ID == myCID {
+			md.Snapshot.Clients[i].Description = "own pending"
+		}
+	}
+	acceptCode(t, acceptPut(h, mgr, mcsrf, md), 200, "")
+	md = acceptDraft(t, h, mgr)
+	w = request(h, "DELETE", "/configuration/draft", map[string]any{"expected_version": md.Version}, mgr, mcsrf, origin)
+	acceptCode(t, w, 200, "")
 }

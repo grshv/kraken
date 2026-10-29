@@ -444,6 +444,77 @@ func draftChangesOutOfScope(draft, active policy.Snapshot, scope store.Scope) bo
 	return false
 }
 
+// activeConfigurationSnapshot returns the manifest snapshot, or policy.Empty()
+// when nothing has been applied yet. This is the "active revision" surfaced to
+// the UI: never the draft fallback used by the apply gate.
+func (s *Server) activeConfigurationSnapshot() policy.Snapshot {
+	if m, e := s.Runtime.ReadManifest(); e == nil {
+		return m.Snapshot
+	}
+	return policy.Empty()
+}
+
+// changedEntityIDs returns the IDs of clients and policies that differ between
+// the draft and the active snapshot (added, modified or removed). Used to write
+// one audit row per changed object alongside the draft-level row on update and
+// discard. Comparison mirrors draftChangesOutOfScope: raw JSON of each record.
+func changedEntityIDs(draft, active policy.Snapshot) []string {
+	ids := make(map[string]struct{})
+	addClient := func(id string) { ids[id] = struct{}{} }
+	activeClients := map[string]policy.Client{}
+	for _, c := range active.Clients {
+		activeClients[c.ID] = c
+	}
+	draftClients := map[string]policy.Client{}
+	for _, c := range draft.Clients {
+		draftClients[c.ID] = c
+		old, ok := activeClients[c.ID]
+		if !ok {
+			addClient(c.ID)
+			continue
+		}
+		ab, _ := json.Marshal(old)
+		bb, _ := json.Marshal(c)
+		if string(ab) != string(bb) {
+			addClient(c.ID)
+		}
+	}
+	for id := range activeClients {
+		if _, ok := draftClients[id]; !ok {
+			addClient(id)
+		}
+	}
+	activePol := map[string]policy.Policy{}
+	for _, p := range active.Policies {
+		activePol[p.ID] = p
+	}
+	draftPol := map[string]policy.Policy{}
+	for _, p := range draft.Policies {
+		draftPol[p.ID] = p
+		old, ok := activePol[p.ID]
+		if !ok {
+			ids[p.ID] = struct{}{}
+			continue
+		}
+		ab, _ := json.Marshal(old)
+		bb, _ := json.Marshal(p)
+		if string(ab) != string(bb) {
+			ids[p.ID] = struct{}{}
+		}
+	}
+	for id := range activePol {
+		if _, ok := draftPol[id]; !ok {
+			ids[id] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(ids))
+	for id := range ids {
+		out = append(out, id)
+	}
+	sort.Strings(out)
+	return out
+}
+
 // loadActiveManifestOrDraft is a convenience that never fails fatally: a
 // missing manifest falls back to the draft snapshot (no apply yet).
 func (s *Server) loadActiveManifestOrDraft() policy.Snapshot {
