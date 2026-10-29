@@ -42,18 +42,24 @@ Apply использует snapshot целой конфигурации, не ч
 
 ## SQLite
 
-Включить foreign keys, busy timeout, WAL на local filesystem; bounded connection
-pool, короткие write transactions, контролируемый checkpoint. Режим synchronous
-и конкретный driver выбрать по результатам durability tests; не ослаблять fsync
-ради красивого benchmark. Не размещать DB на NFS. На практике `store.Open`
-включает `foreign_keys(1)`, `journal_mode=WAL)`, `busy_timeout=5000)`
-через DSN-прагмы, а `synchronous=FULL` — через `PRAGMA` после открытия, чтобы
-параметр не зависел от формы пула соединений. Connection pool `SetMaxOpenConns(1)`
-сериализует writers (см. ADR 0009).
+Foreign keys, busy timeout, WAL на локальной файловой системе, короткие транзакции
+записи и контролируемый checkpoint; DB не размещается на NFS, fsync не ослабляется
+([ADR 0018](../adr/0018-storage-concurrency.md)). `store.Open` разделён на writer pool (`_txlock=immediate`, `SetMaxOpenConns(1)`,
+`synchronous=FULL`, `journal_size_limit=64MiB`) и read-only reader pool
+(`query_only(1)`, до 4 соединений) для тяжёлых чтений (аудит, ревизии, проверки
+сессий). DSN-прагмы `foreign_keys(1)`, `journal_mode(WAL)`, `busy_timeout(5000)`
+применяются к обоим пулам; `synchronous=FULL` и `journal_size_limit` — через
+`PRAGMA` после открытия writer. Для in-memory/`file:` DSN в тестах reader равен
+writer (один пул). Reader не блокирует writer, writer не ждёт reader'а.
+Сессия читается через reader; `last_seen_at` обновляется короткой
+write-транзакцией не чаще раза в минуту условным
+`UPDATE ... WHERE token_hash=? AND last_seen_at=?` — удалённая параллельным
+reset'ом сессия не воскрешается (recheck existence). Периодическое обслуживание:
+`PRAGMA wal_checkpoint(TRUNCATE)` раз в 10 мин, `PRAGMA optimize` суточно.
 
-Для текущей поставки достаточно остановленной согласованной копии /data и
-внешних TLS mounts. Горячий SQLite backup API не требуется;
-копирование только main DB при активном WAL недопустимо как общая стратегия.
+Онлайн-копию делает `kraken backup` (`VACUUM INTO` управляющей БД и `rollups.db`,
+runtime и сертификаты); остановленная копия /data тоже согласована. Копирование
+только main DB при активном WAL недопустимо.
 [SQLite WAL](https://www.sqlite.org/wal.html),
 [Backup API](https://www.sqlite.org/backup.html).
 
@@ -65,9 +71,9 @@ secret references и terminal outcome. Он связывается с запис
 доступны gate при недоступной web DB; новые изменения без DB/audit не
 допускаются. Формат проверяется fault injection.
 
-## Фактическая схема MVP (ADR 0008)
+## Фактическая схема (ADR 0008)
 
-Вместо полной реляционной схемы из верхней таблицы реализован kv-blob MVP:
+Вместо полной реляционной схемы из верхней таблицы реализовано kv-хранение:
 
 - `draft` и `revision:<id>` хранятся в таблице `kv(key, value)` как opaque JSON.
   Целостность клиентов/политик/TLS-профилей проверяется на уровне приложения
@@ -88,8 +94,8 @@ secret references и terminal outcome. Он связывается с запис
   FK на `users` с `ON DELETE CASCADE`. Анонимные CSRF holders подписываются в
   памяти без DB rows.
 
-Не запланированный переход к полной реляционной схеме потребовал бы новых миграций и пересмотра
-`draftMu`/`opsMu` (см. ADR 0009).
+Переход к полной реляционной схеме потребовал бы новых миграций и пересмотра
+`draftMu`/`opsMu` ([ADR 0018](../adr/0018-storage-concurrency.md)).
 
 ## Миграции и архивирование
 
@@ -108,14 +114,15 @@ checksum этой сборки, означает базу несовместим
 отказывается её открывать. См. [ADR 0010](../adr/0010-session-and-recovery-safety.md).
 
 Текущий retention телеметрии и audit указан ниже. Долгоживущие агрегаты
-реализованы в телеметрии (см. «Диагностическая история»); disk watermark
-automation не реализован и не входит в объём. Активная ревизия, LKG и ссылки
+реализованы в телеметрии (см. «Диагностическая история»); пороги диска
+(пауза сбора событий, 507 на изменения) описаны в
+[observability](../operations/observability.md). Активная ревизия, LKG и ссылки
 незавершённых operations сохраняются; rotation сырого access.log не равна backup.
 
 `store.Prune` реализует retention управляющей БД: удаляет audit_events старше
-cutoff (по умолчанию 90 дней) и сверх 5000 новейших строк, а также ревизии,
-которые не ссылаются на succeeded operation и не входят в последние N (по
-умолчанию 20). Retention телеметрии (сырые события и агрегаты) выполняет
+`store.AuditRetention` (3 года) без лимита на количество строк, а также
+ревизии, которые не ссылаются на succeeded operation и не входят в последние N
+(по умолчанию 20). Retention телеметрии (сырые события и агрегаты) выполняет
 `telemetry.Store.Maintain` в том же периодическом тике `Manager.Maintain`.
 
 ## Реализованное расширение
@@ -133,7 +140,7 @@ users.password_hash хранит только Argon2id PHC verifier. CLI reset �
 checkpoint чтения access.log) и `rollups.db` (долгоживущие агрегаты). Управляющая
 БД хранит только audit и более не содержит `proxy_events`; миграция 004
 (`telemetry-split-v1`) удаляет `proxy_events`, его индексы и `event_checkpoint`
-из `kv`. См. [ADR 0011](../adr/0011-durable-diagnostics.md).
+из `kv`. См. [ADR 0017](../adr/0017-telemetry-storage.md).
 
 events-YYYY-MM.db: `host(id, name UNIQUE)` — словарь хостов назначений; `event(id,
 ts, client_id, client_name, source_ip, host_id, port, method, result,

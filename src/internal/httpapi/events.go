@@ -17,18 +17,31 @@ import (
 
 // CollectEvents is called by one background reader, never by a request handler.
 func (s *Server) CollectEvents() error {
+	// Below storageLowBytes event collection pauses so telemetry ingestion
+	// cannot fill the disk or block the control DB. The next tick after space
+	// frees resumes from the last checkpoint automatically.
+	if s.freeBytes != nil {
+		if free, e := s.freeBytes(); e == nil && free < storageLowBytes {
+			s.setIngestion("storage_low")
+			s.maybeLogStorageLow()
+			return nil
+		}
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	cp, e := s.Telemetry.Checkpoint(ctx)
 	if e != nil {
+		s.setIngestion("error")
 		return e
 	}
 	items, next, e := events.Read(s.Runtime.Options.LogPath, cp)
 	if e != nil {
+		s.setIngestion("error")
 		return e
 	}
 	manifest, e := s.Runtime.ReadManifest()
 	if e != nil {
+		s.setIngestion("error")
 		return e
 	}
 	for i := range items {
@@ -69,7 +82,12 @@ func (s *Server) CollectEvents() error {
 			items[i].ClientMatchBasis = "policy_at_ingest"
 		}
 	}
-	return s.Telemetry.Ingest(ctx, items, next)
+	if e := s.Telemetry.Ingest(ctx, items, next); e != nil {
+		s.setIngestion("error")
+		return e
+	}
+	s.setIngestion("ok")
+	return nil
 }
 func queryLimit(w http.ResponseWriter, r *http.Request) (int, bool) {
 	limit := 50

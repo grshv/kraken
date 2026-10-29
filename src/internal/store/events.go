@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/base64"
@@ -83,6 +84,12 @@ func scopeFingerprint(s any) string {
 }
 
 func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
+	return s.AuditPageContext(context.Background(), q)
+}
+
+// AuditPageContext reads the audit page through the reader pool so a long
+// audit scroll never blocks logins or apply.
+func (s *Store) AuditPageContext(ctx context.Context, q AuditQuery) (Page[AuditEvent], error) {
 	p := Page[AuditEvent]{Items: []AuditEvent{}, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if q.Limit < 1 || q.Limit > 200 {
 		return p, errors.New("invalid limit")
@@ -132,7 +139,7 @@ func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
 		}
 	}
 	args = append(args, q.Limit+1)
-	rows, e := s.DB.Query("SELECT id,actor,action,entity_id,created_at FROM audit_events WHERE "+clause+" ORDER BY id DESC LIMIT ?", args...)
+	rows, e := s.Read.QueryContext(ctx, "SELECT id,actor,action,entity_id,created_at FROM audit_events WHERE "+clause+" ORDER BY id DESC LIMIT ?", args...)
 	if e != nil {
 		return p, e
 	}
@@ -159,7 +166,7 @@ func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
 		return p, e
 	}
 	var floor, high int64
-	if e = s.DB.QueryRow("SELECT COALESCE(MIN(id),0),COALESCE((SELECT seq FROM sqlite_sequence WHERE name='audit_events'),0) FROM audit_events").Scan(&floor, &high); e != nil {
+	if e = s.Read.QueryRowContext(ctx, "SELECT COALESCE(MIN(id),0),COALESCE((SELECT seq FROM sqlite_sequence WHERE name='audit_events'),0) FROM audit_events").Scan(&floor, &high); e != nil {
 		return p, e
 	}
 	p.Gap = (floor > 1 || (floor == 0 && high > 0)) && p.NextCursor == nil

@@ -23,7 +23,7 @@ func fixtureServer(t *testing.T) (*Server, http.Handler) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	t.Cleanup(func() { st.DB.Close() })
+	t.Cleanup(func() { st.Close() })
 	tel, e := telemetry.Open(telemetry.Options{Dir: filepath.Join(dir, "telemetry")})
 	if e != nil {
 		t.Fatal(e)
