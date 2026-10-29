@@ -77,7 +77,7 @@ func TestRenderManagerPolicyLayout(t *testing.T) {
 	if inc < 0 || dis < 0 || inc > dis {
 		t.Fatalf("include must precede cachemgr_passwd disable all: inc=%d dis=%d", inc, dis)
 	}
-	ctrl := strings.Index(c, "acl sc_manager_control url_regex")
+	ctrl := strings.Index(c, "acl sc_manager_control urlpath_regex")
 	allowCtrl := strings.Index(c, "http_access allow sc_probe_source sc_manager_listener sc_manager_control manager\n")
 	denyListener := strings.Index(c, "http_access deny sc_manager_listener\n")
 	if ctrl < 0 || allowCtrl < 0 || denyListener < 0 || !(ctrl < allowCtrl && allowCtrl < denyListener) {

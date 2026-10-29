@@ -7,7 +7,8 @@
 
 ## Процессы
 
-Образ строится на зафиксированном `ubuntu/squid`. Фронт собирается в статические
+Образ строится на зафиксированном Alpine; Squid собирается из upstream-релиза
+([ADR 0019](../adr/0019-alpine-upstream-squid.md)). Фронт собирается в статические
 файлы и встраивается в бинарник через `go:embed`; Node нужен только при сборке.
 Pebble — PID 1 и supervisor двух сервисов: `kraken serve` и `kraken squid-start`.
 
@@ -69,7 +70,7 @@ Squid читает файлы `/dev/shm/kraken` и сертификат прок
 ## Локальное управление
 
 Squid запускается только с фиксированными argv: `-N -f /dev/shm/kraken/squid.conf` и `-k parse`.
-Reload и rotate — запрос `cache_object://127.0.0.1/<action>@<token>` на loopback 3131
+Reload и rotate — `GET /squid-internal-mgr/<action>` с Basic-паролем менеджера на loopback 3131
 ([ADR 0013](../adr/0013-read-only-squid-metrics.md)); shell и произвольные пути из UI
 не используются, соседние контейнеры и Docker API не трогаются.
 

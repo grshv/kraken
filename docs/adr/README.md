@@ -12,7 +12,7 @@ ADR фиксирует существенное решение: границы �
 | [0003](0003-policy-revisions.md) | Typed policies, immutable revisions и LKG | Accepted |
 | [0004](0004-tls-profiles.md) | Сквозной HTTPS и TLS transport | Accepted |
 | [0005](0005-agent-documentation.md) | Документы как контракт; заменён ADR 0014 | Superseded |
-| [0006](0006-single-container.md) | Один image/контейнер, Go со static UI и Squid под Pebble | Accepted |
+| [0006](0006-single-container.md) | Один image/контейнер, Go со static UI и Squid под Pebble (база заменена ADR 0019) | Accepted |
 | [0007](0007-general-clients-expert-configuration.md) | Общие клиенты, визуальные настройки и expert squid.conf с allowlist | Accepted |
 | [0008](0008-kv-blob-mvp.md) | kv-blob MVP без реляционных таблиц | Accepted |
 | [0009](0009-single-process-concurrency.md) | Одно соединение с SQLite; заменён ADR 0018 | Superseded |
@@ -25,3 +25,4 @@ ADR фиксирует существенное решение: границы �
 | [0016](0016-admin-and-manager-roles.md) | Роли admin и manager, область менеджера | Accepted |
 | [0017](0017-telemetry-storage.md) | Телеметрия в месячных файлах SQLite и агрегатах на 3 года | Accepted |
 | [0018](0018-storage-concurrency.md) | Пулы чтения и записи управляющей БД, CLI как второй процесс, дедлайны и защита диска | Accepted |
+| [0019](0019-alpine-upstream-squid.md) | База Alpine, Squid из upstream-релиза, root только с SETUID/SETGID/KILL | Accepted |

@@ -3,8 +3,8 @@
 Практические команды запуска — в [local development](local-development.md).
 Здесь требования к установке на выбранном узле, не отдельный deployment product.
 Остаток проверок перед установкой — в [status](../status.md).
-Один собственный image на базе
-`ubuntu/squid`; один Compose service. Внутри Pebble запускает Squid и Go-приложение
+Один собственный image на Alpine со Squid из upstream-релиза
+([ADR 0019](../adr/0019-alpine-upstream-squid.md)); один Compose service. Внутри Pebble запускает Squid и Go-приложение
 со встроенным UI. Host runner и отдельный reverse proxy не устанавливаются.
 
 ## До установки
@@ -75,8 +75,11 @@ egress VM, реализовать на контролируемой сетево
 
 Config монтируется каталогом, atomic rename должен быть виден всем процессам.
 Не перекрывать `/etc/squid` целиком без проверки defaults upstream image.
-Read-only rootfs/capabilities/non-root проверяются на реальном image, не включаются
-наугад ценой неработающего Pebble/helper. Cache init не выполняется при каждом apply.
+Compose снимает все capabilities, кроме `SETUID`, `SETGID` и `KILL` (их требует Pebble
+от root для запуска сервисов под `proxy` и `kraken`), и включает `no-new-privileges`;
+у Squid и панели эффективных capabilities нет. Rootless Docker или userns-remap на
+хосте совместимы с образом и настраиваются при установке. Read-only rootfs не включён:
+не проверен на реальном image. Cache init не выполняется при каждом apply.
 
 Телеметрия (события прокси и агрегаты) по умолчанию лежит в `/var/lib/kraken/data/telemetry`
 (тот же volume и владелец 10013:10013), отдельная от управляющей `control.sqlite3`.

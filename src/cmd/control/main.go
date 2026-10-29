@@ -36,7 +36,7 @@ import (
 	"golang.org/x/term"
 )
 
-const baseImage = "ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029"
+const baseImage = "alpine@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a+squid-7.7"
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {

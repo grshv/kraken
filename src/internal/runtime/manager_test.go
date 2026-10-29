@@ -262,8 +262,9 @@ func TestRealReloadAndSecretLeakage(t *testing.T) {
 				buf := make([]byte, 4096)
 				n, _ := c.Read(buf)
 				req := string(buf[:n])
-				if strings.HasPrefix(req, "GET cache_object://127.0.0.1/reconfigure@") {
-					io.WriteString(c, "HTTP/1.0 200 OK\r\nContent-Length: 0\r\n\r\n")
+				if strings.HasPrefix(req, "GET /squid-internal-mgr/reconfigure HTTP/1.1\r\n") &&
+					strings.Contains(req, "Authorization: Basic ") {
+					io.WriteString(c, "HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
 				}
 			}(c)
 		}

@@ -159,7 +159,7 @@ func TestSquidParseMatrix(t *testing.T) {
 		"    rc=1\n" +
 		"  fi\n" +
 		"done\nexit $rc\n"
-	out, err := dockerErr("run", "--rm", "-v", fixtures+":/fixture:ro", "--entrypoint", "/bin/sh", testImage(), "-c", script)
+	out, err := dockerErr(append(append([]string{"run", "--rm", "-v", fixtures + ":/fixture:ro", "--entrypoint", "/bin/sh"}, krakenSecOpts...), testImage(), "-c", script)...)
 	if err != nil {
 		t.Fatalf("squid -k parse matrix failed:\n%s", out)
 	}

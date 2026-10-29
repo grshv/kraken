@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "10"
+const CompilerVersion = "11"
 
 // Squid Basic TTL zero never becomes valid. A separate uncached generation
 // check on every allowed request enforces reset/disable despite Basic caching.
@@ -77,9 +77,16 @@ var domainPattern = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:
 // protectedDestinations and privateDestinations are the canonical destination
 // ranges the runtime denies. Both ACL lines and the cache_peer validator read
 // from these lists so a protected host cannot slip past either path.
+//
+// ::ffff:0:0/96 (IPv4-mapped IPv6) is intentionally absent: Squid 7
+// normalizes ::ffff:a.b.c.d to a.b.c.d in dst ACLs, so the IPv4 entries
+// above already cover mapped loopback/link-local/multicast addresses.
+// Including it makes Squid collapse the ACL to 0.0.0.0/0, denying all
+// IPv4 traffic. peerAddrAllowed still catches the mapped form via
+// addr.Unmap() + the IPv4 ranges.
 var protectedDestinations = []string{
 	"0.0.0.0/8", "127.0.0.0/8", "169.254.0.0/16", "224.0.0.0/4", "240.0.0.0/4",
-	"::/128", "::1/128", "::ffff:0:0/96", "64:ff9b::/96", "100::/64",
+	"::/128", "::1/128", "64:ff9b::/96", "100::/64",
 	"fe80::/10", "ff00::/8",
 	"2001::/32", "2002::/16", "64:ff9b:1::/48",
 }
@@ -238,7 +245,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	fmt.Fprintf(&b, "acl sc_safe_ports port %s\nacl sc_ssl_ports port %s\nacl sc_http_listener localport %d\nacl sc_tls_listener localport %d\n", portList(settings.SafePorts), portList(settings.ConnectPorts), settings.HTTPPort, settings.TLSPort)
 	fmt.Fprintf(&b, "acl sc_protected_dst dst %s\n", strings.Join(protectedDestinations, " "))
 	fmt.Fprintf(&b, "acl sc_private_dst dst %s\n", strings.Join(privateDestinations, " "))
-	fmt.Fprintf(&b, "acl sc_manager_listener localport 3131\nacl sc_manager_method method GET\nacl sc_manager_path urlpath_regex ^/squid-internal-mgr/(info|counters|5min|active_requests)$\ncachemgr_passwd none info counters 5min active_requests\ninclude %s/manager-auth.conf\ncachemgr_passwd disable all\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\nacl sc_manager_control url_regex ^cache_object://127\\.0\\.0\\.1/(reconfigure|rotate)@\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_control manager\nhttp_access deny sc_manager_listener\n", o.StateDir)
+	fmt.Fprintf(&b, "acl sc_manager_listener localport 3131\nacl sc_manager_method method GET\nacl sc_manager_path urlpath_regex ^/squid-internal-mgr/(info|counters|5min|active_requests)$\ncachemgr_passwd none info counters 5min active_requests\ninclude %s/manager-auth.conf\ncachemgr_passwd disable all\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\nacl sc_manager_control urlpath_regex ^/squid-internal-mgr/(reconfigure|rotate)$\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_control manager\nhttp_access deny sc_manager_listener\n", o.StateDir)
 	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports\nhttp_access deny CONNECT !sc_ssl_ports\nhttp_access deny manager\nhttp_access deny sc_protected_dst\n")
 	if !settings.AllowPrivateDestinations {
 		b.WriteString("http_access deny sc_private_dst\n")

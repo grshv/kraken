@@ -84,7 +84,7 @@ func TestExpertBoundaryAllows(t *testing.T) {
 }
 
 func TestProtectedIPv6RangesAndCompiler(t *testing.T) {
-	if CompilerVersion != "10" {
+	if CompilerVersion != "11" {
 		t.Fatalf("compiler version %q", CompilerVersion)
 	}
 	c, e := Render(Empty(), Options{StateDir: "/data", SquidDir: "/data/squid", LogPath: "/data/access.log"})
@@ -97,7 +97,7 @@ func TestProtectedIPv6RangesAndCompiler(t *testing.T) {
 			line = l
 		}
 	}
-	for _, want := range []string{" 127.0.0.0/8", " 169.254.0.0/16", " ::ffff:0:0/96", " 2001::/32", " 2002::/16", " 64:ff9b:1::/48"} {
+	for _, want := range []string{" 127.0.0.0/8", " 169.254.0.0/16", " 2001::/32", " 2002::/16", " 64:ff9b:1::/48"} {
 		if !strings.Contains(line+" ", want+" ") {
 			t.Errorf("sc_protected_dst lacks %s: %q", want, line)
 		}

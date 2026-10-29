@@ -3,6 +3,7 @@ package runtime
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"net"
 	"os"
@@ -26,32 +27,60 @@ func TestDefaultReloadSendsTokenAndRejectsDenied(t *testing.T) {
 	if token == "" || !managerToken.MatchString(token) {
 		t.Fatalf("no valid secret after recover: %q", token)
 	}
+	expectedAuth := "Basic " + base64.StdEncoding.EncodeToString([]byte("kraken:"+token))
 	status := make(chan string, 4)
-	lines := make(chan string, 4)
+	reqs := make(chan string, 4)
 	go func() {
 		for {
 			c, e := ln.Accept()
 			if e != nil {
 				return
 			}
-			line, _ := bufio.NewReader(c).ReadString('\n')
-			lines <- strings.TrimSpace(line)
-			c.Write([]byte("HTTP/1.0 " + <-status + "\r\nContent-Length: 0\r\n\r\n"))
+			br := bufio.NewReader(c)
+			var head strings.Builder
+			for {
+				line, err := br.ReadString('\n')
+				head.WriteString(line)
+				if err != nil || strings.TrimSpace(line) == "" {
+					break
+				}
+			}
+			reqs <- head.String()
+			c.Write([]byte("HTTP/1.1 " + <-status + "\r\nContent-Length: 0\r\n\r\n"))
 			c.Close()
 		}
 	}()
+	// 200 OK: verify the exact request line and the Authorization header.
 	status <- "200 OK"
 	if e := m.Reload(context.Background(), "rotate"); e != nil {
 		t.Fatal(e)
 	}
-	if got := <-lines; got != "GET cache_object://127.0.0.1/rotate@"+token+" HTTP/1.0" {
-		t.Fatalf("request line %q", got)
+	got := <-reqs
+	if reqLine := strings.SplitN(got, "\r\n", 2)[0]; reqLine != "GET /squid-internal-mgr/rotate HTTP/1.1" {
+		t.Fatalf("request line %q", reqLine)
 	}
+	authLine := ""
+	for _, l := range strings.Split(got, "\r\n") {
+		if strings.HasPrefix(l, "Authorization: ") {
+			authLine = l
+		}
+	}
+	if authLine != "Authorization: "+expectedAuth {
+		t.Fatalf("authorization %q, want %q", authLine, "Authorization: "+expectedAuth)
+	}
+	// 403 Forbidden: reload must fail without leaking the secret.
 	status <- "403 Forbidden"
 	e = m.Reload(context.Background(), "reconfigure")
-	<-lines
+	<-reqs
 	if e == nil || strings.Contains(e.Error(), token) {
-		t.Fatalf("denied reload: %v", e)
+		t.Fatalf("denied reload (403): %v", e)
+	}
+	// 401 Unauthorized: same — error without the secret.
+	status <- "401 Unauthorized"
+	e = m.Reload(context.Background(), "rotate")
+	<-reqs
+	if e == nil || strings.Contains(e.Error(), token) {
+		t.Fatalf("denied reload (401): %v", e)
 	}
 }
 

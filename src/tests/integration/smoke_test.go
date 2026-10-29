@@ -123,8 +123,8 @@ func TestSmoke(t *testing.T) {
 		if out, _ := dockerExecUser(proxy, "13:13", "cat", "/dev/shm/kraken/squid.conf"); out == "" {
 			t.Error("proxy cannot read squid.conf")
 		}
-		// ps -e -o uid=,comm=,args=: squid runs as 13, kraken serve as 10013.
-		ps := docker(t, "exec", proxy, "ps", "-e", "-o", "uid=,comm=,args=")
+		// ps -e -o user=,comm=,args=: squid runs as proxy, kraken serve as kraken.
+		ps := docker(t, "exec", proxy, "ps", "-e", "-o", "user=,comm=,args=")
 		squidUIDs := map[string]bool{}
 		serveUIDs := map[string]bool{}
 		for _, line := range strings.Split(ps, "\n") {
@@ -141,11 +141,11 @@ func TestSmoke(t *testing.T) {
 				serveUIDs[uid] = true
 			}
 		}
-		if len(squidUIDs) != 1 || !squidUIDs["13"] {
-			t.Errorf("squid UIDs: %v, want {13}", squidUIDs)
+		if len(squidUIDs) != 1 || !squidUIDs["proxy"] {
+			t.Errorf("squid UIDs: %v, want {proxy}", squidUIDs)
 		}
-		if len(serveUIDs) != 1 || !serveUIDs["10013"] {
-			t.Errorf("kraken serve UIDs: %v, want {10013}", serveUIDs)
+		if len(serveUIDs) != 1 || !serveUIDs["kraken"] {
+			t.Errorf("kraken serve UIDs: %v, want {kraken}", serveUIDs)
 		}
 	})
 
@@ -172,7 +172,7 @@ func TestSmoke(t *testing.T) {
 	// serve re-runs Recover, sees squid.conf missing, and rewrites it from the
 	// regressed last-good config in the DB. Squid stays running; kraken check
 	// verifies the hash (unchanged) so it passes without a squid restart.
-	docker(t, "exec", proxy, "rm", "-f", "/dev/shm/kraken/squid.conf")
+	docker(t, "exec", "--user", controlUser, proxy, "rm", "-f", "/dev/shm/kraken/squid.conf")
 	docker(t, "exec", proxy, "pebble", "restart", "control")
 	waitFor(t, 30, func() error {
 		_, ok := dockerOK(t, "exec", "--user", controlUser, proxy, "kraken", "check")
@@ -210,7 +210,7 @@ func TestSmoke(t *testing.T) {
 
 	t.Run("live Squid metrics include uptime/resources, exclude the manager request", func(t *testing.T) {
 		m := inst.panel.metrics()
-		if !m.Available || m.SquidVersion != "6.13" {
+		if !m.Available || m.SquidVersion != "7.7" {
 			t.Fatalf("metrics: %+v", m)
 		}
 		if m.UptimeSeconds == nil || *m.UptimeSeconds <= 0 || m.MemoryPeakBytes == nil || *m.MemoryPeakBytes <= 0 {
