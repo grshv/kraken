@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"squid-control.local/squid/internal/policy"
+	"kraken.local/kraken/internal/policy"
 )
 
 func fakeSquid(t *testing.T, script string) *Manager {

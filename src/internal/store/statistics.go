@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"squid-control.local/squid/internal/events"
+	"kraken.local/kraken/internal/events"
 )
 
 // Statistics describes completed access-log records retained in SQLite, not

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"testing"
 
-	"squid-control.local/squid/internal/policy"
+	"kraken.local/kraken/internal/policy"
 )
 
 func TestStorageFailuresPreserveRecoverableState(t *testing.T) {
@@ -50,7 +50,7 @@ func TestProcessKillRecoveryAtDurableBoundaries(t *testing.T) {
 			m := testManager(t)
 			before, _ := m.ReadManifest()
 			cmd := exec.Command(os.Args[0], "-test.run=^TestRuntimeCrashChild$")
-			cmd.Env = append(os.Environ(), "SC_TEST_CRASH_DIR="+m.Dir, "SC_TEST_CRASH_PHASE="+phase)
+			cmd.Env = append(os.Environ(), "KRAKEN_TEST_CRASH_DIR="+m.Dir, "KRAKEN_TEST_CRASH_PHASE="+phase)
 			e := cmd.Run()
 			var exited *exec.ExitError
 			if !errors.As(e, &exited) {
@@ -71,11 +71,11 @@ func TestProcessKillRecoveryAtDurableBoundaries(t *testing.T) {
 	}
 }
 func TestRuntimeCrashChild(t *testing.T) {
-	dir := os.Getenv("SC_TEST_CRASH_DIR")
+	dir := os.Getenv("KRAKEN_TEST_CRASH_DIR")
 	if dir == "" {
 		t.Skip("subprocess helper")
 	}
-	phase := os.Getenv("SC_TEST_CRASH_PHASE")
+	phase := os.Getenv("KRAKEN_TEST_CRASH_PHASE")
 	m := New(dir, "/unused", "/dev/null", "", "", "")
 	m.AppDir = dir
 	m.Command = func(context.Context, ...string) error { return nil }

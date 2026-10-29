@@ -1,4 +1,4 @@
-# Squid Control
+# Kraken
 
 Web-панель для управления исходящим доступом клиентов через Squid: весь HTTP/HTTPS
 либо только разрешённые домены. Один собственный контейнер на базе `ubuntu/squid`,
@@ -50,7 +50,7 @@ make down
 
 ```sh
 make check         # docs, web typecheck/build, Go race tests, vet, whitespace
-make build         # bin/squid-control со встроенным frontend
+make build         # bin/kraken со встроенным frontend
 make image         # pinned multi-stage build
 make integration   # реальный Squid, отдельные временные Docker resources
 ```

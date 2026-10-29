@@ -14,8 +14,8 @@ import (
 	"strings"
 	"time"
 
-	"squid-control.local/squid/internal/credentials"
-	"squid-control.local/squid/internal/store"
+	"kraken.local/kraken/internal/credentials"
+	"kraken.local/kraken/internal/store"
 )
 
 func tokenHash(s string) string { h := sha256.Sum256([]byte(s)); return hex.EncodeToString(h[:]) }

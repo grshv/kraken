@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"squid-control.local/squid/internal/events"
-	"squid-control.local/squid/internal/policy"
-	"squid-control.local/squid/internal/store"
+	"kraken.local/kraken/internal/events"
+	"kraken.local/kraken/internal/policy"
+	"kraken.local/kraken/internal/store"
 )
 
 func TestEventCollectionAttributionPrivacyAndRetry(t *testing.T) {

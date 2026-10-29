@@ -17,9 +17,9 @@ import (
 // Opt-in parse against the pinned runtime; no host deployment or persistent
 // application volume is touched. The full request test lives in network smoke.
 func TestRealSquidParseProxyAuthentication(t *testing.T) {
-	image := os.Getenv("SC_SQUID_TEST_IMAGE")
+	image := os.Getenv("KRAKEN_SQUID_TEST_IMAGE")
 	if image == "" {
-		t.Skip("set SC_SQUID_TEST_IMAGE for Docker parse")
+		t.Skip("set KRAKEN_SQUID_TEST_IMAGE for Docker parse")
 	}
 	dir := t.TempDir()
 	key, e := rsa.GenerateKey(rand.Reader, 2048)

@@ -22,7 +22,7 @@ import (
 	"strings"
 	"sync"
 
-	"squid-control.local/squid/internal/credentials"
+	"kraken.local/kraken/internal/credentials"
 )
 
 var usernamePattern = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)

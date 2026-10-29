@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"squid-control.local/squid/internal/proxyauth"
+	"kraken.local/kraken/internal/proxyauth"
 )
 
 type ProxyAccount struct {

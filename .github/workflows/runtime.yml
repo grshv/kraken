@@ -13,9 +13,9 @@ jobs:
         with:
           persist-credentials: false
       - name: Test Go and embedded UI in pinned builder
-        run: docker build --target verify -f deploy/Dockerfile -t squid-control:verify .
+        run: docker build --target verify -f deploy/Dockerfile -t kraken:verify .
       - name: Build appliance
-        run: docker build -f deploy/Dockerfile -t squid-control:dev .
+        run: docker build -f deploy/Dockerfile -t kraken:dev .
       - name: Exercise real Squid
         run: python3 src/tests/integration/smoke.py
       - name: Network denials on real Squid

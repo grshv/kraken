@@ -45,15 +45,15 @@ egress VM, реализовать на контролируемой сетево
 
 ## Файлы и права
 
-Пользователи в image: `sccontrol` 10013:10013 (Go, доп. группа `proxy`) и
+Пользователи в image: `kraken` 10013:10013 (Go, доп. группа `proxy`) и
 `proxy` 13:13 (Squid и helpers). Права по [ADR 0015](../adr/0015-separate-squid-uid.md):
 
 | Путь | Владелец | Режим |
 | --- | --- | --- |
-| `/data` | sccontrol:proxy | 0750 |
-| `/data/app` (SQLite, `manager-token`) | sccontrol:sccontrol | 0700 |
-| `/data/certs`, `/data/runtime` | sccontrol:proxy | 2750, файлы для Squid 0640 |
-| `/data/certs/panel.*` | sccontrol | 0600 |
+| `/data` | kraken:proxy | 0750 |
+| `/data/app` (SQLite, `manager-token`) | kraken:kraken | 0700 |
+| `/data/certs`, `/data/runtime` | kraken:proxy | 2750, файлы для Squid 0640 |
+| `/data/certs/panel.*` | kraken | 0600 |
 | `/data/squid` (PID, cache.log), `/data/logs` | proxy:proxy | 2750 |
 
 Внешние TLS-файлы прокси (`compose.tls.yaml`) должны читаться UID или группой 13,
@@ -85,8 +85,8 @@ architecture, schema compatibility и известные ограничения 
 
 ## Привязка панели в контейнере
 
-По умолчанию SC_PANEL_LISTEN=:8443 внутри контейнера: Docker port forwarding
+По умолчанию KRAKEN_PANEL_LISTEN=:8443 внутри контейнера: Docker port forwarding
 должен достигать container interface. Ограничение внешнего доступа задаётся
 host binding в Compose (по умолчанию 127.0.0.1:8443), management firewall/VPN и
-HTTPS-аутентификацией. SC_PANEL_LISTEN=127.0.0.1:8443 внутри контейнера отключает
+HTTPS-аутентификацией. KRAKEN_PANEL_LISTEN=127.0.0.1:8443 внутри контейнера отключает
 доступ через обычный опубликованный Docker-порт и не подходит этому deployment.

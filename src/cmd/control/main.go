@@ -22,11 +22,11 @@ import (
 	"syscall"
 	"time"
 
-	"squid-control.local/squid/internal/httpapi"
-	"squid-control.local/squid/internal/proxyauth"
-	local "squid-control.local/squid/internal/runtime"
-	"squid-control.local/squid/internal/store"
-	"squid-control.local/squid/web"
+	"kraken.local/kraken/internal/httpapi"
+	"kraken.local/kraken/internal/proxyauth"
+	local "kraken.local/kraken/internal/runtime"
+	"kraken.local/kraken/internal/store"
+	"kraken.local/kraken/web"
 )
 
 const baseImage = "ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029"
@@ -38,26 +38,26 @@ func env(key, def string) string {
 	return def
 }
 func manager() *local.Manager {
-	m := local.New(env("SC_RUNTIME_STATE_DIR", "/data/runtime"), env("SC_SQUID_BINARY", "/usr/sbin/squid"), env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"), baseImage)
-	m.AppDir = env("SC_APP_DIR", "/data/app")
-	m.Options.SquidDir = env("SC_SQUID_DIR", "/data/squid")
-	m.Options.ProxyAccounts = env("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")
+	m := local.New(env("KRAKEN_RUNTIME_STATE_DIR", "/data/runtime"), env("KRAKEN_SQUID_BINARY", "/usr/sbin/squid"), env("KRAKEN_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("KRAKEN_PROXY_CERT"), os.Getenv("KRAKEN_PROXY_KEY"), baseImage)
+	m.AppDir = env("KRAKEN_APP_DIR", "/data/app")
+	m.Options.SquidDir = env("KRAKEN_SQUID_DIR", "/data/squid")
+	m.Options.ProxyAccounts = env("KRAKEN_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")
 	return m
 }
 func main() {
 	if e := run(); e != nil {
-		slog.Error("squid-control stopped", "error", e)
+		slog.Error("kraken stopped", "error", e)
 		os.Exit(1)
 	}
 }
 func run() error {
 	if len(os.Args) < 2 {
-		return errors.New("usage: squid-control serve|bootstrap|password-reset|dev-cert|squid-start|check|proxy-auth|service-update")
+		return errors.New("usage: kraken serve|bootstrap|password-reset|dev-cert|squid-start|check|proxy-auth|service-update")
 	}
 	cmd := os.Args[1]
 	// serve and every CLI subcommand except squid-start/proxy-auth refuse to
 	// run as root: a privileged panel process would defeat the per-UID filesystem
-	// isolation between Squid (proxy) and the panel (sccontrol).
+	// isolation between Squid (proxy) and the panel (kraken).
 	if os.Geteuid() == 0 && cmd != "squid-start" && cmd != "proxy-auth" {
 		return errors.New("refusing to run as root")
 	}
@@ -67,7 +67,7 @@ func run() error {
 	case "proxy-auth":
 		f := flag.NewFlagSet(cmd, flag.ContinueOnError)
 		stateOnly := f.Bool("state", false, "check authenticated verifier generation")
-		accounts := f.String("accounts", env("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json"), "exported proxy accounts")
+		accounts := f.String("accounts", env("KRAKEN_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json"), "exported proxy accounts")
 		if e := f.Parse(os.Args[2:]); e != nil {
 			return e
 		}
@@ -77,7 +77,7 @@ func run() error {
 		return proxyauth.Run(*accounts, os.Stdin, os.Stdout)
 	case "squid-start":
 		// squid-start runs as the proxy user and never writes runtime state:
-		// it waits for serve (sccontrol) to persist a consistent active.conf
+		// it waits for serve (kraken) to persist a consistent active.conf
 		// and journal, then execs squid with a private umask.
 		deadline := time.Now().Add(120 * time.Second)
 		for {
@@ -97,9 +97,9 @@ func run() error {
 		return syscall.Exec(m.Binary, []string{m.Binary, "-N", "-f", m.ActivePath()}, os.Environ())
 	case "service-update":
 		if len(os.Args) != 2 {
-			return errors.New("usage: squid-control service-update")
+			return errors.New("usage: kraken service-update")
 		}
-		st, e := store.Open(env("SC_DATABASE_PATH", "/data/app/control.sqlite3"))
+		st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
 		if e != nil {
 			return e
 		}
@@ -132,7 +132,7 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		st, e := store.Open(env("SC_DATABASE_PATH", "/data/app/control.sqlite3"))
+		st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
 		if e != nil {
 			return e
 		}
@@ -183,19 +183,19 @@ func run() error {
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
-		st, e := store.Open(env("SC_DATABASE_PATH", "/data/app/control.sqlite3"))
+		st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
 		if e != nil {
 			return e
 		}
 		defer st.DB.Close()
-		s, e := httpapi.New(st, m, env("SC_PUBLIC_ORIGIN", "https://localhost:8443"), web.Handler(), baseImage)
+		s, e := httpapi.New(st, m, env("KRAKEN_PUBLIC_ORIGIN", "https://localhost:8443"), web.Handler(), baseImage)
 		if e != nil {
 			return e
 		}
-		s.PanelCert = env("SC_PANEL_CERT", "/data/certs/panel.crt")
+		s.PanelCert = env("KRAKEN_PANEL_CERT", "/data/certs/panel.crt")
 		// Docker forwards the published port to the container interface, not its
 		// loopback. Host exposure is restricted by Compose port bindings.
-		server := &http.Server{Addr: env("SC_PANEL_LISTEN", ":8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{
+		server := &http.Server{Addr: env("KRAKEN_PANEL_LISTEN", ":8443"), Handler: s.Handler(), ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 15 * time.Second, WriteTimeout: 20 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 16384, TLSConfig: &tls.Config{
 			MinVersion:               tls.VersionTLS12,
 			MaxVersion:               tls.VersionTLS13,
 			CipherSuites:             []uint16{tls.TLS_AES_128_GCM_SHA256, tls.TLS_AES_256_GCM_SHA384, tls.TLS_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256},
@@ -262,7 +262,7 @@ func run() error {
 			}
 		}()
 		slog.Info("HTTPS panel listening", "address", server.Addr)
-		e = server.ListenAndServeTLS(env("SC_PANEL_CERT", "/data/certs/panel.crt"), env("SC_PANEL_KEY", "/data/certs/panel.key"))
+		e = server.ListenAndServeTLS(env("KRAKEN_PANEL_CERT", "/data/certs/panel.crt"), env("KRAKEN_PANEL_KEY", "/data/certs/panel.key"))
 		s.Wait()
 		if errors.Is(e, http.ErrServerClosed) {
 			return nil
@@ -273,7 +273,7 @@ func run() error {
 	}
 }
 func devCert() error {
-	dir := env("SC_CERT_DIR", "/data/certs")
+	dir := env("KRAKEN_CERT_DIR", "/data/certs")
 	if e := os.MkdirAll(dir, 0750); e != nil {
 		return e
 	}
@@ -290,7 +290,7 @@ func devCert() error {
 	if e != nil {
 		return e
 	}
-	template := x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Squid Control local development"}, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	template := x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Kraken local development"}, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	cert, e := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
 	if e != nil {
 		return e
@@ -315,7 +315,7 @@ func devCert() error {
 	if e != nil {
 		return e
 	}
-	proxyTemplate := x509.Certificate{SerialNumber: proxySerial, Subject: pkix.Name{CommonName: "Squid Control proxy"}, DNSNames: []string{"proxy", "localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
+	proxyTemplate := x509.Certificate{SerialNumber: proxySerial, Subject: pkix.Name{CommonName: "Kraken proxy"}, DNSNames: []string{"proxy", "localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
 	proxyCert, e := x509.CreateCertificate(rand.Reader, &proxyTemplate, &proxyTemplate, &proxyKey.PublicKey, proxyKey)
 	if e != nil {
 		return e

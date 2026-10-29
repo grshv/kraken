@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"squid-control.local/squid/internal/credentials"
-	"squid-control.local/squid/internal/proxyauth"
-	"squid-control.local/squid/internal/store"
+	"kraken.local/kraken/internal/credentials"
+	"kraken.local/kraken/internal/proxyauth"
+	"kraken.local/kraken/internal/store"
 )
 
 // refreshProxyExports atomically rewrites the proxy-account export the Squid

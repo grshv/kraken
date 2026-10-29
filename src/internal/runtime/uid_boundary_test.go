@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"squid-control.local/squid/internal/policy"
+	"kraken.local/kraken/internal/policy"
 )
 
 // Squid authorizes the action only with the exact token; any other status is a failure.

@@ -2,9 +2,9 @@ package httpapi
 
 import (
 	"encoding/json"
+	"kraken.local/kraken/internal/store"
 	"net/http"
 	"net/http/httptest"
-	"squid-control.local/squid/internal/store"
 	"strings"
 	"testing"
 )

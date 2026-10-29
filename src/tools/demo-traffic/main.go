@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"time"
 
-	"squid-control.local/squid/internal/httpapi"
-	"squid-control.local/squid/internal/policy"
-	runtime "squid-control.local/squid/internal/runtime"
-	"squid-control.local/squid/internal/store"
+	"kraken.local/kraken/internal/httpapi"
+	"kraken.local/kraken/internal/policy"
+	runtime "kraken.local/kraken/internal/runtime"
+	"kraken.local/kraken/internal/store"
 )
 
 const backup = "/data/runtime/.demo-traffic-original.json"
@@ -67,17 +67,17 @@ func run() error {
 	if len(os.Args) != 2 {
 		return errors.New("usage: demo-traffic start|restore")
 	}
-	dir := env("SC_RUNTIME_STATE_DIR", "/data/runtime")
-	data := env("SC_DATABASE_PATH", "/data/app/control.sqlite3")
+	dir := env("KRAKEN_RUNTIME_STATE_DIR", "/data/runtime")
+	data := env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")
 	st, err := store.Open(data)
 	if err != nil {
 		return err
 	}
 	defer st.DB.Close()
-	m := runtime.New(dir, "/usr/sbin/squid", env("SC_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("SC_PROXY_CERT"), os.Getenv("SC_PROXY_KEY"), "")
-	m.AppDir = env("SC_APP_DIR", "/data/app")
-	m.Options.SquidDir = env("SC_SQUID_DIR", "/data/squid")
-	m.Options.ProxyAccounts = env("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")
+	m := runtime.New(dir, "/usr/sbin/squid", env("KRAKEN_ACCESS_LOG", "/data/logs/access.log"), os.Getenv("KRAKEN_PROXY_CERT"), os.Getenv("KRAKEN_PROXY_KEY"), "")
+	m.AppDir = env("KRAKEN_APP_DIR", "/data/app")
+	m.Options.SquidDir = env("KRAKEN_SQUID_DIR", "/data/squid")
+	m.Options.ProxyAccounts = env("KRAKEN_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")
 	current, err := m.ReadManifest()
 	if err != nil {
 		return err

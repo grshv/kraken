@@ -13,7 +13,7 @@ if not 12 <= len(password.encode()) <= 1024:
     raise SystemExit('Пароль должен занимать 12–1024 байта UTF-8')
 result = subprocess.run([
     'docker', 'compose', '-f', str(root/'deploy/compose.yaml'), 'run', '--rm', '--no-deps',
-    '-T', '--user', '10013:10013', '--entrypoint', '/usr/local/bin/squid-control',
-    'squid-control', 'bootstrap', '--username', username, '--password-stdin',
+    '-T', '--user', '10013:10013', '--entrypoint', '/usr/local/bin/kraken',
+    'kraken', 'bootstrap', '--username', username, '--password-stdin',
 ], input=password+'\n', text=True)
 raise SystemExit(result.returncode)

@@ -6,8 +6,8 @@ Backup/restore ещё не автоматизированы и не подтве
 
 ```sh
 docker compose -f deploy/compose.yaml ps
-docker compose -f deploy/compose.yaml exec squid-control pebble services
-docker compose -f deploy/compose.yaml exec --user 10013:10013 squid-control squid-control check
+docker compose -f deploy/compose.yaml exec kraken pebble services
+docker compose -f deploy/compose.yaml exec --user 10013:10013 kraken kraken check
 ```
 
 ## Прокси недоступен

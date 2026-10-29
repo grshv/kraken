@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"kraken.local/kraken/migrations"
 	_ "modernc.org/sqlite"
 	"os"
 	"path/filepath"
-	"squid-control.local/squid/migrations"
 	"strings"
 	"time"
 )

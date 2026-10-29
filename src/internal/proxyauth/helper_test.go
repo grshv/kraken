@@ -3,10 +3,10 @@ package proxyauth
 import (
 	"bytes"
 	"encoding/json"
+	"kraken.local/kraken/internal/credentials"
 	"net/url"
 	"os"
 	"path/filepath"
-	"squid-control.local/squid/internal/credentials"
 	"strings"
 	"testing"
 )

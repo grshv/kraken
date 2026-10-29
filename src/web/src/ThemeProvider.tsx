@@ -1,6 +1,6 @@
 import { createContext, useContext, useState, type ReactNode } from "react";
 export type Theme = "light" | "dark";
-const key = "squid-control-theme";
+const key = "kraken-theme";
 function saved(): Theme {
   try {
     const value = localStorage.getItem(key);

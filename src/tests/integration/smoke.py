@@ -14,7 +14,7 @@ import urllib.error
 import urllib.request
 import uuid
 
-IMAGE = os.environ.get('SC_TEST_IMAGE', 'squid-control:dev')
+IMAGE = os.environ.get('KRAKEN_TEST_IMAGE', 'kraken:dev')
 PYTHON = 'python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916'
 name = 'sc-test-' + uuid.uuid4().hex[:8]
 network, volume = name + '-net', name + '-data'
@@ -36,22 +36,22 @@ def wait_for(fn, seconds=30):
             time.sleep(.2)
     raise RuntimeError(f'timed out: {last}')
 
-with tempfile.TemporaryDirectory(prefix='squid-control-fixture-') as temporary:
+with tempfile.TemporaryDirectory(prefix='kraken-fixture-') as temporary:
     fixtures = Path(temporary)
     try:
         docker('network', 'create', '--subnet', '11.250.17.0/24', network)
         docker('volume', 'create', volume)
-        docker('run', '--rm', '--user', '10013:10013', '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'dev-cert')
+        docker('run', '--rm', '--user', '10013:10013', '-v', volume+':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'dev-cert')
         password = secrets.token_urlsafe(24)
-        docker('run', '--rm', '-i', '--user', '10013:10013', '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'bootstrap', '--password-stdin', input=password+'\n')
+        docker('run', '--rm', '-i', '--user', '10013:10013', '-v', volume+':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'bootstrap', '--password-stdin', input=password+'\n')
         proxy = name+'-proxy'; containers.append(proxy)
-        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.250.17.2', '-p', '127.0.0.1::8443', '-v', volume+':/data', '-e', 'SC_PUBLIC_ORIGIN=https://localhost', '-e', 'SC_PROXY_CERT=/data/certs/proxy.crt', '-e', 'SC_PROXY_KEY=/data/certs/proxy.key', IMAGE)
+        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.250.17.2', '-p', '127.0.0.1::8443', '-v', volume+':/data', '-e', 'KRAKEN_PUBLIC_ORIGIN=https://localhost', '-e', 'KRAKEN_PROXY_CERT=/data/certs/proxy.crt', '-e', 'KRAKEN_PROXY_KEY=/data/certs/proxy.key', IMAGE)
         port = docker('port', proxy, '8443/tcp').rsplit(':',1)[1]
         origin = 'https://localhost:'+port
         # A configured origin must match the actual mapped port.
         docker('rm', '-f', '-v', proxy); containers.remove(proxy)
         containers.append(proxy)
-        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.250.17.2', '-p', '127.0.0.1:'+port+':8443', '-v', volume+':/data', '-e', 'SC_PUBLIC_ORIGIN='+origin, '-e', 'SC_PROXY_CERT=/data/certs/proxy.crt', '-e', 'SC_PROXY_KEY=/data/certs/proxy.key', IMAGE)
+        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.250.17.2', '-p', '127.0.0.1:'+port+':8443', '-v', volume+':/data', '-e', 'KRAKEN_PUBLIC_ORIGIN='+origin, '-e', 'KRAKEN_PROXY_CERT=/data/certs/proxy.crt', '-e', 'KRAKEN_PROXY_KEY=/data/certs/proxy.key', IMAGE)
         docker('cp', proxy+':/data/certs/panel.crt', str(fixtures/'panel.crt'))
         docker('cp', proxy+':/data/certs/proxy.crt', str(fixtures/'proxy.crt'))
         context = ssl.create_default_context(cafile=str(fixtures/'panel.crt'))
@@ -72,7 +72,7 @@ with tempfile.TemporaryDirectory(prefix='squid-control-fixture-') as temporary:
         assert status['squid']['state'] == 'up', status
         # Per-UID isolation (ADR 0015): the proxy user must not read the panel
         # SQLite store, the panel key or the manager token, but must read the
-        # shared active.conf. Squid runs as proxy, the panel as sccontrol.
+        # shared active.conf. Squid runs as proxy, the panel as kraken.
         def proxy_cannot(path):
             try:
                 docker('exec', '--user', '13:13', proxy, 'cat', path)
@@ -85,7 +85,7 @@ with tempfile.TemporaryDirectory(prefix='squid-control-fixture-') as temporary:
         assert docker('exec', '--user', '13:13', proxy, 'cat', '/data/runtime/active.conf') != '', 'proxy cannot read active.conf'
         processes = [line.split(None, 2) for line in docker('exec', proxy, 'ps', '-e', '-o', 'uid=,comm=,args=').splitlines()]
         assert {uid for uid, comm, _ in processes if comm == 'squid'} == {'13'}, processes
-        assert {uid for uid, _, args in processes if args.endswith('squid-control serve')} == {'10013'}, processes
+        assert {uid for uid, _, args in processes if args.endswith('kraken serve')} == {'10013'}, processes
         print('PASS: per-UID isolation (proxy cannot read panel secrets; squid and control run under their own UIDs)')
         print('PASS: HTTPS trust, bootstrap, login, active config fingerprint')
         # Simulate an existing stale bundle on this disposable volume only.
@@ -96,7 +96,7 @@ with tempfile.TemporaryDirectory(prefix='squid-control-fixture-') as temporary:
         old_bundle_code = """import json,pathlib
 root=pathlib.Path('/data/runtime');manifest=json.loads((root/'lkg.json').read_text())
 lines=manifest['config'].splitlines(True)
-manifest['config']=''.join(line for line in lines if not line.startswith('# squid-control compiler='))
+manifest['config']=''.join(line for line in lines if not line.startswith('# kraken compiler='))
 manifest['compiler_version']='5'
 (root/'active.conf').write_text(manifest['config']);(root/'lkg.json').write_text(json.dumps(manifest))
 """
@@ -106,9 +106,9 @@ manifest['compiler_version']='5'
         dirty_before = api('/configuration/draft', 'PUT', {'expected_version': draft_before['version'], 'snapshot': dirty})
         docker('run', '--rm', '--user', '10013:10013', '-v', volume+':/data', PYTHON, 'python', '-c', old_bundle_code)
         docker('exec', proxy, 'pebble', 'restart', 'squid')
-        wait_for(lambda: docker('exec', '--user', '10013:10013', proxy, 'squid-control', 'check'))
+        wait_for(lambda: docker('exec', '--user', '10013:10013', proxy, 'kraken', 'check'))
         assert api('/status')['runtime_update_available'] is True, 'stale bundle not detected'
-        docker('exec', '--user', '10013:10013', proxy, 'squid-control', 'service-update')
+        docker('exec', '--user', '10013:10013', proxy, 'kraken', 'service-update')
         assert api('/configuration/draft') == dirty_before
         def upgraded_metrics():
             value = api('/squid/metrics')
@@ -242,11 +242,11 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         assert held.returncode==0 and out.strip()=='200',(out,err)
         assert fetch(client,tls_proxy=True)==200
         docker('exec',proxy,'pebble','restart','squid')
-        wait_for(lambda:docker('exec','--user','10013:10013',proxy,'squid-control','check'))
+        wait_for(lambda:docker('exec','--user','10013:10013',proxy,'kraken','check'))
         assert fetch(client,tls_proxy=True)==200
         docker('restart',proxy)
         wait_for(lambda:api('/status'))
-        wait_for(lambda:docker('exec','--user','10013:10013',proxy,'squid-control','check'))
+        wait_for(lambda:docker('exec','--user','10013:10013',proxy,'kraken','check'))
         assert fetch(client,tls_proxy=True)==200
         assert fetch(client,'http://denied.test/',tls_proxy=True)==403
         print('PASS: independent Go restart, Squid restart gate, container restart persistence')
@@ -285,7 +285,7 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
                 assert json.load(exc)['code']=='installation_setting'
         assert api('/configuration/draft')['version']==d['version']
         assert fetch(client)==200
-        wait_for(lambda:docker('exec','--user','10013:10013',proxy,'squid-control','check'))
+        wait_for(lambda:docker('exec','--user','10013:10013',proxy,'kraken','check'))
         print('PASS: installation listener changes rejected, published port and diagnostic probe preserved')
         for expert_config in ['include /data/app/*','err_page_stylesheet /run/secrets/proxy.key','this_is_not_a_squid_directive yes']:
             rejected=copy.deepcopy(changed);rejected['expert_config']=expert_config
@@ -307,7 +307,7 @@ r=http.client.HTTPResponse(sock);r.begin();print(r.status)
         print('PASS: allowlist enforcement at save, real parse failure preserves active traffic and reports line')
         # Local reset updates only a verifier, revokes old cookies, and rejects the old password.
         replacement=secrets.token_urlsafe(24)
-        output=docker('exec','-i','--user','10013:10013',proxy,'squid-control','password-reset','--username','admin','--password-stdin',input=replacement+'\n')
+        output=docker('exec','-i','--user','10013:10013',proxy,'kraken','password-reset','--username','admin','--password-stdin',input=replacement+'\n')
         assert replacement not in output and password not in output
         try:api('/status');raise AssertionError('old session survived CLI reset')
         except urllib.error.HTTPError as exc:assert exc.code==401

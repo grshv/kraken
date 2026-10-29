@@ -4,7 +4,7 @@ import (
 	"errors"
 	"net/http"
 
-	"squid-control.local/squid/internal/store"
+	"kraken.local/kraken/internal/store"
 )
 
 func permissions(role string) []string {

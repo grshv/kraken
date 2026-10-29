@@ -1,6 +1,6 @@
 # Внутренний контракт runtime module
 
-Модуль находится внутри squid-control. Это Go-интерфейсы, не HTTP/Unix API,
+Модуль находится внутри kraken. Это Go-интерфейсы, не HTTP/Unix API,
 не отдельный сервис и не изоляция от кода панели. Отдельный runner исключён
 [ADR 0006](../docs/adr/0006-single-container.md).
 

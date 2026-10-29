@@ -3,7 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
-	"squid-control.local/squid/internal/events"
+	"kraken.local/kraken/internal/events"
 	"testing"
 	"time"
 )

@@ -43,7 +43,7 @@ func TestExpertBoundaryRejects(t *testing.T) {
 		"url_rewrite_program /bin/sh",
 		"include /data/*",
 		"request_header_add X a",
-		"reply_header_access X-Squid-Control-Revision deny all",
+		"reply_header_access X-Kraken-Revision deny all",
 		"acl sc_safe_ports port 25",
 		"if true\nhttp_access allow all",
 	} {
@@ -84,7 +84,7 @@ func TestExpertBoundaryAllows(t *testing.T) {
 }
 
 func TestProtectedIPv6RangesAndCompiler(t *testing.T) {
-	if CompilerVersion != "8" {
+	if CompilerVersion != "9" {
 		t.Fatalf("compiler version %q", CompilerVersion)
 	}
 	c, e := Render(Empty(), Options{StateDir: "/data", SquidDir: "/data/squid", LogPath: "/data/access.log"})

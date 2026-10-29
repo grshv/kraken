@@ -36,7 +36,7 @@ control API в сеть. Go использует локальный Squid contro
 операциями. Если требуется Pebble control socket, разрешать только нужный service
 и проверить identities/permissions до включения; общий root control не выдаётся web.
 
-Squid (`proxy`) и Go (`sccontrol`) работают под разными UID
+Squid (`proxy`) и Go (`kraken`) работают под разными UID
 ([ADR 0015](../adr/0015-separate-squid-uid.md)). Squid не может открыть SQLite,
 ключ панели и токен manager; он видит active config, Argon2id-верификаторы
 включённых proxy accounts в экспорте и ключ прокси. Reload/rotate — manager-действия

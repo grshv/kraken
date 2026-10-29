@@ -3,12 +3,12 @@ package httpapi
 import (
 	"encoding/json"
 	"io"
+	"kraken.local/kraken/internal/policy"
+	"kraken.local/kraken/internal/store"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"squid-control.local/squid/internal/policy"
-	"squid-control.local/squid/internal/store"
 	"strings"
 	"testing"
 )
@@ -145,7 +145,7 @@ func TestDraftPreviewDoesNotCreateRevisionAndSeparatesRuntimeUpdate(t *testing.T
 		t.Fatal(e)
 	}
 	manifest.Compiler = "legacy"
-	manifest.Config = strings.Replace(manifest.Config, "# squid-control compiler="+policy.CompilerVersion, "# squid-control compiler=legacy", 1)
+	manifest.Config = strings.Replace(manifest.Config, "# kraken compiler="+policy.CompilerVersion, "# kraken compiler=legacy", 1)
 	body, _ := json.Marshal(manifest)
 	if e = s.Runtime.Persist(filepath.Join(s.Runtime.Dir, "lkg.json"), body); e != nil {
 		t.Fatal(e)
@@ -305,7 +305,7 @@ func TestRollbackCompatibilityMatchesCompilerAndImage(t *testing.T) {
 }
 
 func TestConfigDiffAlignsUnchangedLinesAndHidesFingerprint(t *testing.T) {
-	before := "# squid-control compiler=6 revision=old\n" + strings.Repeat("unchanged\n", 40) + "reply_header_add X-Squid-Control-Revision old all\n# BEGIN user policy\n# END user policy\n"
+	before := "# kraken compiler=6 revision=old\n" + strings.Repeat("unchanged\n", 40) + "reply_header_add X-Kraken-Revision old all\n# BEGIN user policy\n# END user policy\n"
 	after := strings.ReplaceAll(before, "old", "new")
 	after = strings.Replace(after, "# END user policy", "acl client_0 src 192.168.2.20/32\nacl destinations_0 dstdomain -n debian.org\nhttp_access allow client_0 destinations_0\n# END user policy", 1)
 	added, removed := 0, 0

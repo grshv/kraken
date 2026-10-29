@@ -1,6 +1,6 @@
 # Инструкции агентам
 
-Squid Control — web-панель управления исходящим доступом клиентов через Squid.
+Kraken — web-панель управления исходящим доступом клиентов через Squid.
 Один контейнер: Pebble, процесс Squid и Go-бинарник со встроенным React UI.
 Что реализовано, что проверено и что осталось — только в [docs/status.md](docs/status.md).
 
@@ -24,7 +24,7 @@ Squid Control — web-панель управления исходящим до�
 | `make image` / `make integration` | Сборка контейнера / smoke на реальном Squid (нужен image) |
 | `make build`, `make dev-cert`, `make bootstrap`, `make up`, `make down`, `make password-reset` | Локальная сборка и запуск |
 
-Go module — `src/` (`squid-control.local/squid`), npm — `src/web/`.
+Go module — `src/` (`kraken.local/kraken`), npm — `src/web/`.
 `src/web/dist` — результат сборки, не редактировать. Новая проверка добавляется
 вместе с исполняемым кодом; не описывать несуществующие проверки как выполненные.
 

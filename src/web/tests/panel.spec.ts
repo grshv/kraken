@@ -170,7 +170,7 @@ test.describe.serial("panel e2e flow", () => {
     // directory (e.g. /var/folders/.../T on macOS) instead of hardcoding /tmp
     // which AGENTS.md treats as a less preferred location.
     const dir =
-      process.env.SC_SCREENSHOT_DIR || join(tmpdir(), "squid-control-ui");
+      process.env.KRAKEN_SCREENSHOT_DIR || join(tmpdir(), "kraken-ui");
     mkdirSync(dir, { recursive: true });
     await page.screenshot({ path: join(dir, "desktop.png"), fullPage: true });
     await page.setViewportSize({ width: 390, height: 844 });
@@ -287,7 +287,7 @@ test("diagnostics history, client filtering, audit and stale errors", async () =
   expect(await panel.textContent()).not.toContain("fixture-secret");
   expect(await panel.textContent()).not.toContain("token=hidden");
   const screenshots =
-    process.env.SC_SCREENSHOT_DIR || join(tmpdir(), "squid-control-ui");
+    process.env.KRAKEN_SCREENSHOT_DIR || join(tmpdir(), "kraken-ui");
   mkdirSync(screenshots, { recursive: true });
   await page.setViewportSize({ width: 1440, height: 1050 });
   await page.screenshot({
@@ -432,7 +432,7 @@ test("accounts: create viewer, enforce read-only access, revoke on block", async
   ).toBe(401);
   await viewer.close();
   const screenshots =
-    process.env.SC_SCREENSHOT_DIR || join(tmpdir(), "squid-control-ui");
+    process.env.KRAKEN_SCREENSHOT_DIR || join(tmpdir(), "kraken-ui");
   await page.setViewportSize({ width: 1440, height: 1050 });
   await page.screenshot({
     path: join(screenshots, "users-desktop.png"),

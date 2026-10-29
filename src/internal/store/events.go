@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"squid-control.local/squid/internal/events"
+	"kraken.local/kraken/internal/events"
 )
 
 const EventRetentionDays = 30

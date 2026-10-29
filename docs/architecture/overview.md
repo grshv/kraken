@@ -11,7 +11,7 @@
 
 Один собственный OCI image строится на pinned `ubuntu/squid`.
 Фронт собирается в статические файлы и встраивается в один Go-бинарник
-`squid-control`. Бинарник обслуживает HTTPS-панель, API, SQLite и управление Squid.
+`kraken`. Бинарник обслуживает HTTPS-панель, API, SQLite и управление Squid.
 Squid остаётся отдельным процессом. Pebble добавляется нашим Dockerfile, является PID 1 и supervisor обоих сервисов.
 Node нужен только на стадии сборки; отдельного frontend server в runtime нет.
 
@@ -35,7 +35,7 @@ flowchart LR
 
 | Компонент | Ответственность | Доступ |
 | --- | --- | --- |
-| squid-control | HTTPS, auth, UI/API, drafts, operations, audit | Panel TLS key, SQLite, state/config/logs по необходимости |
+| kraken | HTTPS, auth, UI/API, drafts, operations, audit | Panel TLS key, SQLite, state/config/logs по необходимости |
 | internal/runtime | Типизированный compiler, parse, reload, verify, rollback | Фиксированные Squid paths/argv, lock и filesystem journal |
 | Squid | Forward proxy, ACL, CONNECT и TLS к прокси | Config read, logs/cache write, proxy server TLS keys |
 | Pebble | Запуск и независимый restart процессов | Только необходимое управление локальными сервисами |
@@ -64,12 +64,12 @@ Go сам завершает TLS панели. Перед ним можно по
 proxy VM: Docker Engine / Compose
   container
     Pebble
-      squid-control: HTTPS UI/API, например 8443 -> host management IP:443
+      kraken: HTTPS UI/API, например 8443 -> host management IP:443
       squid: HTTP 3128 / TLS 3129 по умолчанию, настраиваемые порты
       probe: 127.0.0.1:3130 внутри контейнера, без Docker publish
   volumes / read-only secret mounts
-    /var/lib/squid-control/app/       SQLite
-    /var/lib/squid-control/runtime/   journal, revisions, LKG, межпроцессный lock
+    /var/lib/kraken/app/       SQLite
+    /var/lib/kraken/runtime/   journal, revisions, LKG, межпроцессный lock
     /etc/squid/managed/               активный versioned config directory
     /var/log/squid/                   ограниченные logs
     /var/spool/squid/                 необязательный disposable cache
@@ -79,7 +79,7 @@ proxy VM: Docker Engine / Compose
 Пути и порты целевые и проверяются image spike. Внешняя привязка панели только к
 management interface, listeners proxy — к клиентскому interface. Внутренний 8443
 позволяет Go-процессу не требовать привилегированного порта.
-Go работает как `sccontrol` (10013, доп. группа `proxy`), Squid — как `proxy` (13).
+Go работает как `kraken` (10013, доп. группа `proxy`), Squid — как `proxy` (13).
 `/data/runtime` и proxy-сертификат Squid читает через группу; SQLite, ключ панели и
 токен manager в `/data/app` и `panel.*` ему недоступны. Права — в
 [ADR 0015](../adr/0015-separate-squid-uid.md) и [deployment](../operations/deployment.md#файлы-и-права).

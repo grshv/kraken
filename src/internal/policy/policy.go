@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "8"
+const CompilerVersion = "9"
 
 // Squid Basic TTL zero never becomes valid. A separate uncached generation
 // check on every allowed request enforces reset/disable despite Basic caching.
@@ -227,7 +227,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	h := Fingerprint(s, o)
 	var b strings.Builder
 	settings := EffectiveSettings(s)
-	fmt.Fprintf(&b, "# squid-control compiler=%s revision=%s\nvisible_hostname squid-control\nhttp_port 127.0.0.1:3130\nhttp_port 127.0.0.1:3131\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.SquidDir, o.SquidDir)
+	fmt.Fprintf(&b, "# kraken compiler=%s revision=%s\nvisible_hostname kraken\nhttp_port 127.0.0.1:3130\nhttp_port 127.0.0.1:3131\nhttp_port %d\npid_filename %s/squid.pid\ncache_log %s/cache.log\n", CompilerVersion, h, settings.HTTPPort, o.SquidDir, o.SquidDir)
 	if o.ProxyCert != "" && o.ProxyKey != "" {
 		fmt.Fprintf(&b, "https_port %d tls-cert=%s tls-key=%s\n", settings.TLSPort, o.ProxyCert, o.ProxyKey)
 	}
@@ -254,7 +254,7 @@ func Render(s Snapshot, o Options) (string, error) {
 		sort.Strings(ds)
 		fmt.Fprintf(&b, "acl sc_blocked_dst dstdomain -n %s\nhttp_access deny sc_blocked_dst\n", strings.Join(ds, " "))
 	}
-	fmt.Fprintf(&b, "reply_header_add X-Squid-Control-Revision %s all\n", h)
+	fmt.Fprintf(&b, "reply_header_add X-Kraken-Revision %s all\n", h)
 	var authenticatedSources []string
 	for _, c := range s.Clients {
 		if c.Enabled && c.ProxyUsername != "" {
@@ -270,8 +270,8 @@ func Render(s Snapshot, o Options) (string, error) {
 			}
 		}
 		authenticatedSources = unique
-		fmt.Fprintf(&b, "auth_param basic program /usr/local/bin/squid-control proxy-auth --accounts %s\nauth_param basic children 2 startup=0 idle=1 queue-size=8 on-persistent-overload=ERR\nauth_param basic realm Squid Control\nauth_param basic casesensitive on\nauth_param basic credentialsttl 1 seconds\n", o.ProxyAccounts)
-		fmt.Fprintf(&b, "external_acl_type sc_identity_state ttl=0 negative_ttl=0 cache=0 children-max=2 children-startup=0 children-idle=1 queue-size=8 %%LOGIN %%{sc_generation_}note %%DATA /usr/local/bin/squid-control proxy-auth --state --accounts %s\nacl sc_proxy_current external sc_identity_state\n", o.ProxyAccounts)
+		fmt.Fprintf(&b, "auth_param basic program /usr/local/bin/kraken proxy-auth --accounts %s\nauth_param basic children 2 startup=0 idle=1 queue-size=8 on-persistent-overload=ERR\nauth_param basic realm Kraken\nauth_param basic casesensitive on\nauth_param basic credentialsttl 1 seconds\n", o.ProxyAccounts)
+		fmt.Fprintf(&b, "external_acl_type sc_identity_state ttl=0 negative_ttl=0 cache=0 children-max=2 children-startup=0 children-idle=1 queue-size=8 %%LOGIN %%{sc_generation_}note %%DATA /usr/local/bin/kraken proxy-auth --state --accounts %s\nacl sc_proxy_current external sc_identity_state\n", o.ProxyAccounts)
 		fmt.Fprintf(&b, "acl sc_auth_sources src %s\nacl sc_proxy_authenticated proxy_auth REQUIRED\nhttp_access deny sc_auth_sources sc_http_listener\nhttp_access deny sc_auth_sources sc_tls_listener !sc_proxy_authenticated\n", strings.Join(authenticatedSources, " "))
 	}
 	b.WriteString("# BEGIN user policy\n")

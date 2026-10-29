@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"squid-control.local/squid/migrations"
+	"kraken.local/kraken/migrations"
 )
 
 // TestMigrationsRecordLedgerAndReopen checks a fresh database records every

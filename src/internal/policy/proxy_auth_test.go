@@ -98,7 +98,7 @@ func TestAuthenticatedRenderIsManagedAndFailClosed(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, want := range []string{"auth_param basic program /usr/local/bin/squid-control proxy-auth --accounts /data/runtime/proxy-accounts.json", "auth_param basic credentialsttl 1 seconds", "auth_param basic casesensitive on", "acl sc_proxy_user_0 proxy_auth_regex ^REQUIRED$", "http_access deny sc_auth_sources sc_http_listener", "http_access deny sc_auth_sources sc_tls_listener !sc_proxy_authenticated", "http_access allow client_0 sc_tls_listener destinations_0 sc_proxy_user_0"} {
+	for _, want := range []string{"auth_param basic program /usr/local/bin/kraken proxy-auth --accounts /data/runtime/proxy-accounts.json", "auth_param basic credentialsttl 1 seconds", "auth_param basic casesensitive on", "acl sc_proxy_user_0 proxy_auth_regex ^REQUIRED$", "http_access deny sc_auth_sources sc_http_listener", "http_access deny sc_auth_sources sc_tls_listener !sc_proxy_authenticated", "http_access allow client_0 sc_tls_listener destinations_0 sc_proxy_user_0"} {
 		if !strings.Contains(config, want) {
 			t.Fatalf("missing managed rule: %s", want)
 		}

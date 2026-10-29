@@ -9,7 +9,7 @@ import (
 	"sort"
 	"strings"
 
-	"squid-control.local/squid/internal/policy"
+	"kraken.local/kraken/internal/policy"
 )
 
 type RevisionSummary struct {
@@ -88,10 +88,10 @@ func diffConfigLines(config string) []string {
 	}
 	out := []string{}
 	for _, line := range strings.Split(strings.TrimSuffix(config, "\n"), "\n") {
-		if strings.HasPrefix(line, "reply_header_add X-Squid-Control-Revision ") {
-			line = "reply_header_add X-Squid-Control-Revision <generated> all"
+		if strings.HasPrefix(line, "reply_header_add X-Kraken-Revision ") {
+			line = "reply_header_add X-Kraken-Revision <generated> all"
 		}
-		if strings.HasPrefix(line, "# squid-control compiler=") {
+		if strings.HasPrefix(line, "# kraken compiler=") {
 			if i := strings.Index(line, " revision="); i >= 0 {
 				line = line[:i]
 			}

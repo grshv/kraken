@@ -21,8 +21,8 @@ import urllib.error
 import urllib.request
 import uuid
 
-IMAGE = os.environ.get('SC_TEST_IMAGE', 'squid-control:dev')
-CONTROL_USER = os.environ.get('SC_CONTROL_USER', '10013:10013')
+IMAGE = os.environ.get('KRAKEN_TEST_IMAGE', 'kraken:dev')
+CONTROL_USER = os.environ.get('KRAKEN_CONTROL_USER', '10013:10013')
 PYTHON = 'python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916'
 name = 'sc-net-' + uuid.uuid4().hex[:8]
 network, volume = name + '-net', name + '-data'
@@ -44,21 +44,21 @@ def wait_for(fn, seconds=30):
             time.sleep(.2)
     raise RuntimeError(f'timed out: {last}')
 
-with tempfile.TemporaryDirectory(prefix='squid-control-net-') as temporary:
+with tempfile.TemporaryDirectory(prefix='kraken-net-') as temporary:
     fixtures = Path(temporary)
     try:
         docker('network', 'create', '--subnet', '11.251.17.0/24', network)
         docker('volume', 'create', volume)
-        docker('run', '--rm', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'dev-cert')
+        docker('run', '--rm', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'dev-cert')
         password = secrets.token_urlsafe(24)
-        docker('run', '--rm', '-i', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'bootstrap', '--password-stdin', input=password+'\n')
+        docker('run', '--rm', '-i', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'bootstrap', '--password-stdin', input=password+'\n')
         proxy = name+'-proxy'; containers.append(proxy)
-        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.251.17.2', '-p', '127.0.0.1::8443', '-v', volume+':/data', '-e', 'SC_PUBLIC_ORIGIN=https://localhost', '-e', 'SC_PROXY_CERT=/data/certs/proxy.crt', '-e', 'SC_PROXY_KEY=/data/certs/proxy.key', IMAGE)
+        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.251.17.2', '-p', '127.0.0.1::8443', '-v', volume+':/data', '-e', 'KRAKEN_PUBLIC_ORIGIN=https://localhost', '-e', 'KRAKEN_PROXY_CERT=/data/certs/proxy.crt', '-e', 'KRAKEN_PROXY_KEY=/data/certs/proxy.key', IMAGE)
         port = docker('port', proxy, '8443/tcp').rsplit(':',1)[1]
         origin = 'https://localhost:'+port
         docker('rm', '-f', '-v', proxy); containers.remove(proxy)
         containers.append(proxy)
-        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.251.17.2', '-p', '127.0.0.1:'+port+':8443', '-v', volume+':/data', '-e', 'SC_PUBLIC_ORIGIN='+origin, '-e', 'SC_PROXY_CERT=/data/certs/proxy.crt', '-e', 'SC_PROXY_KEY=/data/certs/proxy.key', IMAGE)
+        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.251.17.2', '-p', '127.0.0.1:'+port+':8443', '-v', volume+':/data', '-e', 'KRAKEN_PUBLIC_ORIGIN='+origin, '-e', 'KRAKEN_PROXY_CERT=/data/certs/proxy.crt', '-e', 'KRAKEN_PROXY_KEY=/data/certs/proxy.key', IMAGE)
         docker('cp', proxy+':/data/certs/panel.crt', str(fixtures/'panel.crt'))
         context = ssl.create_default_context(cafile=str(fixtures/'panel.crt'))
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))

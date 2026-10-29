@@ -1,10 +1,10 @@
 services:
-  squid-control:
+  kraken:
     environment:
-      SC_PROXY_CERT: /run/secrets/proxy.crt
-      SC_PROXY_KEY: /run/secrets/proxy.key
+      KRAKEN_PROXY_CERT: /run/secrets/proxy.crt
+      KRAKEN_PROXY_KEY: /run/secrets/proxy.key
     ports:
-      - "${SC_PROXY_BIND:-127.0.0.1}:3129:3129"
+      - "${KRAKEN_PROXY_BIND:-127.0.0.1}:3129:3129"
     volumes:
-      - "${SC_PROXY_CERT_FILE:?Set absolute certificate path}:/run/secrets/proxy.crt:ro"
-      - "${SC_PROXY_KEY_FILE:?Set absolute key path}:/run/secrets/proxy.key:ro"
+      - "${KRAKEN_PROXY_CERT_FILE:?Set absolute certificate path}:/run/secrets/proxy.crt:ro"
+      - "${KRAKEN_PROXY_KEY_FILE:?Set absolute key path}:/run/secrets/proxy.key:ro"

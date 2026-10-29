@@ -23,9 +23,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"squid-control.local/squid/internal/policy"
-	local "squid-control.local/squid/internal/runtime"
-	"squid-control.local/squid/internal/store"
+	"kraken.local/kraken/internal/policy"
+	local "kraken.local/kraken/internal/runtime"
+	"kraken.local/kraken/internal/store"
 )
 
 type Draft struct {
@@ -101,7 +101,7 @@ func stamp() string { return time.Now().UTC().Format(time.RFC3339) }
 func New(st *store.Store, rt *local.Manager, origin string, static http.Handler, image string) (*Server, error) {
 	u, parseErr := url.Parse(origin)
 	if parseErr != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
-		return nil, errors.New("SC_PUBLIC_ORIGIN must be an https origin without trailing slash")
+		return nil, errors.New("KRAKEN_PUBLIC_ORIGIN must be an https origin without trailing slash")
 	}
 	h, e := PasswordHash("dummy-" + store.ID())
 	if e != nil {

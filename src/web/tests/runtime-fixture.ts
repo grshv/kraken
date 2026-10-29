@@ -13,7 +13,7 @@ export async function startFixture() {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
     }).trim();
-  const image = process.env.SC_TEST_IMAGE || "squid-control:dev";
+  const image = process.env.KRAKEN_TEST_IMAGE || "kraken:dev";
   const password = randomBytes(24).toString("base64url");
   const username = "admin";
   const cleanup = () => {
@@ -45,7 +45,7 @@ export async function startFixture() {
       "-v",
       `${volume}:/data`,
       "--entrypoint",
-      "squid-control",
+      "kraken",
       image,
     ];
     docker([...oneShot, "dev-cert"]);
@@ -60,7 +60,7 @@ export async function startFixture() {
       "-v",
       `${volume}:/data`,
       "-e",
-      `SC_PUBLIC_ORIGIN=${origin}`,
+      `KRAKEN_PUBLIC_ORIGIN=${origin}`,
       image,
     ]);
     let ready = false;

@@ -17,7 +17,7 @@
 | Применение | Черновик, preview/diff, parse, apply, fingerprint, LKG, recovery, rollback, service-update | Go fault tests (ENOSPC, SIGKILL), smoke |
 | Диагностика | История запросов с фильтрами и cursor, аудит, retention, обзор с live-метриками Squid | Go tests, smoke |
 | TLS | TLS к прокси, сквозной HTTPS CONNECT с исходным сертификатом сайта | Smoke с проверкой цепочки |
-| Упаковка | Один image на `ubuntu/squid`, Pebble; Squid от `proxy` 13, Go от `sccontrol` 10013. Squid не читает SQLite, ключ панели и токен manager; reload/rotate через manager с токеном; proxy auth читает экспорт верификаторов | Go tests, мутационная проверка, smoke с `docker exec --user 13:13`, Linux/arm64; обновление старого volume проверено вручную |
+| Упаковка | Один image `kraken` на `ubuntu/squid` (бинарник `/usr/local/bin/kraken`, env `KRAKEN_*`), Pebble; Squid от `proxy` 13, Go от `kraken` 10013. Squid не читает SQLite, ключ панели и токен manager; reload/rotate через manager с токеном; proxy auth читает экспорт верификаторов | Go tests, мутационная проверка, smoke с `docker exec --user 13:13`, Linux/arm64; обновление старого volume проверено вручную |
 | UI | React, shadcn/ui, светлая и тёмная тема | Playwright (20 сценариев) |
 
 Факты о базовом образе и матрица возможностей: [image report](research/image-compatibility.md).

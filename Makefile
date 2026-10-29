@@ -18,7 +18,7 @@ web-build:
 	npm --prefix src/web run build
 
 build: web-build
-	cd src && go build -trimpath -o ../bin/squid-control ./cmd/control
+	cd src && go build -trimpath -o ../bin/kraken ./cmd/control
 
 test: web-build
 	cd src && go test -race ./...
@@ -28,7 +28,7 @@ check: docs-check web-build test
 	git diff --check
 
 image:
-	docker build -f deploy/Dockerfile -t squid-control:dev .
+	docker build -f deploy/Dockerfile -t kraken:dev .
 
 integration:
 	python3 src/tests/integration/smoke.py
@@ -42,7 +42,7 @@ integration-apt:
 	python3 src/tests/integration/apt.py
 
 dev-cert:
-	docker compose -f deploy/compose.yaml run --rm --no-deps --user 10013:10013 --entrypoint /usr/local/bin/squid-control squid-control dev-cert
+	docker compose -f deploy/compose.yaml run --rm --no-deps --user 10013:10013 --entrypoint /usr/local/bin/kraken kraken dev-cert
 
 bootstrap:
 	python3 src/tools/bootstrap.py

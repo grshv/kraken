@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"squid-control.local/squid/internal/credentials"
+	"kraken.local/kraken/internal/credentials"
 )
 
 func exportAnswer(t *testing.T, path, line string, state bool) string {

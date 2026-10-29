@@ -43,7 +43,7 @@ manager reports (`info`, `counters`, `5min`, `active_requests`, `shutdown`, `con
 проверяет renderer и API (см. `src/tests/integration/smoke.py`).
 
 В полном конфиге с первым canary listener 3130 Squid переписывает authority
-URI active_requests report на `squid-control:3130`, хотя local socket остаётся
+URI active_requests report на `kraken:3130`, хотя local socket остаётся
 `127.0.0.1:3131`. Отдельный native повтор подтвердил это для восьми последовательных
 Go polls. Классификация диагностики использует local socket + fixed report path,
 а не port из URI. Idle Connection blocks без request URI не считаются активными

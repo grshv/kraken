@@ -9,8 +9,8 @@ import (
 	"reflect"
 	"testing"
 
-	"squid-control.local/squid/internal/policy"
-	local "squid-control.local/squid/internal/runtime"
+	"kraken.local/kraken/internal/policy"
+	local "kraken.local/kraken/internal/runtime"
 )
 
 func oldServiceFixture(t *testing.T) (*Server, local.Manifest) {

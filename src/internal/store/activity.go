@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"squid-control.local/squid/internal/events"
+	"kraken.local/kraken/internal/events"
 )
 
 // Activity is a bounded operational view of completed requests. It does not

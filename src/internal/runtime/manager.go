@@ -24,7 +24,7 @@ import (
 	"syscall"
 	"time"
 
-	"squid-control.local/squid/internal/policy"
+	"kraken.local/kraken/internal/policy"
 )
 
 var ErrBusy = errors.New("runtime busy")
@@ -85,8 +85,8 @@ type Manager struct {
 	// `squid -k reconfigure` acknowledgement (not full reload, which Squid
 	// performs asynchronously). VerifyBudget is the worst-case time the verify
 	// loop waits for Squid to serve a freshly reconfigured fingerprint after
-	// reconfigure returned. All three are overrideable via SC_PARSE_TIMEOUT /
-	// SC_RELOAD_TIMEOUT / SC_VERIFY_BUDGET so an operator on slow hardware or
+	// reconfigure returned. All three are overrideable via KRAKEN_PARSE_TIMEOUT /
+	// KRAKEN_RELOAD_TIMEOUT / KRAKEN_VERIFY_BUDGET so an operator on slow hardware or
 	// under load can widen them without recompiling — see docs/architecture/
 	// configuration-lifecycle.md. Upper bound of 5 minutes keeps a misconfigured
 	// value from stalling the panel indefinitely.
@@ -98,10 +98,10 @@ type Manager struct {
 func New(dir, binary, logPath, cert, key, image string) *Manager {
 	m := &Manager{
 		Dir:           dir,
-		AppDir:        envString("SC_APP_DIR", "/data/app"),
+		AppDir:        envString("KRAKEN_APP_DIR", "/data/app"),
 		Binary:        binary,
 		Image:         image,
-		Options:       policy.Options{StateDir: dir, SquidDir: envString("SC_SQUID_DIR", "/data/squid"), LogPath: logPath, ProxyCert: cert, ProxyKey: key, ProxyAccounts: envString("SC_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")},
+		Options:       policy.Options{StateDir: dir, SquidDir: envString("KRAKEN_SQUID_DIR", "/data/squid"), LogPath: logPath, ProxyCert: cert, ProxyKey: key, ProxyAccounts: envString("KRAKEN_PROXY_ACCOUNTS", "/data/runtime/proxy-accounts.json")},
 		ParseTimeout:  parseTimeoutDefault,
 		ReloadTimeout: reloadTimeoutDefault,
 		VerifyBudget:  verifyBudgetDefault,
@@ -112,9 +112,9 @@ func New(dir, binary, logPath, cert, key, image string) *Manager {
 		env string
 		dst *time.Duration
 	}{
-		{"SC_PARSE_TIMEOUT", &m.ParseTimeout},
-		{"SC_RELOAD_TIMEOUT", &m.ReloadTimeout},
-		{"SC_VERIFY_BUDGET", &m.VerifyBudget},
+		{"KRAKEN_PARSE_TIMEOUT", &m.ParseTimeout},
+		{"KRAKEN_RELOAD_TIMEOUT", &m.ReloadTimeout},
+		{"KRAKEN_VERIFY_BUDGET", &m.VerifyBudget},
 	} {
 		if v := os.Getenv(ov.env); v != "" {
 			if d, e := time.ParseDuration(v); e == nil && d > 0 && d <= 5*time.Minute {
@@ -639,8 +639,8 @@ func (m *Manager) reloadVerify(ctx context.Context, hash string) error {
 
 // Timeouts default to the values promised by docs/architecture/
 // configuration-lifecycle.md (parse 15 s, reload acknowledgement 10 s, verify
-// 30 s) and can be widened via SC_PARSE_TIMEOUT / SC_RELOAD_TIMEOUT /
-// SC_VERIFY_BUDGET env vars. They are budgets, not SLAs.
+// 30 s) and can be widened via KRAKEN_PARSE_TIMEOUT / KRAKEN_RELOAD_TIMEOUT /
+// KRAKEN_VERIFY_BUDGET env vars. They are budgets, not SLAs.
 const (
 	parseTimeoutDefault  = 15 * time.Second
 	reloadTimeoutDefault = 10 * time.Second
@@ -664,7 +664,7 @@ func (m *Manager) verify(ctx context.Context, hash string) error {
 				var r *http.Response
 				r, e = http.ReadResponse(bufio.NewReader(io.LimitReader(c, 64*1024)), nil)
 				if e == nil {
-					if r.StatusCode == 403 && r.Header.Get("X-Squid-Control-Revision") == hash {
+					if r.StatusCode == 403 && r.Header.Get("X-Kraken-Revision") == hash {
 						r.Body.Close()
 						c.Close()
 						return nil

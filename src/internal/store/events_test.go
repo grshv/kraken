@@ -3,8 +3,8 @@ package store
 import (
 	"encoding/json"
 	"fmt"
+	"kraken.local/kraken/internal/events"
 	"path/filepath"
-	"squid-control.local/squid/internal/events"
 	"strings"
 	"testing"
 	"time"

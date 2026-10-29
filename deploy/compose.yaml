@@ -1,15 +1,15 @@
-name: squid-control
+name: kraken
 services:
-  squid-control:
+  kraken:
     build:
       context: ..
       dockerfile: deploy/Dockerfile
-    image: squid-control:dev
+    image: kraken:dev
     ports:
-      - "${SC_MANAGEMENT_BIND:-127.0.0.1}:8443:8443"
-      - "${SC_PROXY_BIND:-127.0.0.1}:3128:3128"
+      - "${KRAKEN_MANAGEMENT_BIND:-127.0.0.1}:8443:8443"
+      - "${KRAKEN_PROXY_BIND:-127.0.0.1}:3128:3128"
     environment:
-      SC_PUBLIC_ORIGIN: ${SC_PUBLIC_ORIGIN:-https://localhost:8443}
+      KRAKEN_PUBLIC_ORIGIN: ${KRAKEN_PUBLIC_ORIGIN:-https://localhost:8443}
     volumes:
       - control-data:/data
     restart: unless-stopped

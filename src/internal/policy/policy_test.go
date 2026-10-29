@@ -34,7 +34,7 @@ func TestRenderDenyByDefault(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, want := range []string{"http_access deny sc_private_dst", "dstdomain -n example.org", "http_access deny all", "reply_header_add X-Squid-Control-Revision " + Fingerprint(s, o)} {
+	for _, want := range []string{"http_access deny sc_private_dst", "dstdomain -n example.org", "http_access deny all", "reply_header_add X-Kraken-Revision " + Fingerprint(s, o)} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("missing %s", want)
 		}

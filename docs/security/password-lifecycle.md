@@ -30,8 +30,8 @@ Helper не пишет credential file и не печатает новый па�
 Прямой CLI для работающего контейнера:
 
 ```sh
-docker compose -f deploy/compose.yaml exec --user 10013:10013 squid-control \
-  squid-control password-reset --username admin
+docker compose -f deploy/compose.yaml exec --user 10013:10013 kraken \
+  kraken password-reset --username admin
 ```
 
 Сам Go CLI скрывает ввод на терминале и просит подтверждение. В non-interactive

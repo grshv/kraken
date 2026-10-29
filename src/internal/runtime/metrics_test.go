@@ -16,7 +16,7 @@ const testInfo = "Squid Object Cache: Version 6.13\n UP Time: 123.45 seconds\n C
 const testCounters = "server.all.requests = 40\nserver.all.errors = 2\nserver.all.kbytes_in = 3\nserver.all.kbytes_out = 20\n"
 
 func TestMetricsAggregates(t *testing.T) {
-	m, err := parseMetrics(testInfo, testCounters, "sample_start_time = 10\nsample_end_time = 20\nclient_http.kbytes_in = 1.5/sec\nclient_http.kbytes_out = 2/sec\nclient_http.requests = 4/sec\nclient_http.hits = 1/sec", "Connection: 0x1\nuri http://synthetic.test/private?secret=never-return\nConnection: 0x2\n\tlocal: 127.0.0.1:3131\nuri http://squid-control:3130/squid-internal-mgr/active_requests\n")
+	m, err := parseMetrics(testInfo, testCounters, "sample_start_time = 10\nsample_end_time = 20\nclient_http.kbytes_in = 1.5/sec\nclient_http.kbytes_out = 2/sec\nclient_http.requests = 4/sec\nclient_http.hits = 1/sec", "Connection: 0x1\nuri http://synthetic.test/private?secret=never-return\nConnection: 0x2\n\tlocal: 127.0.0.1:3131\nuri http://kraken:3130/squid-internal-mgr/active_requests\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -105,7 +105,7 @@ func TestManagerReportBodyBound(t *testing.T) {
 }
 
 func TestMalformedActiveReportDoesNotReturnNegativeCount(t *testing.T) {
-	m, err := parseMetrics(testInfo, testCounters, "", "Connection: 0x1\nuri http://squid-control:3131/squid-internal-mgr/active_requests\nuri http://squid-control:3131/squid-internal-mgr/info\n")
+	m, err := parseMetrics(testInfo, testCounters, "", "Connection: 0x1\nuri http://kraken:3131/squid-internal-mgr/active_requests\nuri http://kraken:3131/squid-internal-mgr/info\n")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestMalformedActiveReportDoesNotReturnNegativeCount(t *testing.T) {
 func TestSquidManagerRewrittenAuthorityAndIdleSocket(t *testing.T) {
 	// Actual Squid 6.13 with canary 3130 first and manager 3131 second:
 	// the local socket is 3131 while the report URI is rewritten to 3130.
-	active := "Connection: 0x1\n\tlocal: 127.0.0.1:3131\nuri http://squid-control:3130/squid-internal-mgr/active_requests\nConnection: 0x2\n\tlocal: 127.0.0.1:3128\n\tFD desc: Reading next request\n"
+	active := "Connection: 0x1\n\tlocal: 127.0.0.1:3131\nuri http://kraken:3130/squid-internal-mgr/active_requests\nConnection: 0x2\n\tlocal: 127.0.0.1:3128\n\tFD desc: Reading next request\n"
 	m, err := parseMetrics(testInfo, testCounters, "", active)
 	if err != nil {
 		t.Fatal(err)

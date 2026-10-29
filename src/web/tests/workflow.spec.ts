@@ -51,7 +51,7 @@ async function navigate(page: Page, section: string) {
   ).toBeVisible();
 }
 const screenshotDirectory =
-  process.env.SC_SCREENSHOT_DIR || join(tmpdir(), "squid-control-ui");
+  process.env.KRAKEN_SCREENSHOT_DIR || join(tmpdir(), "kraken-ui");
 async function screenshot(page: Page, filename: string, fullPage = true) {
   mkdirSync(screenshotDirectory, { recursive: true });
   await page.evaluate(async () => {

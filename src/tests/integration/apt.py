@@ -20,8 +20,8 @@ import urllib.error
 import urllib.request
 import uuid
 
-IMAGE = os.environ.get('SC_TEST_IMAGE', 'squid-control:dev')
-CONTROL_USER = os.environ.get('SC_CONTROL_USER', '10013:10013')
+IMAGE = os.environ.get('KRAKEN_TEST_IMAGE', 'kraken:dev')
+CONTROL_USER = os.environ.get('KRAKEN_CONTROL_USER', '10013:10013')
 PYTHON = 'python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916'
 FIXTURE_IMAGE = 'sc-apt-fixture:1'
 name = 'sc-apt-' + uuid.uuid4().hex[:8]
@@ -86,7 +86,7 @@ def wait_for(fn, seconds=30):
             time.sleep(.2)
     raise RuntimeError(f'timed out: {last}')
 
-with tempfile.TemporaryDirectory(prefix='squid-control-apt-') as temporary:
+with tempfile.TemporaryDirectory(prefix='kraken-apt-') as temporary:
     fixtures = Path(temporary)
     try:
         # Build the fixture image only if it does not already exist.
@@ -103,16 +103,16 @@ with tempfile.TemporaryDirectory(prefix='squid-control-apt-') as temporary:
 
         docker('network', 'create', '--subnet', '11.252.17.0/24', network)
         docker('volume', 'create', volume)
-        docker('run', '--rm', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'dev-cert')
+        docker('run', '--rm', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'dev-cert')
         password = secrets.token_urlsafe(24)
-        docker('run', '--rm', '-i', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/squid-control', IMAGE, 'bootstrap', '--password-stdin', input=password+'\n')
+        docker('run', '--rm', '-i', '--user', CONTROL_USER, '-v', volume+':/data', '--entrypoint', '/usr/local/bin/kraken', IMAGE, 'bootstrap', '--password-stdin', input=password+'\n')
         proxy = name+'-proxy'; containers.append(proxy)
-        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.252.17.2', '-p', '127.0.0.1::8443', '-v', volume+':/data', '-e', 'SC_PUBLIC_ORIGIN=https://localhost', '-e', 'SC_PROXY_CERT=/data/certs/proxy.crt', '-e', 'SC_PROXY_KEY=/data/certs/proxy.key', IMAGE)
+        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.252.17.2', '-p', '127.0.0.1::8443', '-v', volume+':/data', '-e', 'KRAKEN_PUBLIC_ORIGIN=https://localhost', '-e', 'KRAKEN_PROXY_CERT=/data/certs/proxy.crt', '-e', 'KRAKEN_PROXY_KEY=/data/certs/proxy.key', IMAGE)
         port = docker('port', proxy, '8443/tcp').rsplit(':',1)[1]
         origin = 'https://localhost:'+port
         docker('rm', '-f', '-v', proxy); containers.remove(proxy)
         containers.append(proxy)
-        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.252.17.2', '-p', '127.0.0.1:'+port+':8443', '-v', volume+':/data', '-e', 'SC_PUBLIC_ORIGIN='+origin, '-e', 'SC_PROXY_CERT=/data/certs/proxy.crt', '-e', 'SC_PROXY_KEY=/data/certs/proxy.key', IMAGE)
+        docker('run', '-d', '--name', proxy, '--network', network, '--network-alias', 'proxy', '--ip', '11.252.17.2', '-p', '127.0.0.1:'+port+':8443', '-v', volume+':/data', '-e', 'KRAKEN_PUBLIC_ORIGIN='+origin, '-e', 'KRAKEN_PROXY_CERT=/data/certs/proxy.crt', '-e', 'KRAKEN_PROXY_KEY=/data/certs/proxy.key', IMAGE)
         docker('cp', proxy+':/data/certs/panel.crt', str(fixtures/'panel.crt'))
         context = ssl.create_default_context(cafile=str(fixtures/'panel.crt'))
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), urllib.request.HTTPSHandler(context=context), urllib.request.HTTPCookieProcessor(http.cookiejar.CookieJar()))
@@ -251,7 +251,7 @@ with tempfile.TemporaryDirectory(prefix='squid-control-apt-') as temporary:
         print('PASS: 4. allowlist without repo.test blocks update')
 
         # 5. Optional real APT archive through the proxy.
-        if os.environ.get('SC_TEST_REAL_APT') == '1':
+        if os.environ.get('KRAKEN_TEST_REAL_APT') == '1':
             docker('exec', client, 'sh', '-c', 'rm -f /etc/apt/sources.list /etc/apt/sources.list.d/*')
             # amd64 is served by archive/security, every other architecture by ports.
             if docker('exec', client, 'dpkg', '--print-architecture') == 'amd64':
@@ -277,7 +277,7 @@ with tempfile.TemporaryDirectory(prefix='squid-control-apt-') as temporary:
             assert r.returncode == 0, f'apt-get download hello failed: {r.stderr}'
             print('PASS: 5. real APT archive update and download through proxy')
         else:
-            print('SKIP: real APT archive (set SC_TEST_REAL_APT=1)')
+            print('SKIP: real APT archive (set KRAKEN_TEST_REAL_APT=1)')
 
         print('ALL APT CHECKS PASSED')
     except Exception:

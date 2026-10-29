@@ -103,8 +103,8 @@ mutations. При недоступной DB новая mutation не начин�
 
 Предварительные budgets: parse 15 s, reload acknowledgement 10 s, verify 30 s
 (соответствует `VerifyBudget` в `manager.go`), rollback до 45 s. Значения
-конфигурируемы через env `SC_PARSE_TIMEOUT` / `SC_RELOAD_TIMEOUT` /
-`SC_VERIFY_BUDGET` (Go duration syntax, диапазон (0, 5 m]) и проверяются spike,
+конфигурируемы через env `KRAKEN_PARSE_TIMEOUT` / `KRAKEN_RELOAD_TIMEOUT` /
+`KRAKEN_VERIFY_BUDGET` (Go duration syntax, диапазон (0, 5 m]) и проверяются spike,
 не обещание SLA. Нельзя убивать безопасное восстановление только потому, что
 браузер закрылся.
 
@@ -217,7 +217,7 @@ active config сохраняет прежние ACL до отдельного с
 snapshot; GET metrics возвращает configuration_update_required. Просмотр не
 применяет пользовательский draft. [ADR 0013](../adr/0013-read-only-squid-metrics.md).
 
-Локальный `squid-control service-update` создаёт immutable revision из текущего
+Локальный `kraken service-update` создаёт immutable revision из текущего
 LKG snapshot и operation/audit (`local-cli`, `service_update`). Команда не читает
 и не меняет draft, использует обычный Runtime.Apply с expected revision, file lock,
 parse, durable journal, verify и rollback. Ошибка busy/recovery/conflict видна CLI;

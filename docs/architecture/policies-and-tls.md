@@ -160,7 +160,10 @@ Expert mode заменяет визуальный ACL-блок; защитные
   `privateDestinations` только при `allow_private_destinations`; опции-пути запрещены;
 - `sc_` имена допустимы только как `sc_http_listener`/`sc_tls_listener` в `http_access`.
 
-Listeners, пути, helpers, заголовки ответа (canary `X-Squid-Control-Revision`) и
+`sc_` — зарезервированный служебный префикс ACL и helpers рендера; он не связан
+с названием продукта и закрыт для пользовательских имён.
+
+Listeners, пути, helpers, заголовки ответа (canary `X-Kraken-Revision`) и
 manager в allowlist не входят. Ошибка `squid -k parse` возвращается как номер
 строки экспертной секции или итогового конфига, без текста Squid.
 

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"squid-control.local/squid/internal/events"
+	"kraken.local/kraken/internal/events"
 )
 
 func TestEventStatisticsEmptyWindowAndUTC(t *testing.T) {

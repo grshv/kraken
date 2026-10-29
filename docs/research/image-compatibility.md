@@ -20,12 +20,12 @@ Go builder **1.27.3-bookworm**, Node builder **24-alpine** закреплены 
 
 ## UID, управление и процессы
 
-Squid работает от `proxy:13:13`, squid-control — от `sccontrol:10013` с доп. группой
+Squid работает от `proxy:13:13`, kraken — от `kraken:10013` с доп. группой
 `proxy`, без root web и Docker socket. На Squid 6.13 `kill -HUP` из другого UID
 даёт EPERM, а `cache_object://127.0.0.1/reconfigure@<token>` на loopback-listener
 перечитывает конфиг. Pebble 1.33.2 (CGO выключен) при `user:`/`group:` сбрасывает
 дополнительные группы, поэтому сервис `control` понижает права через
-`setpriv --reuid=sccontrol --regid=sccontrol --init-groups`.
+`setpriv --reuid=kraken --regid=kraken --init-groups`.
 Pebble PID 1 управляет сервисами отдельно; `run --hold` не запускает сервисы,
 поэтому production command нашего image — `run --verbose`.
 

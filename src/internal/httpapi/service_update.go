@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"log/slog"
 
-	"squid-control.local/squid/internal/policy"
-	"squid-control.local/squid/internal/proxyauth"
-	local "squid-control.local/squid/internal/runtime"
-	"squid-control.local/squid/internal/store"
+	"kraken.local/kraken/internal/policy"
+	"kraken.local/kraken/internal/proxyauth"
+	local "kraken.local/kraken/internal/runtime"
+	"kraken.local/kraken/internal/store"
 )
 
 // ApplyServiceUpdate is a local CLI operation. Its only policy source is the

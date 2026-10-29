@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, whitespace | Любое изменение |
 | `make check` | docs-check, typecheck и сборка web, `go test -race ./...`, `go vet`, `git diff --check` | Любое изменение кода |
-| `make integration` | `smoke.py`, `network.py`, `apt.py`: реальный Squid в образе `squid-control:dev`, локальные fixtures | Изменения policy, runtime, deploy, auth |
+| `make integration` | `smoke.py`, `network.py`, `apt.py`: реальный Squid в образе `kraken:dev`, локальные fixtures | Изменения policy, runtime, deploy, auth |
 | `npm --prefix src/web run test:e2e` | Playwright в отдельном контейнере | Изменения UI; нужен `make image` и Chromium |
 
 docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
@@ -48,7 +48,7 @@ loopback, link-local, metadata, IPv4-mapped, 6to4, Teredo, NAT64 и private, д�
 `apt.py` (`make integration-apt`) поднимает подписанный локальный репозиторий:
 `apt-get update/install` через прокси по HTTP и через CONNECT, отказ без политики и
 без домена в allowlist, ошибка подписи при подменённом `InRelease`. Блок с настоящим
-архивом Ubuntu включается `SC_TEST_REAL_APT=1` и использует DNS 1.1.1.1/8.8.8.8;
+архивом Ubuntu включается `KRAKEN_TEST_REAL_APT=1` и использует DNS 1.1.1.1/8.8.8.8;
 DNS Docker Desktop/OrbStack отвечает адресами `198.18.0.0/15`, которые прокси
 закрывает как private, поэтому там блок не проходит.
 
@@ -77,5 +77,5 @@ DNS Docker Desktop/OrbStack отвечает адресами `198.18.0.0/15`, �
 синтетическими HTTP/HTTPS-запросами через настоящий Squid в отдельной Docker-сети.
 Временно добавляет demo-клиентов в confirmed snapshot штатным apply и затем
 восстанавливает исходный snapshot; черновик и пароли не меняются. Нужны Go, Python,
-OpenSSL и запущенный контейнер `squid-control-squid-control-1`. Expert mode не
+OpenSSL и запущенный контейнер `kraken-kraken-1`. Expert mode не
 поддерживается. Это не проверка APT.

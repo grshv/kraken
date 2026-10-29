@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"kraken.local/kraken/internal/policy"
 	"net"
 	"os"
 	"path/filepath"
-	"squid-control.local/squid/internal/policy"
 	"strings"
 	"testing"
 )

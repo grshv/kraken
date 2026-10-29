@@ -1,4 +1,4 @@
-module squid-control.local/squid
+module kraken.local/kraken
 
 go 1.27.3
 

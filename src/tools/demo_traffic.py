@@ -11,7 +11,7 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
-PROXY = 'squid-control-squid-control-1'
+PROXY = 'kraken-kraken-1'
 PYTHON = 'python:3.13-alpine@sha256:8bcfa47b04b853a17aaf909362b847b2112fd6ec4105ea553ef9a43bafbb5916'
 RUN = 'sc-demo-' + uuid.uuid4().hex[:8]
 BINARY = '/tmp/' + RUN
@@ -30,7 +30,7 @@ c=sqlite3.connect('file:/data/app/control.sqlite3?mode=ro',uri=True)
 out={'count':c.execute('SELECT COUNT(*) FROM proxy_events').fetchone()[0], 'draft':c.execute("SELECT value FROM kv WHERE key='draft'").fetchone()[0], 'groups':c.execute("SELECT COALESCE(client_name,'unknown'),json_extract(body,'$.proxy_result'),COUNT(*) FROM proxy_events GROUP BY 1,2").fetchall()}
 print(json.dumps(out))
 '''
-    return json.loads(docker('run','--rm','--network','none','--user','10013:10013','-v','squid-control_control-data:/data:ro',PYTHON,'python','-c',code))
+    return json.loads(docker('run','--rm','--network','none','--user','10013:10013','-v','kraken_control-data:/data:ro',PYTHON,'python','-c',code))
 
 ORIGIN = r'''import http.server,ssl,threading,time
 class Handler(http.server.BaseHTTPRequestHandler):
@@ -93,7 +93,7 @@ def run():
     hosts_block = ""
     with tempfile.TemporaryDirectory(prefix=RUN) as temporary:
         directory = Path(temporary)
-        arch = docker('image','inspect','squid-control:dev','--format','{{.Architecture}}')
+        arch = docker('image','inspect','kraken:dev','--format','{{.Architecture}}')
         environment = dict(os.environ,GOOS='linux',GOARCH=arch,CGO_ENABLED='0')
         subprocess.run(['go','build','-o',str(directory/'apply'),'./tools/demo-traffic'],cwd=ROOT/'src',env=environment,check=True)
         subprocess.run(['openssl','req','-x509','-newkey','rsa:2048','-nodes','-days','1','-keyout',str(directory/'origin.key'),'-out',str(directory/'origin.crt'),'-subj','/CN=repo.demo.test','-addext','subjectAltName=DNS:repo.demo.test,DNS:packages.demo.test,DNS:mirror.demo.test,DNS:downloads.demo.test,DNS:status.demo.test'],check=True,stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL)

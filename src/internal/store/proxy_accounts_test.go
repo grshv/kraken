@@ -3,8 +3,8 @@ package store
 import (
 	"database/sql"
 	"errors"
+	"kraken.local/kraken/internal/credentials"
 	"path/filepath"
-	"squid-control.local/squid/internal/credentials"
 	"strings"
 	"testing"
 )
