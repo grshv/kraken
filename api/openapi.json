@@ -1417,6 +1417,234 @@
           }
         }
       }
+    },
+    "/inspector/clients/{id}/stats": {
+      "get": {
+        "operationId": "getInspectorClientStats",
+        "summary": "Per-client 24h request/denied/byte totals, 96 15-minute buckets and top destinations; admin/viewer read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectorClientStats"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Client not found in draft or active revision"
+          }
+        }
+      }
+    },
+    "/inspector/policies/{id}/hits": {
+      "get": {
+        "operationId": "getInspectorPolicyHits",
+        "summary": "24h and 7d domain hit counts for one policy (draft, else active); admin/viewer read",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectorPolicyHits"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Policy not found"
+          }
+        }
+      }
+    },
+    "/inspector/unknown-sources": {
+      "get": {
+        "operationId": "getInspectorUnknownSources",
+        "summary": "Events without a client from the last 24h grouped by source IP; admin/viewer read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectorUnknownSources"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inspector/events/{event_id}/explain": {
+      "get": {
+        "operationId": "getInspectorEventExplain",
+        "summary": "Re-evaluate one completed request against the active policy; admin/viewer read",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectorExplain"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Event not found"
+          }
+        }
+      }
+    },
+    "/inspector/draft-impact": {
+      "get": {
+        "operationId": "getInspectorDraftImpact",
+        "summary": "Divergences between the active policy and the draft over the last 24h; admin/viewer read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectorDraftImpact"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/inspector/domain-templates": {
+      "get": {
+        "operationId": "getInspectorDomainTemplates",
+        "summary": "Built-in package-registry destination templates; admin/viewer read",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectorDomainTemplates"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -2110,7 +2338,8 @@
           "observed_config_hash",
           "capabilities",
           "has_unapplied_changes",
-          "runtime_update_available"
+          "runtime_update_available",
+          "instance"
         ],
         "properties": {
           "web": {
@@ -2155,6 +2384,9 @@
               "null"
             ],
             "description": "Managed configuration update is available independently of user changes; null when current runtime/draft cannot be read."
+          },
+          "instance": {
+            "$ref": "#/components/schemas/Instance"
           }
         }
       },
@@ -3408,6 +3640,411 @@
               "type": "string"
             },
             "description": "Client IDs assigned to the manager."
+          }
+        }
+      },
+      "Instance": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "data_free_bytes",
+          "data_total_bytes",
+          "journal_last_event_at",
+          "journal_checkpoint_at",
+          "last_applied_at"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "description": "KRAKEN_INSTANCE_NAME env value, else hostname."
+          },
+          "data_free_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Free bytes on the data volume (statfs of the SQLite directory); null on error."
+          },
+          "data_total_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Total bytes on the data volume; null on error."
+          },
+          "journal_last_event_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Timestamp of the most recently ingested retained event; null when none."
+          },
+          "journal_checkpoint_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Observed-at of the last committed event checkpoint; null when none."
+          },
+          "last_applied_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Updated-at of the most recent succeeded apply operation; null when none."
+          }
+        },
+        "description": "Instance identity, data-volume free space and event-journal freshness."
+      },
+      "InspectorSeriesBucket": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "start",
+          "requests",
+          "denied",
+          "bytes"
+        ],
+        "properties": {
+          "start": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Bucket start, UTC RFC 3339."
+          },
+          "requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "denied": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "description": "One 15-minute bucket of the client 24h series."
+      },
+      "InspectorTopDestination": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "host",
+          "requests",
+          "denied"
+        ],
+        "properties": {
+          "host": {
+            "type": "string",
+            "description": "Bare destination hostname; port, userinfo and path are stripped."
+          },
+          "requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "denied": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "InspectorClientStats": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "window_hours",
+          "requests",
+          "denied",
+          "bytes",
+          "series",
+          "open_connections",
+          "open_connections_unavailable_reason",
+          "top_destinations"
+        ],
+        "properties": {
+          "window_hours": {
+            "type": "integer",
+            "const": 24
+          },
+          "requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "denied": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Count by the SaveEvents failed rule, not origin 403."
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "series": {
+            "type": "array",
+            "minItems": 96,
+            "maxItems": 96,
+            "items": {
+              "$ref": "#/components/schemas/InspectorSeriesBucket"
+            },
+            "description": "Exactly 96 15-minute buckets, oldest first; the last bucket holds the current moment."
+          },
+          "open_connections": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0,
+            "description": "Active request count from Squid metrics; null when unavailable."
+          },
+          "open_connections_unavailable_reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "top_destinations": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/InspectorTopDestination"
+            },
+            "description": "Up to 10 hosts by request count descending."
+          }
+        }
+      },
+      "InspectorPolicyDomain": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domain",
+          "include_subdomains",
+          "hits_24h",
+          "hits_7d"
+        ],
+        "properties": {
+          "domain": {
+            "type": "string"
+          },
+          "include_subdomains": {
+            "type": "boolean"
+          },
+          "hits_24h": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "hits_7d": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "InspectorPolicyHits": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "domains"
+        ],
+        "properties": {
+          "domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InspectorPolicyDomain"
+            },
+            "description": "Every domain of the policy (draft, else active), including those without hits."
+          }
+        }
+      },
+      "InspectorUnknownSource": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_ip",
+          "requests",
+          "denied",
+          "last_seen",
+          "top_destinations"
+        ],
+        "properties": {
+          "source_ip": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "denied": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "top_destinations": {
+            "type": "array",
+            "maxItems": 10,
+            "items": {
+              "$ref": "#/components/schemas/InspectorTopDestination"
+            }
+          }
+        }
+      },
+      "InspectorUnknownSources": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "sources"
+        ],
+        "properties": {
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InspectorUnknownSource"
+            }
+          }
+        }
+      },
+      "InspectorExplain": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "decision",
+          "reason",
+          "client_id",
+          "policy_id"
+        ],
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "allowed",
+              "denied"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "unknown_source",
+              "protected_destination",
+              "blocked_for_all",
+              "client_disabled",
+              "auth_failed",
+              "not_in_allowlist",
+              "allowed_by_policy",
+              "allowed_all_web"
+            ]
+          },
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "policy_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "description": "Re-evaluation of a completed request against the active policy. No URL path/query, credentials or Squid output."
+      },
+      "InspectorDraftImpactClient": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "client_id",
+          "newly_allowed",
+          "newly_denied"
+        ],
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "newly_allowed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "newly_denied": {
+            "type": "integer",
+            "minimum": 0
+          }
+        }
+      },
+      "InspectorDraftImpact": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "window_hours",
+          "newly_allowed",
+          "newly_denied",
+          "clients"
+        ],
+        "properties": {
+          "window_hours": {
+            "type": "integer",
+            "const": 24
+          },
+          "newly_allowed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "newly_denied": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "clients": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/InspectorDraftImpactClient"
+            }
+          }
+        },
+        "description": "Each retained 24h event is evaluated against the active policy and the draft; only divergences are counted."
+      },
+      "InspectorDomainTemplate": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "name",
+          "destinations"
+        ],
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "destinations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Destination"
+            }
+          }
+        }
+      },
+      "InspectorDomainTemplates": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "templates"
+        ],
+        "properties": {
+          "templates": {
+            "type": "array",
+            "minItems": 7,
+            "items": {
+              "$ref": "#/components/schemas/InspectorDomainTemplate"
+            }
           }
         }
       }

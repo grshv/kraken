@@ -40,6 +40,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 	}
 	result["has_unapplied_changes"] = changed
 	result["runtime_update_available"] = runtimeUpdate
+	result["instance"] = s.instanceStatus(r.Context())
 	respond(w, 200, result)
 }
 func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session) {
