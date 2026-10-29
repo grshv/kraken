@@ -19,9 +19,14 @@ Pebble — supervisor ([ADR 0015](../adr/0015-separate-squid-uid.md)).
 
 ## Данные
 
-Compose named volume `/data`: `app/` (SQLite), `runtime/` (LKG/journal/active config),
-`logs/` и `certs/`. `make down` сохраняет volume. Не используйте `down -v`, если
-данные нужны. Cache отключён. Секреты в volume не являются резервной копией.
+Compose named volume `/data`: `app/` (SQLite, в т.ч. `telemetry/` — события и
+агрегаты), `runtime/` (LKG/journal/active config), `logs/` и `certs/`. `make down`
+сохраняет volume. Не используйте `down -v`, если данные нужны. Cache отключён.
+Секреты в volume не являются резервной копией.
+
+Телеметрию можно перенести: `KRAKEN_TELEMETRY_DIR` (по умолчанию рядом с
+`control.sqlite3` в `telemetry/`), retention сырых событий —
+`KRAKEN_EVENTS_RETENTION_DAYS` (90), бюджет — `KRAKEN_EVENTS_BUDGET_MB` (5120).
 
 `dev-cert` не заменяет существующие ключи; создаёт development-сертификаты панели
 (`panel.*`, только для 10013) и прокси (`proxy.*`, SAN `proxy`, `localhost`, читает группа `proxy`). Public certificate можно получить командой:

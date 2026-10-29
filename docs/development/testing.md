@@ -19,8 +19,9 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `policy` | Валидация CIDR, доменов, портов, settings; детерминированный рендер; порядок защитных ACL; expert allowlist, файлы-параметры, deny_info, cache_peer; эквивалентность разбора строк валидатором и Squid; proxy auth ACL |
 | `runtime` | Parse/reload/verify, fingerprint, journal, LKG, recovery, rollback, drift, lock; ENOSPC на каждой записи; SIGKILL отдельного процесса на durable-границах; номер строки parse без вывода Squid; manager reports |
 | `httpapi` | Auth, CSRF, Origin, throttle, роли и last-admin; stale draft conflict; идемпотентность операций; preview без ревизий; service-update из LKG; статистика и события; findings операции; индекс и статья справки (401 анонимно, 404 неизвестный slug) |
-| `store` | Миграции: атомарность при отказе, отказ для несовместимой БД; FK сессий; сессии и reset; события, checkpoint, cursor, фильтры, retention |
+| `store` | Миграции: атомарность при отказе, отказ для несовместимой БД, 002 viewer→manager; FK сессий; сессии и reset; users (последний admin, rollback audit); proxy accounts (PHC only, atomic audit); audit timestamp |
 | `events` | Чтение access log: частичные/битые строки, rotation, truncation, возврат файла |
+| `telemetry` | Ingest→Rollup→Series/TopHosts/UnknownSources/Events/Event/Info; идемпотентность rollup (повтор батча, crash между ingest и rollup); смена месяца; retention по возрасту и бюджету; повреждение rollups.db и месячного файла; конкурентные чтения во время Ingest (`-race`); отмена ctx; scope (пустые списки, IPv4-mapped); бенчмарки Series за год и Ingest батча (2000) |
 | `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
 | `credentials` | Argon2id PHC; отказ для verifier без версии и параметров |
 | `help` | Разбор front matter при init (panic на ошибку формата), индекс непустой и отсортирован, статья по slug, уникальность slug, разрешимость всех `help:` ссылок |

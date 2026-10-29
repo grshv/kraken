@@ -19,6 +19,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -26,6 +27,7 @@ import (
 	"kraken.local/kraken/internal/proxyauth"
 	local "kraken.local/kraken/internal/runtime"
 	"kraken.local/kraken/internal/store"
+	"kraken.local/kraken/internal/telemetry"
 	"kraken.local/kraken/web"
 )
 
@@ -188,7 +190,20 @@ func run() error {
 			return e
 		}
 		defer st.DB.Close()
-		s, e := httpapi.New(st, m, env("KRAKEN_PUBLIC_ORIGIN", "https://localhost:8443"), web.Handler(), baseImage)
+		telDir := env("KRAKEN_TELEMETRY_DIR", filepath.Join(filepath.Dir(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")), "telemetry"))
+		retentionDays, _ := strconv.Atoi(env("KRAKEN_EVENTS_RETENTION_DAYS", "90"))
+		budgetMB, _ := strconv.Atoi(env("KRAKEN_EVENTS_BUDGET_MB", "5120"))
+		if retentionDays <= 0 {
+			retentionDays = 90
+		}
+		if budgetMB <= 0 {
+			budgetMB = 5120
+		}
+		tel, e := telemetry.Open(telemetry.Options{Dir: telDir, RawRetention: time.Duration(retentionDays) * 24 * time.Hour, RawBudgetBytes: int64(budgetMB) * 1024 * 1024})
+		if e != nil {
+			return e
+		}
+		s, e := httpapi.New(st, m, env("KRAKEN_PUBLIC_ORIGIN", "https://localhost:8443"), web.Handler(), baseImage, tel)
 		if e != nil {
 			return e
 		}
@@ -225,11 +240,14 @@ func run() error {
 					if e := m.Maintain(maintenanceCtx, prune); e != nil {
 						slog.Warn("maintenance tick failed", "error", e)
 					}
+					if e := tel.Maintain(maintenanceCtx); e != nil {
+						slog.Warn("telemetry maintenance failed", "error", e)
+					}
 				}
 			}
 		}()
 		collectorDone := make(chan struct{})
-		defer func() { stopMaintenance(); <-collectorDone }()
+		defer func() { stopMaintenance(); <-collectorDone; tel.Close() }()
 		go func() {
 			defer close(collectorDone)
 			ticker := time.NewTicker(2 * time.Second)

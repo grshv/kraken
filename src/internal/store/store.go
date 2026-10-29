@@ -288,9 +288,6 @@ func (s *Store) Prune(auditCutoff time.Time, revisionRetention int) error {
 	if _, e = tx.Exec("DELETE FROM audit_events WHERE id NOT IN (SELECT id FROM audit_events ORDER BY id DESC LIMIT 5000)"); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("DELETE FROM proxy_events WHERE ingested_at<? OR seq <= (SELECT COALESCE(MAX(seq),0)-? FROM proxy_events)", time.Now().Add(-EventRetentionDays*24*time.Hour).Unix(), EventLimit); e != nil {
-		return e
-	}
 	if revisionRetention > 0 {
 		// Keep revisions referenced by a succeeded operation (so rollback history
 		// is never pruned) plus the most recent N unreferenced ones.

@@ -8,6 +8,7 @@ import (
 	"kraken.local/kraken/internal/policy"
 	local "kraken.local/kraken/internal/runtime"
 	"kraken.local/kraken/internal/store"
+	"kraken.local/kraken/internal/telemetry"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -17,25 +18,31 @@ import (
 
 func fixtureServer(t *testing.T) (*Server, http.Handler) {
 	t.Helper()
-	st, e := store.Open(filepath.Join(t.TempDir(), "control.db"))
+	dir := t.TempDir()
+	st, e := store.Open(filepath.Join(dir, "control.db"))
 	if e != nil {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { st.DB.Close() })
+	tel, e := telemetry.Open(telemetry.Options{Dir: filepath.Join(dir, "telemetry")})
+	if e != nil {
+		t.Fatal(e)
+	}
+	t.Cleanup(func() { tel.Close() })
 	if e = Bootstrap(st, "admin", "test-password-only-123"); e != nil {
 		t.Fatal(e)
 	}
-	rt := local.New(t.TempDir(), "/unused", "/dev/null", "", "", "test-image")
-	rt.AppDir = t.TempDir()
-	rt.Options.ProxyAccounts = filepath.Join(t.TempDir(), "proxy-accounts.json")
-	rt.Options.SquidDir = t.TempDir()
+	rt := local.New(dir, "/unused", "/dev/null", "", "", "test-image")
+	rt.AppDir = dir
+	rt.Options.ProxyAccounts = filepath.Join(dir, "proxy-accounts.json")
+	rt.Options.SquidDir = dir
 	rt.Command = func(context.Context, ...string) error { return nil }
 	rt.Reload = func(context.Context, string) error { return nil }
 	rt.Probe = func(context.Context, string) error { return nil }
 	if e = rt.Recover(context.Background(), true); e != nil {
 		t.Fatal(e)
 	}
-	s, e := New(st, rt, "https://panel.test", http.NotFoundHandler(), "test-image")
+	s, e := New(st, rt, "https://panel.test", http.NotFoundHandler(), "test-image", tel)
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -26,6 +26,7 @@ import (
 	"kraken.local/kraken/internal/policy"
 	local "kraken.local/kraken/internal/runtime"
 	"kraken.local/kraken/internal/store"
+	"kraken.local/kraken/internal/telemetry"
 )
 
 type Draft struct {
@@ -68,6 +69,7 @@ type Server struct {
 	persistenceFailed atomic.Bool
 	PanelCert         string
 	Store             *store.Store
+	Telemetry         *telemetry.Store
 	Runtime           *local.Manager
 	Origin            string
 	Static            http.Handler
@@ -101,7 +103,7 @@ type certCacheEntry struct {
 }
 
 func stamp() string { return time.Now().UTC().Format(time.RFC3339) }
-func New(st *store.Store, rt *local.Manager, origin string, static http.Handler, image string) (*Server, error) {
+func New(st *store.Store, rt *local.Manager, origin string, static http.Handler, image string, tel *telemetry.Store) (*Server, error) {
 	u, parseErr := url.Parse(origin)
 	if parseErr != nil || u.Scheme != "https" || u.Host == "" || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || u.User != nil {
 		return nil, errors.New("KRAKEN_PUBLIC_ORIGIN must be an https origin without trailing slash")
@@ -110,7 +112,7 @@ func New(st *store.Store, rt *local.Manager, origin string, static http.Handler,
 	if e != nil {
 		return nil, e
 	}
-	s := &Server{Store: st, Runtime: rt, Origin: origin, Static: static, Image: image, now: time.Now, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, anonymousKey: []byte(rand.Text()), certCache: map[string]certCacheEntry{}}
+	s := &Server{Store: st, Telemetry: tel, Runtime: rt, Origin: origin, Static: static, Image: image, now: time.Now, attempts: map[string]attempt{}, loginSlots: make(chan struct{}, 2), dummyHash: h, anonymousKey: []byte(rand.Text()), certCache: map[string]certCacheEntry{}}
 	var d Draft
 	e = st.Get("draft", &d)
 	if errors.Is(e, sql.ErrNoRows) {

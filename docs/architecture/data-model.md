@@ -14,10 +14,9 @@ SQLite и journal обслуживает один Go executable, но транз
 | manager_networks | username, cidr | Сети менеджера; FK на users ON DELETE CASCADE, PK по паре |
 | manager_clients | username, client_id | Назначенные клиенты менеджера; FK на users ON DELETE CASCADE, PK по паре; висячие удаляются при обслуживании |
 | proxy_accounts | username, password_hash, enabled, created_at, updated_at, owner | Отдельные credentials proxy; owner = username панели или NULL (admin). Менеджер видит свои и логины только его клиентов |
-| kv | key, value | Draft/revisions/checkpoint как JSON; optimistic version и validation на уровне приложения |
+| kv | key, value | Draft/revisions как JSON; optimistic version и validation на уровне приложения |
 | operations | id, idempotency_key, request_hash, body | Один key — один payload; outcome операции хранится отдельно от draft |
 | audit_events | id, actor, action, entity_id, created_at | Без паролей/ключей/config body, mutation и audit атомарны |
-| proxy_events | seq, event_id, client_id/name, failed, ingested_at, body | Уникальная нормализованная запись; события и checkpoint атомарны |
 | schema_migrations | version, checksum, applied_at | DDL/data/version в одной транзакции; применённая миграция не редактируется |
 
 Клиенты, source networks, policies, destinations, TLS profiles и settings —
@@ -95,21 +94,25 @@ secret references и terminal outcome. Он связывается с запис
 копии, а не произвольное `down`. Compatibility window документируется в релизе.
 `migrations/001.sql` — базовая схема; следующие миграции добавляются файлами
 `002.sql` и далее в `migrations.Ordered`. `003.sql` добавляет составной индекс
-`(client_id, ingested_at)` для rollup-запросов инспектора. Runner записывает version и checksum в
+`(client_id, ingested_at)` для rollup-запросов инспектора. `004.sql`
+(`telemetry-split-v1`) выносит события прокси из управляющей БД: удаляет
+`proxy_events`, его индексы и `event_checkpoint` из `kv`; данных для переноса нет
+(тестовые тома), телеметрия начинается с нуля. Runner записывает version и checksum в
 `schema_migrations`. DDL, перенос данных и версия выполняются одной транзакцией
 SQLite: ошибка откатывает весь переход. Записанный checksum, не совпадающий с
 checksum этой сборки, означает базу несовместимой сборки — `store.Open`
 отказывается её открывать. См. [ADR 0010](../adr/0010-session-and-recovery-safety.md).
 
-Текущий retention нормализованных событий и audit указан ниже. Отдельные
-30-дневные агрегаты и disk watermark automation не реализованы и не входят в
-объём. Активная ревизия, LKG и ссылки незавершённых operations сохраняются;
-rotation сырого access.log не равна backup.
+Текущий retention телеметрии и audit указан ниже. Долгоживущие агрегаты
+реализованы в телеметрии (см. «Диагностическая история»); disk watermark
+automation не реализован и не входит в объём. Активная ревизия, LKG и ссылки
+незавершённых operations сохраняются; rotation сырого access.log не равна backup.
 
-`store.Prune` реализует базовый retention: удаляет audit_events старше cutoff (по
-умолчанию 90 дней) и оставшиеся сверху 5000 событий по capped-retention, а также
-ревизии, которые не ссылаются на succeeded operation и не входят в последние N
-(по умолчанию 20). Вызывается из периодического `Manager.Maintain`.
+`store.Prune` реализует retention управляющей БД: удаляет audit_events старше
+cutoff (по умолчанию 90 дней) и сверх 5000 новейших строк, а также ревизии,
+которые не ссылаются на succeeded operation и не входят в последние N (по
+умолчанию 20). Retention телеметрии (сырые события и агрегаты) выполняет
+`telemetry.Store.Maintain` в том же периодическом тике `Manager.Maintain`.
 
 ## Реализованное расширение
 
@@ -121,20 +124,49 @@ users.password_hash хранит только Argon2id PHC verifier. CLI reset �
 
 ## Диагностическая история
 
-proxy_events: seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id UNIQUE, client_id,
-client_name, failed, ingested_at, body (нормализованный JSON). Индексы client/seq,
-failed/seq, ingested_at и составной (client_id, ingested_at) из миграции 003 для
-rollup-запросов инспектора. kv.event_checkpoint хранит offsets/anchors/generations,
-last successful read и известные gap/dropped/backlog/source flags. Вставка событий
-и checkpoint — одна транзакция. Сырой текст и URL path/query/userinfo не хранятся.
+События прокси хранятся вне управляющей БД, в пакете `internal/telemetry`:
+месячные файлы SQLite `events-YYYY-MM.db` (сырые нормализованные события и
+checkpoint чтения access.log) и `rollups.db` (долгоживущие агрегаты). Управляющая
+БД хранит только audit и более не содержит `proxy_events`; миграция 004
+(`telemetry-split-v1`) удаляет `proxy_events`, его индексы и `event_checkpoint`
+из `kv`. См. [ADR 0011](../adr/0011-durable-diagnostics.md).
 
-Retention events: 30 дней по ingested_at, максимум 50 000 строк, применяется при
-успешном сборе и периодическом Prune, даже если источник затем недоступен.
-Audit использует прежние 90 дней/5000 строк. Cursor — bounded base64 JSON с before
-и hash вида журнала/фильтров; это позиция, не credential. Все выборки авторизованы,
-SQL параметры связаны; произвольный cursor не расширяет доступ. Новые строки
-не сдвигают старые страницы, retention может сократить доступную историю.
-Client labels фиксируются при сборе; revision_id null. См. [ADR 0011](../adr/0011-durable-diagnostics.md).
+events-YYYY-MM.db: `host(id, name UNIQUE)` — словарь хостов назначений; `event(id,
+ts, client_id, client_name, source_ip, host_id, port, method, result,
+http_status, duration_ms, bytes, failed, proxy_username, revision_id,
+match_basis, tls_mode, source_id)` — индексы `ts`, `(client_id, ts)`,
+`(source_ip, ts) WHERE client_id IS NULL` и уникальный `source_id`; `checkpoint(k,
+v)` — позиция чтения access.log, пишется в одной транзакции с событиями.
+`source_id` сохраняет исходный id события (хэш строки access.log) для lookup'а
+explain по legacy id; API выставляет компактную форму `<YYYYMM>-<rowid>`. Сырой
+текст URL и path/query/userinfo не хранятся.
+
+rollups.db (таблицы WITHOUT ROWID, агрегируются UPSERT на месте): `client_15m`,
+`client_host_1h`, `client_host_1d` (+ индекс `client_id, day`) — по клиентам;
+`unknown_15m`, `unknown_host_1h`, `unknown_host_1d` (с `bytes`) — по неописанным
+источникам; `watermark(month, last_event_id)` — до какого события месяц свёрнут. Bucket
+хранится как unix-секунды. Rollup идемпотентен: падение между ingest и rollup
+даёт повтор с прежнего watermark; потеря rollups.db перестраивается из сырых
+месячных файлов при открытии.
+
+Каждый файл: один writer (`_txlock=immediate`, `busy_timeout=5000`, WAL,
+`synchronous=NORMAL`) и пул read-only readers (`query_only`); месячные файлы
+открываются лениво, кеш открытых — 4. Битый или несовместимый файл телеметрии
+переименовывается в `.broken-<unix>`, создаётся заново, warn в лог и
+`status.instance.telemetry_broken_files`; панель продолжает работать. Текущий
+месяц никогда не удаляется ретеншном.
+
+Retention: сырые события — 90 дней по возрасту и бюджет 5 GiB (oldest-first,
+текущий месяц не трогается); часовые агрегаты — 30 дней; 15-минутные и суточные
+агрегаты — 3 года. Audit управляющей БД — 90 дней и до 5000 строк. Месячные файлы
+удаляются целиком (нет DELETE миллионов строк, VACUUM и фрагментации); агрегаты
+чистятся чанками по 5000 строк по составному PK.
+
+Cursor журнала — bounded base64 JSON с before и hash вида фильтров; это позиция,
+не credential, привязан к убывающей последовательности `(месяц, id)`. Новые строки
+не сдвигают старые страницы. Все выборки авторизованы, SQL параметры связаны;
+произвольный cursor не расширяет доступ. Client labels фиксируются при сборе;
+revision_id null. Изменение клиента не переписывает сохранённую запись.
 
 ## Учётные записи
 
@@ -158,9 +190,9 @@ SHA-256 от PHC verifier привязывает Basic auth к текущему 
 verifier на сторону клиента. См. [ADR 0012](../adr/0012-local-users-and-proxy-passwords.md).
 
 Обзор не сохраняет отдельные traffic_buckets: bounded агрегаты `/activity`
-вычисляются из proxy_events за 15 минут, час, день, неделю или последние 30 дней.
-Суточный `/statistics` сохранён для совместимости, но обзор его не опрашивает.
-Отдельная подсистема долгосрочной аналитики и изменение схемы БД не требуются.
-Retained события ограничены 30 днями по времени сбора и 50 000 строками; cap
-может сократить доступный период. Ранее удалённые события не восстанавливаются,
-TTL аудита не изменён.
+вычисляются из rollups.db за 15 минут, час, день, неделю или последние 30 дней.
+`/statistics` и инспектор читают только агрегаты (кроме explain и draft-impact,
+которые читают сырые события за 24 ч); суточный `/statistics` сохранён для
+совместимости, но обзор его не опрашивает. Отдельная подсистема долгосрочной
+аналитики не нужна: суточные агрегаты хранятся 3 года. Ранее удалённые сырые
+события не восстанавливаются, TTL аудита не изменён.

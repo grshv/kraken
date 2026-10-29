@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -89,7 +90,7 @@ func inspectorAcceptFixture(t *testing.T) (*Server, http.Handler, *http.Cookie) 
 		ev(8, 16*time.Minute, false, "10.9.9.9", "github.com:443", "TCP_DENIED", 403, 0),
 		ev(9, 5*time.Minute, true, "10.1.0.5", "169.254.169.254:80", "TCP_DENIED", 403, 0),
 	}
-	if e := s.Store.SaveEvents(items, events.Checkpoint{SourceAvailable: true}); e != nil {
+	if e := s.Telemetry.Ingest(context.Background(), items, events.Checkpoint{SourceAvailable: true}); e != nil {
 		t.Fatal(e)
 	}
 	return s, h, admin

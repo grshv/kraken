@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -145,7 +146,7 @@ func inspectorFixture(t *testing.T) (*Server, handler, *http.Cookie, string) {
 			rows[i].ClientID = nil
 		}
 	}
-	if e := s.Store.SaveEvents(rows, events.Checkpoint{SourceAvailable: true}); e != nil {
+	if e := s.Telemetry.Ingest(context.Background(), rows, events.Checkpoint{SourceAvailable: true}); e != nil {
 		t.Fatal(e)
 	}
 	return s, h, cookie, csrf
@@ -446,7 +447,7 @@ func TestInspectorNoURLPathQueryOrCredentialsLeak(t *testing.T) {
 	}
 	cid, cname := "c-a", "alpha"
 	leak.ClientID, leak.ClientName, leak.ClientMatchBasis = &cid, &cname, "source_ip"
-	if e := s.Store.SaveEvents([]events.Event{leak}, events.Checkpoint{}); e != nil {
+	if e := s.Telemetry.Ingest(context.Background(), []events.Event{leak}, events.Checkpoint{}); e != nil {
 		t.Fatal(e)
 	}
 	forbidden := []string{"secret", "token=abc", "abc-xyz", "leak-user-secret", "user:pass", "password"}
