@@ -2,9 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   History,
-  KeyRound,
   Activity,
-  SlidersHorizontal,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,6 +28,8 @@ import { HelpView } from "./help/HelpView";
 import { PlaceholderSection } from "./sections/PlaceholderSection";
 import { ClientsSection } from "./clients/ClientsSection";
 import { PoliciesSection } from "./policies/PoliciesSection";
+import { AccountsSection } from "./accounts/AccountsSection";
+import { SettingsSection } from "./settings/SettingsSection";
 import type { CommitResult } from "./sections/sectionProps";
 import { ErrorState } from "./shell/ErrorState";
 import "./theme.css";
@@ -490,16 +490,35 @@ function App() {
         <PlaceholderSection title="Аудит" icon={<History aria-hidden />} />
       );
     if (navId === "accounts")
-      return (
-        <PlaceholderSection title="Аккаунты" icon={<KeyRound aria-hidden />} />
-      );
+      return <AccountsSection
+        request={request}
+        draft={draft}
+        active={active}
+        session={session!}
+        onCommit={commitDraft}
+        onDiscard={async () => {
+          await discardDraftNow();
+          return { ok: true };
+        }}
+        onToast={showToast}
+        onNavigate={setNavId}
+        onConfirm={(o) => setConfirm(o)}
+      />;
     if (navId === "settings")
-      return (
-        <PlaceholderSection
-          title="Настройки"
-          icon={<SlidersHorizontal aria-hidden />}
-        />
-      );
+      return <SettingsSection
+        request={request}
+        draft={draft}
+        active={active}
+        session={session!}
+        onCommit={commitDraft}
+        onDiscard={async () => {
+          await discardDraftNow();
+          return { ok: true };
+        }}
+        onToast={showToast}
+        onNavigate={setNavId}
+        onConfirm={(o) => setConfirm(o)}
+      />;
     return null;
   }
 

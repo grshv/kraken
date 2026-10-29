@@ -41,6 +41,9 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `policies/domains` | `parseDomainInput`: схема, путь, порт, завершающая точка, `*.x`/`.x`; IP-литералы, пробелы, `_` → null; `mergeDestinations`: дедуп по domain, OR `include_subdomains`, без мутации |
 | `draft/marks` | `entityMarks`: new/changed/deleted по глубокому равенству, неизменённые пропущены, порядок ключей не важен |
 | `draft/edits` | `addDomainToClientPolicy`, `changeClientPolicy`, `createClientFromIP` (включая fresh own-policy из неописанного IP), `clientsOfPolicy`, no-op на missing inputs, без мутации |
+| `settings/units` | `parsePortList`: дедуп с сохранением порядка, диапазон 1–65535, целые, пусто → null; `parseDuration`: `с`/`мин`/`ч` и bare секунды, неотрицательные целые, мусор → null; `formatDuration`: наибольшая единица, в которой значение целое (`0` → `0 с`); round-trip format → parse; `parseNameservers`: IPv4/IPv6 через запятую/пробел, каноническая форма, дедуп, CIDR и host:port → null, пусто → [] |
+| `accounts/rules` | `canDemote`/`canDisable`: false только для единственного включённого admin; `buildManagerScopeBody`: нормализация CIDR через `parseNetwork`, дедуп, дроп мусора, пусто → пустые массивы |
+| `settings/edits` | `effectiveSettings` (defaults при отсутствии), `patchSettings` (merge без мутации), `setBlockedDomains`, `setUpstream` (вкл/выкл через null), `setExpertConfig` (mode + текст) |
 
 E2e (Playwright) на ключевые потоки — отдельный срез; `@playwright/test` и
 `tests/*.spec.ts` удалены вместе со старыми экранами.

@@ -72,6 +72,15 @@ export type Status = {
   // fields land at compile time rather than runtime.
   observed_config_hash: string | null;
   capabilities: string[];
+  // instance reports KRAKEN_INSTANCE_NAME and data-volume/journal freshness.
+  instance: {
+    name: string;
+    data_free_bytes: number | null;
+    data_total_bytes: number | null;
+    journal_last_event_at: string | null;
+    journal_checkpoint_at: string | null;
+    last_applied_at: string | null;
+  };
 };
 export type Preview = {
   draft_version?: number;
@@ -116,6 +125,13 @@ export type Event = {
   revision_id: string | null;
 };
 
+// UpstreamProxy routes client traffic through a parent Squid peer; exclusive
+// forces never_direct so Squid never bypasses the peer.
+export type UpstreamProxy = {
+  address: string;
+  port: number;
+  exclusive: boolean;
+};
 export type Settings = {
   http_port: number;
   tls_port: number;
@@ -133,6 +149,12 @@ export type Settings = {
   max_request_body_mb: number;
   log_rotations: number;
   allow_private_destinations: boolean;
+  // blocked_domains denied for every client before user policy applies.
+  blocked_domains?: Destination[];
+  // hide_client_address strips the client address from forwarded requests.
+  hide_client_address?: boolean;
+  // upstream_proxy sends traffic through a parent proxy; null = go direct.
+  upstream_proxy?: UpstreamProxy | null;
 };
 export type RevisionSummary = {
   id: string;
