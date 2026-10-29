@@ -5,9 +5,9 @@
 | Команда | Что проверяет | Когда обязательна |
 | --- | --- | --- |
 | `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace | Любое изменение |
-| `make check` | docs-check, typecheck и сборка web, `go test -race ./...`, `go vet`, `git diff --check` | Любое изменение кода |
+| `make check` | docs-check, typecheck и сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `git diff --check` | Любое изменение кода |
 | `make integration` | `smoke.py`, `network.py`, `apt.py`: реальный Squid в образе `kraken:dev`, локальные fixtures | Изменения policy, runtime, deploy, auth |
-| `npm --prefix src/web run test:e2e` | Playwright в отдельном контейнере | Изменения UI; нужен `make image` и Chromium |
+| `npm --prefix src/web run test` | vitest: чистая логика каркаса (пределы панелей, навигация по ролям, конечный автомат применения) | Изменения логики в `src/web/src/shell` и `src/web/src/draft` |
 
 docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
 CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` — verify-сборку и smoke.
@@ -24,6 +24,20 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
 | `credentials` | Argon2id PHC; отказ для verifier без версии и параметров |
 | `help` | Разбор front matter при init (panic на ошибку формата), индекс непустой и отсортирован, статья по slug, уникальность slug, разрешимость всех `help:` ссылок |
+
+## Web unit-тесты
+
+`npm --prefix src/web run test` (vitest) покрывает чистую логику каркаса в
+`src/web/src/shell` и `src/web/src/draft`, без браузера и DOM:
+
+| Модуль | Что покрыто |
+| --- | --- |
+| `shell/layout` | `PANE_LIMITS` и `clampPane`: диапазоны list/detail, clamp по границам, NaN → min, округление дробных пикселей |
+| `shell/nav` | `navItems(role)`: фиксированный порядок main-разделов, group `bottom`, отсутствие Настроек у manager, русские подписи |
+| `draft/applyFlow` | `applyReducer`: start → running/revision, step, error 409 → conflict, иная error → failed с кодом и шагом, operation validated/succeeded/rolled_back/rejected, игнор вне running, reset |
+
+E2e (Playwright) на ключевые потоки — отдельный срез; `@playwright/test` и
+`tests/*.spec.ts` удалены вместе со старыми экранами.
 
 ## Integration smoke
 
