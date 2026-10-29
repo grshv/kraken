@@ -13,7 +13,7 @@
 | Клиенты и политики | Клиенты, сети, группы; all_web и allowlist; default deny; защита loopback/link-local/metadata/private, IPv6-туннельных диапазонов и DNS rebinding | Go tests, smoke и `network.py` на реальных source IP с собственным DNS |
 | APT | `apt-get update/install` через HTTP и CONNECT с проверкой подписей; отказ вне allowlist | `apt.py` на локальном подписанном репозитории; настоящий архив Ubuntu (arm64, ports) проверен вручную при `allow_private_destinations` из-за DNS OrbStack |
 | Proxy auth | Отдельные proxy accounts, Basic только через TLS listener, IP/CIDR + username | Go tests, smoke на Squid 6.13 |
-| Настройки и expert | Визуальные настройки Squid; типизированный upstream proxy (`cache_peer` parent, опция без direct); expert-секция с allowlist директив, запретом файлов-параметров и peers во внутренние сети; строка ошибки parse без вывода Squid | Go tests, мутационная проверка, smoke |
+| Настройки и expert | Визуальные настройки Squid; типизированные upstream proxy (`cache_peer` parent, опция без direct), запрещённые для всех домены и скрытие адреса клиента (только API, в UI появятся с новым интерфейсом); expert-секция с allowlist директив, запретом файлов-параметров и peers во внутренние сети; строка ошибки parse без вывода Squid | Go tests, мутационная проверка, smoke |
 | Применение | Черновик, preview/diff, parse, apply, fingerprint, LKG, recovery, rollback, service-update | Go fault tests (ENOSPC, SIGKILL), smoke |
 | Диагностика | История запросов с фильтрами и cursor, аудит, retention, обзор с live-метриками Squid | Go tests, smoke |
 | TLS | TLS к прокси, сквозной HTTPS CONNECT с исходным сертификатом сайта | Smoke с проверкой цепочки |
@@ -43,7 +43,6 @@
 
 | # | Срез | Критерии приёмки | Состояние |
 | --- | --- | --- | --- |
-| 5 | Ревизия expert-режима | Частые сценарии (кандидаты: upstream proxy, правила кеша пакетов) перенесены в типизированные настройки с тестами; expert остаётся аварийным режимом. Состав сценариев подтверждает владелец | Upstream proxy реализован (Go tests, мутационная проверка, integration). Остальные сценарии ждут ответа владельца |
 | 7 | Новый UI | Сначала сценарии и макет экранов, согласованные владельцем; затем реализация одним срезом с e2e на ключевые потоки | Ждёт сценариев |
 
 Эксплуатационные проверки, не блокирующие срезы выше:

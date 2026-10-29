@@ -141,6 +141,14 @@ name=sc_upstream`, при `exclusive` ещё `never_direct allow all`, без н
 он не открывает. Защитные запреты проверяются по адресу назначения запроса и
 действуют до выбора peer.
 
+`blocked_domains` — список доменов (те же правила, что у allowlist политики:
+канонический вид, без IP, дублей и перекрытий, до 1024), закрытых для всех
+клиентов: `acl sc_blocked_dst dstdomain -n …` и `http_access deny sc_blocked_dst`
+рендерятся сразу после защитных запретов, до пользовательского блока, поэтому
+действуют и для `all_web`, и в expert mode. `hide_client_address` добавляет
+`forwarded_for delete` и `via off`: адрес клиента и версия прокси не уходят на
+сайты и вышестоящий прокси. Пустые значения не меняют рендер.
+
 Expert mode заменяет визуальный ACL-блок; защитные `http_access deny` рендерятся
 до него и не переопределяются. Валидатор (`validateExpert`) принимает только
 директивы из `expertDirectives` ([ADR 0007](../adr/0007-general-clients-expert-configuration.md)):

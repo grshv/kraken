@@ -142,23 +142,8 @@ func Validate(s Snapshot, o Options) error {
 		if len(p.Destinations) > 1024 || p.Mode == "all_web" && len(p.Destinations) > 0 {
 			return errors.New("invalid destination list")
 		}
-		seen := map[string]bool{}
-		for _, d := range p.Destinations {
-			if len(d.Domain) > 253 || !domainPattern.MatchString(d.Domain) || seen[d.Domain] {
-				return fmt.Errorf("invalid/duplicate canonical domain: %q", d.Domain)
-			}
-			if _, err := netip.ParseAddr(d.Domain); err == nil {
-				return errors.New("IP destination is not a domain")
-			}
-			seen[d.Domain] = true
-		}
-		// Squid splay-tree lists must not contain overlapping parent/subdomain entries.
-		for i, a := range p.Destinations {
-			for j, b := range p.Destinations {
-				if i != j && a.IncludeSubdomains && strings.HasSuffix(b.Domain, "."+a.Domain) {
-					return errors.New("redundant overlapping destination domains")
-				}
-			}
+		if e := validateDomains(p.Destinations); e != nil {
+			return e
 		}
 		policies[p.ID] = p
 	}
@@ -256,6 +241,18 @@ func Render(s Snapshot, o Options) (string, error) {
 	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports\nhttp_access deny CONNECT !sc_ssl_ports\nhttp_access deny manager\nhttp_access deny sc_protected_dst\n")
 	if !settings.AllowPrivateDestinations {
 		b.WriteString("http_access deny sc_private_dst\n")
+	}
+	if len(settings.BlockedDomains) > 0 {
+		var ds []string
+		for _, d := range settings.BlockedDomains {
+			v := d.Domain
+			if d.IncludeSubdomains {
+				v = "." + v
+			}
+			ds = append(ds, v)
+		}
+		sort.Strings(ds)
+		fmt.Fprintf(&b, "acl sc_blocked_dst dstdomain -n %s\nhttp_access deny sc_blocked_dst\n", strings.Join(ds, " "))
 	}
 	fmt.Fprintf(&b, "reply_header_add X-Squid-Control-Revision %s all\n", h)
 	var authenticatedSources []string

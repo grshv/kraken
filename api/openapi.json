@@ -2,7 +2,7 @@
   "openapi": "3.1.1",
   "info": {
     "title": "Squid Control API",
-    "version": "0.8.0",
+    "version": "0.9.0",
     "description": "Critical-path API implemented in the first development slice. Draft editing, local users/admin-viewer roles, separate proxy accounts, bounded event history and retained 24-hour statistics are implemented. Listener ports are installation settings and cannot change via draft/revision operations. Draft preview is read-only. Errors include 400 invalid input, 401 unauthenticated, 403 CSRF/authorization, 404 unknown resource, 409 conflict/busy, 422 policy/capability failure, 429 throttled, 503 unavailable. All responses containing session/config data use Cache-Control: no-store. Origin is checked on mutations in addition to CSRF. Visual settings and guarded expert mode, general clients, revision history/diff and rollback are supported. Password reset is local CLI only, never a public recovery endpoint. Panel roles are admin (all) and viewer (state/events/audit/public certificate metadata only). Proxy Basic accounts are separate; managed helper, TLS-only authenticated clients, exact username+IP policy matching."
   },
   "servers": [
@@ -2262,6 +2262,18 @@
                 "type": "null"
               }
             ]
+          },
+          "blocked_domains": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Destination"
+            },
+            "maxItems": 1024,
+            "description": "Domains denied for every client before user policy applies. Rendered ahead of # BEGIN user policy so it binds in both structured and expert modes."
+          },
+          "hide_client_address": {
+            "type": "boolean",
+            "description": "When true, strips the client address from forwarded requests via forwarded_for delete and via off."
           }
         },
         "required": [

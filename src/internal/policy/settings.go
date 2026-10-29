@@ -28,6 +28,10 @@ type Settings struct {
 	LogRotations             int            `json:"log_rotations"`
 	AllowPrivateDestinations bool           `json:"allow_private_destinations"`
 	Upstream                 *UpstreamProxy `json:"upstream_proxy,omitempty"`
+	// BlockedDomains are denied for every client before user policy applies.
+	BlockedDomains []Destination `json:"blocked_domains,omitempty"`
+	// HideClientAddress strips the client address from forwarded requests.
+	HideClientAddress bool `json:"hide_client_address,omitempty"`
 }
 
 // UpstreamProxy sends client traffic through a parent Squid peer instead of
@@ -117,6 +121,39 @@ func validateSettings(v Settings) error {
 			return errors.New("upstream proxy must be a non-loopback, non-link-local IP literal with port 1–65535")
 		}
 	}
+	if len(v.BlockedDomains) > 1024 {
+		return errors.New("blocked domains: too many entries")
+	}
+	if e := validateDomains(v.BlockedDomains); e != nil {
+		return fmt.Errorf("blocked domains: %v", e)
+	}
+	return nil
+}
+
+// validateDomains enforces the shared destination-rules used by both
+// Policy.Destinations and Settings.BlockedDomains: each entry is a canonical
+// ASCII domain (length ≤ 253, no IP literal) with no duplicates and no
+// overlapping parent/subdomain pairs. The caller wraps the error to name the
+// list (e.g. "blocked domains: ...") when the messages must stay unchanged.
+func validateDomains(ds []Destination) error {
+	seen := map[string]bool{}
+	for _, d := range ds {
+		if len(d.Domain) > 253 || !domainPattern.MatchString(d.Domain) || seen[d.Domain] {
+			return fmt.Errorf("invalid/duplicate canonical domain: %q", d.Domain)
+		}
+		if _, err := netip.ParseAddr(d.Domain); err == nil {
+			return errors.New("IP destination is not a domain")
+		}
+		seen[d.Domain] = true
+	}
+	// Squid splay-tree lists must not contain overlapping parent/subdomain entries.
+	for i, a := range ds {
+		for j, b := range ds {
+			if i != j && a.IncludeSubdomains && strings.HasSuffix(b.Domain, "."+a.Domain) {
+				return errors.New("redundant overlapping destination domains")
+			}
+		}
+	}
 	return nil
 }
 func portList(ports []int) string {
@@ -136,6 +173,9 @@ func renderSettings(b *strings.Builder, v Settings) {
 		if v.Upstream.Exclusive {
 			b.WriteString("never_direct allow all\n")
 		}
+	}
+	if v.HideClientAddress {
+		b.WriteString("forwarded_for delete\nvia off\n")
 	}
 }
 
