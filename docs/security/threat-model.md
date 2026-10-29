@@ -28,6 +28,8 @@ Runtime module не является security boundary: он в том же exec
 | Утечка TLS key | Узкие UID/file permissions, local provisioning | Отсутствие keys в image/export/logs |
 | Подмена dependencies | Locks/digests/scans/SBOM | Проверенный единый release image |
 | Prompt injection | Логи и внешние страницы — данные | Review источников инструкций |
+| Менеджер видит или меняет чужое | Область на сервере в каждом handler, 404 вне области, проверка области при apply/discard, cursor с отпечатком области ([ADR 0016](../adr/0016-admin-and-manager-roles.md)) | Негативный тест на каждый запрет |
+| Утечка через diff, squid.conf, поиск, ошибки | Менеджеру — структурированный diff по области, без squid.conf и snapshots; ошибки без имён чужих объектов | Тесты ответов вне области |
 
 ## Процессы и полномочия
 
