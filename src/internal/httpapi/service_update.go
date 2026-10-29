@@ -36,7 +36,7 @@ func ApplyServiceUpdate(ctx context.Context, st *store.Store, rt *local.Manager,
 	if err != nil {
 		return op, err
 	}
-	if err = st.InsertRevisionContext(ctx, revision.ID, string(body), "local-cli", "service_update_revision"); err != nil {
+	if err = st.InsertRevision(ctx, revision.ID, string(body), "local-cli", "service_update_revision"); err != nil {
 		return op, err
 	}
 	op = Operation{ID: store.ID(), Action: "service_update", Revision: revision.ID, Status: "reloading", Findings: []string{}, Created: stamp(), Updated: stamp()}
@@ -44,7 +44,7 @@ func ApplyServiceUpdate(ctx context.Context, st *store.Store, rt *local.Manager,
 	if err != nil {
 		return op, err
 	}
-	if err = st.InsertOperationContext(ctx, op.ID, string(body), "service-update-"+op.ID, policy.Hash(manifest.Snapshot), "local-cli", "service_update"); err != nil {
+	if err = st.InsertOperation(ctx, op.ID, string(body), "service-update-"+op.ID, policy.Hash(manifest.Snapshot), "local-cli", "service_update"); err != nil {
 		return op, err
 	}
 	op.Status, err = rt.Apply(ctx, op.ID, revision.ID, manifest.Revision, manifest.Snapshot)
@@ -56,7 +56,7 @@ func ApplyServiceUpdate(ctx context.Context, st *store.Store, rt *local.Manager,
 	if encodeErr != nil {
 		return op, encodeErr
 	}
-	if saveErr := st.UpdateOperationContext(ctx, op.ID, string(body)); saveErr != nil {
+	if saveErr := st.UpdateOperation(ctx, op.ID, string(body)); saveErr != nil {
 		return op, fmt.Errorf("cannot persist service update outcome; recovery required: %w", saveErr)
 	}
 	if exportErr := refreshProxyExport(st, rt); exportErr != nil {
@@ -72,7 +72,7 @@ func ApplyServiceUpdate(ctx context.Context, st *store.Store, rt *local.Manager,
 func refreshProxyExport(st *store.Store, rt *local.Manager) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	accounts, e := st.EnabledProxyAccountsContext(ctx)
+	accounts, e := st.EnabledProxyAccounts(ctx)
 	if e != nil {
 		return e
 	}

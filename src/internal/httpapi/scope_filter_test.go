@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -119,8 +120,8 @@ func TestManagerAuditAndStatisticsFiltering(t *testing.T) {
 	}
 	// Audit: manager sees his own actor records + entities in his scope. Admin
 	// writes an audit row about the foreign client; manager must not see it.
-	s.Store.Audit("admin", "update_client", "c-foreign-aud")
-	s.Store.Audit("mgr", "login", "")
+	s.Store.Audit(context.Background(), "admin", "update_client", "c-foreign-aud")
+	s.Store.Audit(context.Background(), "mgr", "login", "")
 	w = request(h, "GET", "/audit?limit=50", nil, mgr, "", "")
 	var ap store.Page[store.AuditEvent]
 	json.Unmarshal(w.Body.Bytes(), &ap)

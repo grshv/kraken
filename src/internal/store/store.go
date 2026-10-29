@@ -24,6 +24,18 @@ var AuditRetention = 3 * 365 * 24 * time.Hour
 // journalSizeLimit caps the WAL sidecar growth for the control DB.
 const journalSizeLimit = 64 << 20 // 64 MiB
 
+// OpTimeout is the ceiling every store method applies to its own work, even
+// when the caller passed context.Background(). context.WithTimeout honors a
+// sooner parent deadline, so the effective bound is min(ctx, now+OpTimeout).
+// A held write lock then surfaces as a deadline error (503 storage_busy in the
+// API) instead of waiting out busy_timeout.
+const OpTimeout = 3 * time.Second
+
+// opCtx returns ctx bounded by OpTimeout. Callers must defer cancel().
+func opCtx(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, OpTimeout)
+}
+
 // Store splits the control DB into a single-writer pool (DB, _txlock=immediate,
 // synchronous=FULL) and a read-only pool (Read, query_only, up to 4 conns) so
 // heavy reads (audit, revisions) never block logins, apply or event ingestion.
@@ -31,6 +43,8 @@ const journalSizeLimit = 64 << 20 // 64 MiB
 type Store struct {
 	DB   *sql.DB
 	Read *sql.DB
+	// dataDir is captured in Open so DataDir never re-issues SQL.
+	dataDir string
 }
 
 // Close releases both pools. Tests and CLI should call this instead of DB.Close
@@ -101,37 +115,42 @@ func Open(path string) (*Store, error) {
 			read.Close()
 		}
 	}
+	// Setup pragmas run before the reader pool exists; a background context is
+	// fine — these are one-shot connection-init statements, not request work.
+	ctx := context.Background()
 	// modernc accepts synchronous via _pragma, but set it explicitly to match
 	// the established pattern and keep the writer durable regardless of driver
 	// tuning. journal_size_limit bounds the WAL sidecar.
-	if _, e = db.Exec("PRAGMA synchronous=FULL"); e != nil {
+	if _, e = db.ExecContext(ctx, "PRAGMA synchronous=FULL"); e != nil {
 		cleanup()
 		return nil, e
 	}
-	if _, e = db.Exec(fmt.Sprintf("PRAGMA journal_size_limit=%d", journalSizeLimit)); e != nil {
+	if _, e = db.ExecContext(ctx, fmt.Sprintf("PRAGMA journal_size_limit=%d", journalSizeLimit)); e != nil {
 		cleanup()
 		return nil, e
 	}
 	if inMemory {
 		// DSN pragmas are not applied for raw in-memory DSNs; set them here.
-		if _, e = db.Exec("PRAGMA foreign_keys=ON"); e != nil {
+		if _, e = db.ExecContext(ctx, "PRAGMA foreign_keys=ON"); e != nil {
 			cleanup()
 			return nil, e
 		}
-		if _, e = db.Exec("PRAGMA busy_timeout=5000"); e != nil {
+		if _, e = db.ExecContext(ctx, "PRAGMA busy_timeout=5000"); e != nil {
 			cleanup()
 			return nil, e
 		}
 	}
-	if e = migrate(db); e != nil {
+	if e = migrate(ctx, db); e != nil {
 		cleanup()
 		return nil, e
 	}
+	dataDir := ""
 	if !inMemory {
 		if e = os.Chmod(path, 0600); e != nil {
 			cleanup()
 			return nil, e
 		}
+		dataDir = filepath.Dir(path)
 		read, e = openReader(path)
 		if e != nil {
 			cleanup()
@@ -140,7 +159,7 @@ func Open(path string) (*Store, error) {
 	} else {
 		read = db
 	}
-	return &Store{DB: db, Read: read}, nil
+	return &Store{DB: db, Read: read, dataDir: dataDir}, nil
 }
 
 // openReader opens a query_only reader pool sharing the same database file.
@@ -159,20 +178,20 @@ func openReader(path string) (*sql.DB, error) {
 // migrate applies pending migrations, their data and the version ledger in one
 // transaction. A recorded checksum that differs from this build's means the
 // database came from an incompatible build; Open refuses it.
-func migrate(db *sql.DB) error {
-	tx, e := db.Begin()
+func migrate(ctx context.Context, db *sql.DB) error {
+	tx, e := db.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)"); e != nil {
+	if _, e = tx.ExecContext(ctx, "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)"); e != nil {
 		return e
 	}
 	known := map[int]string{}
 	for _, m := range migrations.Ordered {
 		known[m.Version] = m.Checksum
 	}
-	rows, e := tx.Query("SELECT version, checksum FROM schema_migrations")
+	rows, e := tx.QueryContext(ctx, "SELECT version, checksum FROM schema_migrations")
 	if e != nil {
 		return e
 	}
@@ -198,22 +217,20 @@ func migrate(db *sql.DB) error {
 		if applied[m.Version] {
 			continue
 		}
-		if _, e = tx.Exec(m.SQL); e != nil {
+		if _, e = tx.ExecContext(ctx, m.SQL); e != nil {
 			return fmt.Errorf("migration %d: %w", m.Version, e)
 		}
-		if _, e = tx.Exec("INSERT INTO schema_migrations(version, checksum, applied_at) VALUES(?,?,?)", m.Version, m.Checksum, time.Now().Unix()); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES(?,?,?)", m.Version, m.Checksum, time.Now().Unix()); e != nil {
 			return fmt.Errorf("migration %d: %w", m.Version, e)
 		}
 	}
 	return tx.Commit()
 }
 
-func (s *Store) Get(key string, v any) error {
-	return s.GetContext(context.Background(), key, v)
-}
-
-// GetContext loads one kv value through the reader pool.
-func (s *Store) GetContext(ctx context.Context, key string, v any) error {
+// Get loads one kv value through the reader pool.
+func (s *Store) Get(ctx context.Context, key string, v any) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	var raw string
 	e := s.Read.QueryRowContext(ctx, "SELECT value FROM kv WHERE key=?", key).Scan(&raw)
 	if e != nil {
@@ -221,12 +238,11 @@ func (s *Store) GetContext(ctx context.Context, key string, v any) error {
 	}
 	return json.Unmarshal([]byte(raw), v)
 }
-func (s *Store) Put(key string, v any) error {
-	return s.PutContext(context.Background(), key, v)
-}
 
-// PutContext writes one kv value through the writer.
-func (s *Store) PutContext(ctx context.Context, key string, v any) error {
+// Put writes one kv value through the writer.
+func (s *Store) Put(ctx context.Context, key string, v any) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	b, e := json.Marshal(v)
 	if e != nil {
 		return e
@@ -236,12 +252,9 @@ func (s *Store) PutContext(ctx context.Context, key string, v any) error {
 }
 
 // Audit records an event stamped in INTEGER unix seconds.
-func (s *Store) Audit(actor, action, entity string) error {
-	return s.AuditContext(context.Background(), actor, action, entity)
-}
-
-// AuditContext records an audit event through the writer with a context.
-func (s *Store) AuditContext(ctx context.Context, actor, action, entity string) error {
+func (s *Store) Audit(ctx context.Context, actor, action, entity string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	_, e := s.DB.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
 	return e
 }
@@ -253,38 +266,35 @@ func (s *Store) AuditContext(ctx context.Context, actor, action, entity string) 
 // crash between INSERTs cannot leave an audit_events row without its operation
 // (or vice versa). The id is passed explicitly because callers already have it
 // from ID(); deriving it from opBody JSON would be needlessly fragile.
-func (s *Store) InsertOperation(id, opBody, idempotencyKey, requestHash, actor, action string) error {
-	return s.InsertOperationContext(context.Background(), id, opBody, idempotencyKey, requestHash, actor, action)
-}
-func (s *Store) InsertOperationContext(ctx context.Context, id, opBody, idempotencyKey, requestHash, actor, action string) error {
+func (s *Store) InsertOperation(ctx context.Context, id, opBody, idempotencyKey, requestHash, actor, action string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec("INSERT INTO operations VALUES(?,?,?,?)", id, idempotencyKey, requestHash, opBody); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO operations VALUES(?,?,?,?)", id, idempotencyKey, requestHash, opBody); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, time.Now().Unix()); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, time.Now().Unix()); e != nil {
 		return e
 	}
 	return tx.Commit()
 }
 
 // UpdateOperation overwrites the body for an existing operation id.
-func (s *Store) UpdateOperation(id, opBody string) error {
-	return s.UpdateOperationContext(context.Background(), id, opBody)
-}
-func (s *Store) UpdateOperationContext(ctx context.Context, id, opBody string) error {
+func (s *Store) UpdateOperation(ctx context.Context, id, opBody string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	_, e := s.DB.ExecContext(ctx, "UPDATE operations SET body=? WHERE id=?", opBody, id)
 	return e
 }
 
 // LoadOperation returns the raw JSON body of one operation, or sql.ErrNoRows.
-func (s *Store) LoadOperation(id string) (string, error) {
-	return s.LoadOperationContext(context.Background(), id)
-}
-func (s *Store) LoadOperationContext(ctx context.Context, id string) (string, error) {
+func (s *Store) LoadOperation(ctx context.Context, id string) (string, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	var raw string
 	e := s.Read.QueryRowContext(ctx, "SELECT body FROM operations WHERE id=?", id).Scan(&raw)
 	return raw, e
@@ -292,10 +302,9 @@ func (s *Store) LoadOperationContext(ctx context.Context, id string) (string, er
 
 // FindOperationByIdempotencyKey returns (id, request_hash, true) when key
 // exists; (false) when not found; or an error for storage failures.
-func (s *Store) FindOperationByIdempotencyKey(key string) (id, requestHash string, found bool, err error) {
-	return s.FindOperationByIdempotencyKeyContext(context.Background(), key)
-}
-func (s *Store) FindOperationByIdempotencyKeyContext(ctx context.Context, key string) (id, requestHash string, found bool, err error) {
+func (s *Store) FindOperationByIdempotencyKey(ctx context.Context, key string) (id, requestHash string, found bool, err error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	e := s.Read.QueryRowContext(ctx, "SELECT id,request_hash FROM operations WHERE idempotency_key=?", key).Scan(&id, &requestHash)
 	if errors.Is(e, sql.ErrNoRows) {
 		return "", "", false, nil
@@ -308,10 +317,9 @@ func (s *Store) FindOperationByIdempotencyKeyContext(ctx context.Context, key st
 
 // CountSucceededByRevision reports how many operations reference the revision
 // with status='succeeded'. Used to gate rollback to a previously-applied rev.
-func (s *Store) CountSucceededByRevision(revID string) (int, error) {
-	return s.CountSucceededByRevisionContext(context.Background(), revID)
-}
-func (s *Store) CountSucceededByRevisionContext(ctx context.Context, revID string) (int, error) {
+func (s *Store) CountSucceededByRevision(ctx context.Context, revID string) (int, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	var n int
 	e := s.Read.QueryRowContext(ctx, "SELECT COUNT(*) FROM operations WHERE json_extract(body,'$.revision_id')=? AND json_extract(body,'$.status')='succeeded'", revID).Scan(&n)
 	return n, e
@@ -319,8 +327,10 @@ func (s *Store) CountSucceededByRevisionContext(ctx context.Context, revID strin
 
 // ListOperationBodies returns the (id, body) of every operation row, in any
 // order. Used by httpapi's New() reconciliation pass to recover abandoned ops.
-func (s *Store) ListOperationBodies() ([]struct{ ID, Body string }, error) {
-	rows, e := s.Read.Query("SELECT id,body FROM operations")
+func (s *Store) ListOperationBodies(ctx context.Context) ([]struct{ ID, Body string }, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	rows, e := s.Read.QueryContext(ctx, "SELECT id,body FROM operations")
 	if e != nil {
 		return nil, e
 	}
@@ -341,17 +351,16 @@ func (s *Store) ListOperationBodies() ([]struct{ ID, Body string }, error) {
 // transaction so a crash cannot leave a created client unassigned. entityIDs
 // are the client/policy IDs that differ from the active snapshot; they receive
 // action-specific audit rows alongside the legacy "draft" row.
-func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string) error {
-	return s.ChangeDraftWithAssignmentsContext(context.Background(), v, actor, action, expected, username, newClientIDs, entityIDs)
-}
-func (s *Store) ChangeDraftWithAssignmentsContext(ctx context.Context, v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string) error {
+func (s *Store) ChangeDraftWithAssignments(ctx context.Context, v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
 	var raw string
-	e = tx.QueryRow("SELECT value FROM kv WHERE key='draft'").Scan(&raw)
+	e = tx.QueryRowContext(ctx, "SELECT value FROM kv WHERE key='draft'").Scan(&raw)
 	if e != nil {
 		return e
 	}
@@ -368,20 +377,20 @@ func (s *Store) ChangeDraftWithAssignmentsContext(ctx context.Context, v any, ac
 	if e != nil {
 		return e
 	}
-	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
 		return e
 	}
 	now := time.Now().Unix()
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
 		return e
 	}
 	for _, id := range entityIDs {
-		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
 			return e
 		}
 	}
 	for _, id := range newClientIDs {
-		if _, e = tx.Exec("INSERT OR IGNORE INTO manager_clients(username,client_id) VALUES(?,?)", username, id); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT OR IGNORE INTO manager_clients(username,client_id) VALUES(?,?)", username, id); e != nil {
 			return e
 		}
 	}
@@ -390,17 +399,16 @@ func (s *Store) ChangeDraftWithAssignmentsContext(ctx context.Context, v any, ac
 
 // ChangeDraft writes the draft and the draft-level plus per-entity audit rows
 // in one transaction. The admin path: no manager assignments are needed.
-func (s *Store) ChangeDraft(v any, actor, action string, expected int, entityIDs []string) error {
-	return s.ChangeDraftContext(context.Background(), v, actor, action, expected, entityIDs)
-}
-func (s *Store) ChangeDraftContext(ctx context.Context, v any, actor, action string, expected int, entityIDs []string) error {
+func (s *Store) ChangeDraft(ctx context.Context, v any, actor, action string, expected int, entityIDs []string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
 	var raw string
-	e = tx.QueryRow("SELECT value FROM kv WHERE key='draft'").Scan(&raw)
+	e = tx.QueryRowContext(ctx, "SELECT value FROM kv WHERE key='draft'").Scan(&raw)
 	if e != nil {
 		return e
 	}
@@ -417,15 +425,15 @@ func (s *Store) ChangeDraftContext(ctx context.Context, v any, actor, action str
 	if e != nil {
 		return e
 	}
-	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
 		return e
 	}
 	now := time.Now().Unix()
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
 		return e
 	}
 	for _, id := range entityIDs {
-		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
 			return e
 		}
 	}
@@ -436,17 +444,16 @@ func (s *Store) ChangeDraftContext(ctx context.Context, v any, actor, action str
 // the handler), bumps the version by one, and writes the draft-level plus
 // per-entity audit rows in one transaction. entityIDs are the client/policy IDs
 // that differed between the discarded draft and the active snapshot.
-func (s *Store) DiscardDraft(v any, actor string, expected int, entityIDs []string) error {
-	return s.DiscardDraftContext(context.Background(), v, actor, expected, entityIDs)
-}
-func (s *Store) DiscardDraftContext(ctx context.Context, v any, actor string, expected int, entityIDs []string) error {
+func (s *Store) DiscardDraft(ctx context.Context, v any, actor string, expected int, entityIDs []string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
 	var raw string
-	e = tx.QueryRow("SELECT value FROM kv WHERE key='draft'").Scan(&raw)
+	e = tx.QueryRowContext(ctx, "SELECT value FROM kv WHERE key='draft'").Scan(&raw)
 	if e != nil {
 		return e
 	}
@@ -463,15 +470,15 @@ func (s *Store) DiscardDraftContext(ctx context.Context, v any, actor string, ex
 	if e != nil {
 		return e
 	}
-	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE kv SET value=? WHERE key='draft'", string(b)); e != nil {
 		return e
 	}
 	now := time.Now().Unix()
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", "draft", now); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", "draft", now); e != nil {
 		return e
 	}
 	for _, id := range entityIDs {
-		if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", id, now); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", id, now); e != nil {
 			return e
 		}
 	}
@@ -483,10 +490,9 @@ func (s *Store) DiscardDraftContext(ctx context.Context, v any, actor string, ex
 // run this from the periodic maintenance loop so the database cannot grow
 // without bound on a long-lived single-node install. Audit retention is
 // age-based only; there is no row-count cap.
-func (s *Store) Prune(auditCutoff time.Time, revisionRetention int) error {
-	return s.PruneContext(context.Background(), auditCutoff, revisionRetention)
-}
-func (s *Store) PruneContext(ctx context.Context, auditCutoff time.Time, revisionRetention int) error {
+func (s *Store) Prune(ctx context.Context, auditCutoff time.Time, revisionRetention int) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
@@ -495,13 +501,13 @@ func (s *Store) PruneContext(ctx context.Context, auditCutoff time.Time, revisio
 	// created_at is INTEGER unix seconds; comparing against
 	// the same unit keeps range deletes O(log n) on the index instead of falling
 	// back to a full scan with TEXT comparison.
-	if _, e = tx.Exec("DELETE FROM audit_events WHERE created_at < ?", auditCutoff.Unix()); e != nil {
+	if _, e = tx.ExecContext(ctx, "DELETE FROM audit_events WHERE created_at < ?", auditCutoff.Unix()); e != nil {
 		return e
 	}
 	if revisionRetention > 0 {
 		// Keep revisions referenced by a succeeded operation (so rollback history
 		// is never pruned) plus the most recent N unreferenced ones.
-		if _, e = tx.Exec(`DELETE FROM kv WHERE key LIKE 'revision:%' AND key NOT IN (
+		if _, e = tx.ExecContext(ctx, `DELETE FROM kv WHERE key LIKE 'revision:%' AND key NOT IN (
 SELECT 'revision:'||json_extract(body,'$.revision_id') FROM operations WHERE json_extract(body,'$.status')='succeeded')
 AND key NOT IN (SELECT key FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DESC LIMIT ?)`, revisionRetention); e != nil {
 			return e
@@ -513,19 +519,18 @@ AND key NOT IN (SELECT key FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DE
 // InsertRevision stores the revision JSON under kv key "revision:<id>" and
 // writes the corresponding audit_event in one transaction. Used by
 // httpapi.createRevision so schema details stay inside store.
-func (s *Store) InsertRevision(revID, revBody, actor, action string) error {
-	return s.InsertRevisionContext(context.Background(), revID, revBody, actor, action)
-}
-func (s *Store) InsertRevisionContext(ctx context.Context, revID, revBody, actor, action string) error {
+func (s *Store) InsertRevision(ctx context.Context, revID, revBody, actor, action string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec("INSERT INTO kv VALUES(?,?)", "revision:"+revID, revBody); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO kv VALUES(?,?)", "revision:"+revID, revBody); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, revID, time.Now().Unix()); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, revID, time.Now().Unix()); e != nil {
 		return e
 	}
 	return tx.Commit()
@@ -536,18 +541,13 @@ func (s *Store) InsertRevisionContext(ctx context.Context, revID, revBody, actor
 // source of "revision is applied iff at least one succeeded operation references
 // it" and "latest_status is the most recent operation status for that revision,
 // defaulting to 'draft'" — both mirrors of the httpapi contract.
-func (s *Store) ListRevisions() ([]struct {
+func (s *Store) ListRevisions(ctx context.Context) ([]struct {
 	Body         string
 	Applied      bool
 	LatestStatus string
 }, error) {
-	return s.ListRevisionsContext(context.Background())
-}
-func (s *Store) ListRevisionsContext(ctx context.Context) ([]struct {
-	Body         string
-	Applied      bool
-	LatestStatus string
-}, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	rows, e := s.Read.QueryContext(ctx, `SELECT value,
  EXISTS(SELECT 1 FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') AND json_extract(body,'$.status')='succeeded'),
  COALESCE((SELECT json_extract(body,'$.status') FROM operations WHERE json_extract(body,'$.revision_id')=json_extract(kv.value,'$.id') ORDER BY rowid DESC LIMIT 1),'draft')
@@ -576,14 +576,16 @@ func (s *Store) ListRevisionsContext(ctx context.Context) ([]struct {
 }
 
 // Change writes desired state and its audit event in one durable transaction.
-func (s *Store) Change(key string, v any, actor, action string, expected int) error {
-	tx, e := s.DB.Begin()
+func (s *Store) Change(ctx context.Context, key string, v any, actor, action string, expected int) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
 	var raw string
-	e = tx.QueryRow("SELECT value FROM kv WHERE key=?", key).Scan(&raw)
+	e = tx.QueryRowContext(ctx, "SELECT value FROM kv WHERE key=?", key).Scan(&raw)
 	if e != nil {
 		return e
 	}
@@ -600,10 +602,10 @@ func (s *Store) Change(key string, v any, actor, action string, expected int) er
 	if e != nil {
 		return e
 	}
-	if _, e = tx.Exec("UPDATE kv SET value=? WHERE key=?", string(b), key); e != nil {
+	if _, e = tx.ExecContext(ctx, "UPDATE kv SET value=? WHERE key=?", string(b), key); e != nil {
 		return e
 	}
-	if _, e = tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, key, time.Now().Unix()); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, key, time.Now().Unix()); e != nil {
 		return e
 	}
 	return tx.Commit()

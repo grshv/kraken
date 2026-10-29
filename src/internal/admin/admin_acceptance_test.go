@@ -23,8 +23,9 @@ func setup(t *testing.T) (*store.Store, string) {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { st.DB.Close() })
+	ctx := context.Background()
 	for _, u := range []struct{ name, role string }{{"root", "admin"}, {"mgr", "manager"}} {
-		if _, e := st.CreateUser(u.name, "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g", u.role, "test"); e != nil {
+		if _, e := st.CreateUser(ctx, u.name, "$argon2id$v=19$m=19456,t=2,p=1$c2FsdHNhbHRzYWx0$aGFzaGhhc2hoYXNoaGFzaGhhc2hoYXNoaGFzaGhhc2g", u.role, "test"); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -33,9 +34,10 @@ func setup(t *testing.T) (*store.Store, string) {
 
 func session(t *testing.T, st *store.Store, user, hash string) {
 	t.Helper()
-	tx, _ := st.BeginTx()
+	ctx := context.Background()
+	tx, _ := st.BeginTx(ctx)
 	now := time.Now().Unix()
-	if e := st.InsertSession(tx, hash, user, "csrf", now+3600, now); e != nil {
+	if e := st.InsertSession(ctx, tx, hash, user, "csrf", now+3600, now); e != nil {
 		t.Fatal(e)
 	}
 	tx.Commit()
@@ -43,7 +45,7 @@ func session(t *testing.T, st *store.Store, user, hash string) {
 
 func TestAcceptListUsers(t *testing.T) {
 	st, _ := setup(t)
-	users, e := admin.ListUsers(st)
+	users, e := admin.ListUsers(context.Background(), st)
 	if e != nil || len(users) != 2 {
 		t.Fatalf("%v %v", users, e)
 	}
@@ -56,22 +58,23 @@ func TestAcceptListUsers(t *testing.T) {
 
 func TestAcceptLastAdminProtected(t *testing.T) {
 	st, _ := setup(t)
-	if e := admin.SetEnabled(st, "root", false, "cli"); !errors.Is(e, admin.ErrLastAdmin) {
+	ctx := context.Background()
+	if e := admin.SetEnabled(ctx, st, "root", false, "cli"); !errors.Is(e, admin.ErrLastAdmin) {
 		t.Fatalf("disable last admin: %v", e)
 	}
-	if e := admin.SetRole(st, "root", "manager", "cli"); !errors.Is(e, admin.ErrLastAdmin) {
+	if e := admin.SetRole(ctx, st, "root", "manager", "cli"); !errors.Is(e, admin.ErrLastAdmin) {
 		t.Fatalf("demote last admin: %v", e)
 	}
-	if e := admin.SetRole(st, "mgr", "admin", "cli"); e != nil {
+	if e := admin.SetRole(ctx, st, "mgr", "admin", "cli"); e != nil {
 		t.Fatal(e)
 	}
-	if e := admin.SetEnabled(st, "root", false, "cli"); e != nil {
+	if e := admin.SetEnabled(ctx, st, "root", false, "cli"); e != nil {
 		t.Fatalf("second admin exists, disable must work: %v", e)
 	}
-	if e := admin.SetRole(st, "ghost", "admin", "cli"); !errors.Is(e, admin.ErrNotFound) {
+	if e := admin.SetRole(ctx, st, "ghost", "admin", "cli"); !errors.Is(e, admin.ErrNotFound) {
 		t.Fatalf("unknown user: %v", e)
 	}
-	if e := admin.SetRole(st, "mgr", "viewer", "cli"); e == nil {
+	if e := admin.SetRole(ctx, st, "mgr", "viewer", "cli"); e == nil {
 		t.Fatal("invalid role accepted")
 	}
 }
@@ -79,12 +82,13 @@ func TestAcceptLastAdminProtected(t *testing.T) {
 func TestAcceptDisableRevokesSessions(t *testing.T) {
 	st, _ := setup(t)
 	session(t, st, "mgr", "h1")
-	if e := admin.SetEnabled(st, "mgr", false, "cli"); e != nil {
+	if e := admin.SetEnabled(context.Background(), st, "mgr", false, "cli"); e != nil {
 		t.Fatal(e)
 	}
-	tx, _ := st.BeginTx()
+	ctx := context.Background()
+	tx, _ := st.BeginTx(ctx)
 	defer tx.Rollback()
-	if u, _, _, _, _ := st.LookupSession(tx, "h1"); u != "" {
+	if u, _, _, _, _ := st.LookupSession(ctx, tx, "h1"); u != "" {
 		t.Fatal("session of disabled user survived")
 	}
 }
@@ -94,11 +98,12 @@ func TestAcceptRevokeSessions(t *testing.T) {
 	session(t, st, "root", "a1")
 	session(t, st, "root", "a2")
 	session(t, st, "mgr", "m1")
-	n, e := admin.RevokeSessions(st, "mgr", "cli")
+	ctx := context.Background()
+	n, e := admin.RevokeSessions(ctx, st, "mgr", "cli")
 	if e != nil || n != 1 {
 		t.Fatalf("revoke mgr: %d %v", n, e)
 	}
-	n, e = admin.RevokeSessions(st, "", "cli")
+	n, e = admin.RevokeSessions(ctx, st, "", "cli")
 	if e != nil || n != 2 {
 		t.Fatalf("revoke all: %d %v", n, e)
 	}
@@ -152,7 +157,7 @@ func TestAcceptBackupArchive(t *testing.T) {
 		t.Fatalf("backup database does not open: %v", e)
 	}
 	defer r.DB.Close()
-	if users, _ := r.Users(); len(users) != 2 {
+	if users, _ := r.Users(context.Background()); len(users) != 2 {
 		t.Fatalf("users in backup: %d", len(users))
 	}
 	if e := admin.Backup(context.Background(), st, data, out); e == nil {

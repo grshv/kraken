@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"path/filepath"
 	"sync"
 	"testing"
@@ -12,8 +13,9 @@ func TestConcurrentDemotionsKeepOneAdmin(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer s.DB.Close()
+	ctx := context.Background()
 	for _, name := range []string{"one", "two"} {
-		if _, e = s.CreateUser(name, "test-verifier", "admin", "fixture"); e != nil {
+		if _, e = s.CreateUser(ctx, name, "test-verifier", "admin", "fixture"); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -22,7 +24,11 @@ func TestConcurrentDemotionsKeepOneAdmin(t *testing.T) {
 	errs := make(chan error, 2)
 	for _, name := range []string{"one", "two"} {
 		wg.Add(1)
-		go func(name string) { defer wg.Done(); _, e := s.ChangeUser(name, &role, nil, nil, "fixture"); errs <- e }(name)
+		go func(name string) {
+			defer wg.Done()
+			_, e := s.ChangeUser(ctx, name, &role, nil, nil, "fixture")
+			errs <- e
+		}(name)
 	}
 	wg.Wait()
 	close(errs)
@@ -50,8 +56,9 @@ func TestUserAuditFailureRollsBackChangesAndRevocation(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer s.DB.Close()
+	ctx := context.Background()
 	for _, name := range []string{"one", "two"} {
-		if _, e = s.CreateUser(name, "test-verifier", "admin", "fixture"); e != nil {
+		if _, e = s.CreateUser(ctx, name, "test-verifier", "admin", "fixture"); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -63,7 +70,7 @@ func TestUserAuditFailureRollsBackChangesAndRevocation(t *testing.T) {
 		t.Fatal(e)
 	}
 	enabled := false
-	if _, e = s.ChangeUser("two", nil, &enabled, nil, "fixture"); e == nil {
+	if _, e = s.ChangeUser(ctx, "two", nil, &enabled, nil, "fixture"); e == nil {
 		t.Fatal("audit failure ignored")
 	}
 	var active bool

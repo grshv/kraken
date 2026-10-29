@@ -21,17 +21,17 @@ import (
 
 // inspectorTelemetryScope returns the telemetry scope for inspector reads and
 // the store.Scope for handler-level policy-visibility checks. Nil telemetry
-// scope = admin (no filtering). A store error yields ok=false so the handler
-// answers 503 storage_unavailable, matching the journal.
-func (s *Server) inspectorTelemetryScope(v session) (*telemetry.Scope, store.Scope, bool) {
+// scope = admin (no filtering). A non-nil error means the manager scope could
+// not be loaded; the handler surfaces it via failStorageBusy.
+func (s *Server) inspectorTelemetryScope(ctx context.Context, v session) (*telemetry.Scope, store.Scope, error) {
 	if v.Role != "manager" {
-		return nil, store.Scope{}, true
+		return nil, store.Scope{}, nil
 	}
-	sc, e := s.managerScope(v)
+	sc, e := s.managerScope(ctx, v)
 	if e != nil {
-		return nil, store.Scope{}, false
+		return nil, store.Scope{}, e
 	}
-	return &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}, sc, true
+	return &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}, sc, nil
 }
 
 // explanation is the result of evaluating one event against a snapshot.
@@ -165,7 +165,7 @@ func eventFailed(v events.Event) bool {
 // revision; the inspector does not fabricate stats for unknown IDs.
 func (s *Server) clientKnown(ctx context.Context, id string) bool {
 	var d Draft
-	if s.Store.GetContext(ctx, "draft", &d) == nil {
+	if s.Store.Get(ctx, "draft", &d) == nil {
 		for _, c := range d.Snapshot.Clients {
 			if c.ID == id {
 				return true
@@ -186,7 +186,7 @@ func (s *Server) clientKnown(ctx context.Context, id string) bool {
 // revision. Returns the snapshot that owns the policy so its clients are used.
 func (s *Server) policySnapshot(ctx context.Context, id string) (policy.Snapshot, bool) {
 	var d Draft
-	if s.Store.GetContext(ctx, "draft", &d) == nil {
+	if s.Store.Get(ctx, "draft", &d) == nil {
 		for _, p := range d.Snapshot.Policies {
 			if p.ID == id {
 				return d.Snapshot, true
@@ -217,8 +217,11 @@ func (s *Server) openConnections(ctx context.Context) (any, any) {
 
 func (s *Server) inspectorClientStats(w http.ResponseWriter, r *http.Request, v session) {
 	id := r.PathValue("id")
-	ts, scope, ok := s.inspectorTelemetryScope(v)
-	if !ok {
+	ts, scope, e := s.inspectorTelemetryScope(r.Context(), v)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -279,13 +282,16 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 		fail(w, 404, "not_found", "Политика не найдена")
 		return
 	}
-	ts, scope, ok := s.inspectorTelemetryScope(v)
-	if !ok {
+	ts, scope, e := s.inspectorTelemetryScope(r.Context(), v)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
 	if ts != nil {
-		active := s.loadActiveManifestOrDraft()
+		active := s.loadActiveManifestOrDraft(r.Context())
 		refs, mine := 0, false
 		for _, c := range active.Clients {
 			if c.PolicyID == id {
@@ -353,8 +359,11 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 }
 
 func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request, v session) {
-	ts, _, ok := s.inspectorTelemetryScope(v)
-	if !ok {
+	ts, _, e := s.inspectorTelemetryScope(r.Context(), v)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -383,8 +392,11 @@ func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request,
 }
 
 func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v session) {
-	ts, scope, ok := s.inspectorTelemetryScope(v)
-	if !ok {
+	ts, scope, e := s.inspectorTelemetryScope(r.Context(), v)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -418,8 +430,11 @@ func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v
 }
 
 func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v session) {
-	ts, _, ok := s.inspectorTelemetryScope(v)
-	if !ok {
+	ts, _, e := s.inspectorTelemetryScope(r.Context(), v)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
@@ -437,7 +452,7 @@ func (s *Server) inspectorDraftImpact(w http.ResponseWriter, r *http.Request, v 
 		return
 	}
 	var d Draft
-	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+	if e := s.Store.Get(ctx, "draft", &d); e != nil {
 		if s.failStorageBusy(w, e) {
 			return
 		}

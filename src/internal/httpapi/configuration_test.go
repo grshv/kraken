@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"io"
@@ -137,7 +138,7 @@ func TestDraftPreviewDoesNotCreateRevisionAndSeparatesRuntimeUpdate(t *testing.T
 	if result.User || result.Runtime || len(result.Summary) != 0 || len(result.Diff) != 0 || !strings.Contains(result.Config, "http_access deny all") {
 		t.Fatalf("unexpected empty preview: %+v", result)
 	}
-	rows, e := s.Store.ListRevisions()
+	rows, e := s.Store.ListRevisions(context.Background())
 	if e != nil || len(rows) != 0 {
 		t.Fatal("preview created a durable revision")
 	}
@@ -188,7 +189,7 @@ func TestDraftRejectsInstallationPortChange(t *testing.T) {
 		}
 	}
 	var saved Draft
-	if e := s.Store.Get("draft", &saved); e != nil {
+	if e := s.Store.Get(context.Background(), "draft", &saved); e != nil {
 		t.Fatal(e)
 	}
 	if saved.Version != original.Version || saved.Snapshot.Settings.HTTPPort != original.Snapshot.Settings.HTTPPort || saved.Snapshot.Settings.TLSPort != original.Snapshot.Settings.TLSPort {
@@ -232,7 +233,7 @@ func TestRevisionOperationsCannotChangeInstalledListeners(t *testing.T) {
 	snapshot.Settings.HTTPPort = 8080
 	revision := Revision{ID: store.ID(), DraftVersion: 1, Hash: policy.Hash(snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: snapshot}
 	encoded, _ := json.Marshal(revision)
-	if e := s.Store.InsertRevision(revision.ID, string(encoded), "admin", "create_revision"); e != nil {
+	if e := s.Store.InsertRevision(context.Background(), revision.ID, string(encoded), "admin", "create_revision"); e != nil {
 		t.Fatal(e)
 	}
 	for _, action := range []string{"validate", "apply", "rollback"} {
@@ -278,12 +279,12 @@ func TestRollbackCompatibilityMatchesCompilerAndImage(t *testing.T) {
 	}{{"current-build", policy.CompilerVersion, s.Image, true}, {"legacy-build", "5", s.Image, false}, {"other-image", policy.CompilerVersion, "other-image", false}} {
 		revision := Revision{ID: tc.id, Snapshot: manifest.Snapshot, Compiler: tc.compiler, Image: tc.image}
 		body, _ := json.Marshal(revision)
-		if err = s.Store.InsertRevision(tc.id, string(body), "fixture", "create_revision"); err != nil {
+		if err = s.Store.InsertRevision(context.Background(), tc.id, string(body), "fixture", "create_revision"); err != nil {
 			t.Fatal(err)
 		}
 		op := Operation{ID: "applied-" + tc.id, Action: "apply", Revision: tc.id, Status: "succeeded"}
 		body, _ = json.Marshal(op)
-		if err = s.Store.InsertOperation(op.ID, string(body), "compatibility-"+tc.id, "fixture", "fixture", "apply"); err != nil {
+		if err = s.Store.InsertOperation(context.Background(), op.ID, string(body), "compatibility-"+tc.id, "fixture", "fixture", "apply"); err != nil {
 			t.Fatal(err)
 		}
 	}

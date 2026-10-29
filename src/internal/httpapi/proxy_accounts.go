@@ -21,7 +21,7 @@ import (
 func (s *Server) refreshProxyAccounts() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	accounts, e := s.Store.EnabledProxyAccountsContext(ctx)
+	accounts, e := s.Store.EnabledProxyAccounts(ctx)
 	if e != nil {
 		return e
 	}
@@ -35,7 +35,7 @@ func (s *Server) refreshProxyAccounts() error {
 func (s *Server) listProxyAccounts(w http.ResponseWriter, r *http.Request, v session) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	items, e := s.Store.ProxyAccountsContext(ctx)
+	items, e := s.Store.ProxyAccounts(ctx)
 	if e != nil {
 		if s.failStorageBusy(w, e) {
 			return
@@ -44,7 +44,7 @@ func (s *Server) listProxyAccounts(w http.ResponseWriter, r *http.Request, v ses
 		return
 	}
 	if v.Role == "manager" {
-		scope, e := s.managerScopeContext(ctx, v)
+		scope, e := s.managerScope(ctx, v)
 		if e != nil {
 			if s.failStorageBusy(w, e) {
 				return
@@ -53,7 +53,7 @@ func (s *Server) listProxyAccounts(w http.ResponseWriter, r *http.Request, v ses
 			return
 		}
 		// Draft snapshot gives the proxy usernames referenced by clients.
-		snap, _, e := s.draftSnapshotContext(ctx)
+		snap, _, e := s.draftSnapshot(ctx)
 		if e != nil {
 			if s.failStorageBusy(w, e) {
 				return
@@ -104,7 +104,7 @@ func (s *Server) createProxyAccount(w http.ResponseWriter, r *http.Request, v se
 	defer cancel()
 	// A proxy login already taken by another manager's account is hidden: report
 	// it as a name clash without revealing the owner.
-	existing, e := s.Store.ProxyAccountContext(ctx, input.Username)
+	existing, e := s.Store.ProxyAccount(ctx, input.Username)
 	if e == nil {
 		owner := ""
 		if existing.Owner != nil {
@@ -138,7 +138,7 @@ func (s *Server) createProxyAccount(w http.ResponseWriter, r *http.Request, v se
 	if v.Role == "manager" {
 		owner = v.User
 	}
-	if e = s.Store.CreateProxyAccountContext(ctx, input.Username, hash, owner, v.User); errors.Is(e, store.ErrProxyAccountExists) {
+	if e = s.Store.CreateProxyAccount(ctx, input.Username, hash, owner, v.User); errors.Is(e, store.ErrProxyAccountExists) {
 		fail(w, 409, "account_exists", "Такой логин уже существует")
 		return
 	} else if e != nil {
@@ -152,7 +152,7 @@ func (s *Server) createProxyAccount(w http.ResponseWriter, r *http.Request, v se
 		fail(w, 503, "storage_unavailable", "Экспорт учётных записей прокси недоступен")
 		return
 	}
-	account, e := s.Store.ProxyAccountContext(ctx, input.Username)
+	account, e := s.Store.ProxyAccount(ctx, input.Username)
 	if e != nil {
 		if s.failStorageBusy(w, e) {
 			return
@@ -187,7 +187,7 @@ func (s *Server) updateProxyAccount(w http.ResponseWriter, r *http.Request, v se
 	// Manager may only touch accounts he owns or that are used solely by his
 	// clients. A foreign-owned account is reported as 404.
 	if v.Role == "manager" {
-		account, e := s.Store.ProxyAccountContext(ctx, username)
+		account, e := s.Store.ProxyAccount(ctx, username)
 		if errors.Is(e, sql.ErrNoRows) {
 			fail(w, 404, "not_found", "Учётная запись не найдена")
 			return
@@ -204,7 +204,7 @@ func (s *Server) updateProxyAccount(w http.ResponseWriter, r *http.Request, v se
 			owner = *account.Owner
 		}
 		if owner != v.User {
-			scope, se := s.managerScopeContext(ctx, v)
+			scope, se := s.managerScope(ctx, v)
 			if se != nil {
 				if s.failStorageBusy(w, se) {
 					return
@@ -212,7 +212,7 @@ func (s *Server) updateProxyAccount(w http.ResponseWriter, r *http.Request, v se
 				fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 				return
 			}
-			snap, _, se := s.draftSnapshotContext(ctx)
+			snap, _, se := s.draftSnapshot(ctx)
 			if se != nil {
 				if s.failStorageBusy(w, se) {
 					return
@@ -251,7 +251,7 @@ func (s *Server) updateProxyAccount(w http.ResponseWriter, r *http.Request, v se
 		}
 		hash = &h
 	}
-	if e := s.Store.ChangeProxyAccountContext(ctx, username, input.Enabled, hash, v.User); errors.Is(e, sql.ErrNoRows) {
+	if e := s.Store.ChangeProxyAccount(ctx, username, input.Enabled, hash, v.User); errors.Is(e, sql.ErrNoRows) {
 		fail(w, 404, "not_found", "Учётная запись не найдена")
 		return
 	} else if e != nil {
@@ -265,7 +265,7 @@ func (s *Server) updateProxyAccount(w http.ResponseWriter, r *http.Request, v se
 		fail(w, 503, "storage_unavailable", "Экспорт учётных записей прокси недоступен")
 		return
 	}
-	account, e := s.Store.ProxyAccountContext(ctx, username)
+	account, e := s.Store.ProxyAccount(ctx, username)
 	if e != nil {
 		if s.failStorageBusy(w, e) {
 			return

@@ -131,7 +131,7 @@ func addVacuumed(ctx context.Context, tw *tar.Writer, db *sql.DB, srcPath, archi
 	// SQLite accepts the target as a string literal; the path is a freshly
 	// generated temp name we control, but quote-escape defensively anyway.
 	stmt := "VACUUM INTO '" + strings.ReplaceAll(vac, "'", "''") + "'"
-	if _, e := db.Exec(stmt); e != nil {
+	if _, e := db.ExecContext(ctx, stmt); e != nil {
 		return fmt.Errorf("vacuum %s: %w", archiveName, e)
 	}
 	info, e := os.Lstat(vac)

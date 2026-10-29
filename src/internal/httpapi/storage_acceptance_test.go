@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -53,9 +54,10 @@ func TestAcceptanceSessionTouchThrottled(t *testing.T) {
 	s, h := fixtureServer(t)
 	admin, _ := loginTest(t, h)
 	last := func() int64 {
-		tx, _ := s.Store.BeginTx()
+		ctx := context.Background()
+		tx, _ := s.Store.BeginTx(ctx)
 		defer tx.Rollback()
-		_, _, _, ls, e := s.Store.LookupSession(tx, tokenHash(admin.Value))
+		_, _, _, ls, e := s.Store.LookupSession(ctx, tx, tokenHash(admin.Value))
 		if e != nil {
 			t.Fatal(e)
 		}

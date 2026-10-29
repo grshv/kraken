@@ -52,12 +52,13 @@ func TestStatisticsAggregateAndStorageFailure(t *testing.T) {
 func TestActivityReadsConfirmedPolicyAndDoesNotExposeCheckpoint(t *testing.T) {
 	s, h := fixtureServer(t)
 	cookie, _ := loginTest(t, h)
+	ctx := context.Background()
 	var draft Draft
-	if err := s.Store.Get("draft", &draft); err != nil {
+	if err := s.Store.Get(ctx, "draft", &draft); err != nil {
 		t.Fatal(err)
 	}
 	draft.Snapshot.Clients = append(draft.Snapshot.Clients, policy.Client{ID: "draft-only", Enabled: true})
-	if err := s.Store.Put("draft", draft); err != nil {
+	if err := s.Store.Put(ctx, "draft", draft); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.Telemetry.Ingest(context.Background(), nil, events.Checkpoint{Files: map[string]events.Position{"private-path": {Anchor: "private-anchor"}}, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
