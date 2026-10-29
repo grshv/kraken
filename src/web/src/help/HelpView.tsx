@@ -97,7 +97,7 @@ export function HelpView({ request }: { request: Request }) {
                 <button
                   key={e.slug}
                   type="button"
-                  className={"list-item" + (slug === e.slug ? " selected" : "")}
+                  className={"list-row" + (slug === e.slug ? " selected" : "")}
                   onClick={() => setSlug(e.slug)}
                 >
                   <span className="ellipsis">{e.title}</span>

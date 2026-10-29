@@ -6,6 +6,12 @@
 
 /* Shell styles live in cascade layers so shadcn/Tailwind utilities on components win. */
 @layer base {
+  /* Lucide icons default to the prototype size; components and size-* utilities override. */
+  svg.lucide {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
   :root {
     font-family: var(--font-sans);
     font-synthesis: none;
@@ -60,6 +66,18 @@
   }
   .muted-text {
     color: var(--muted-foreground);
+  }
+  .up {
+    color: var(--bad);
+  }
+  .num {
+    font-variant-numeric: tabular-nums;
+  }
+  .xs {
+    font-size: var(--text-xs);
+  }
+  .m {
+    font-weight: 500;
   }
   .small {
     font-size: var(--text-sm);
@@ -278,7 +296,7 @@
     position: absolute;
     top: 0;
     bottom: 0;
-    right: -5px;
+    left: calc(var(--list-w, 300px) - 5px);
     width: 9px;
     cursor: col-resize;
     z-index: 6;
@@ -368,7 +386,7 @@
     color: var(--muted-foreground);
     font-size: var(--text-sm);
   }
-  .list-item {
+  .list-row {
     display: grid;
     grid-template-columns: minmax(0, 1fr) auto;
     gap: 1px 8px;
@@ -383,21 +401,34 @@
     font-size: var(--text-base);
     color: var(--foreground);
   }
-  .list-item > * {
+  .list-row > * {
     min-width: 0;
   }
-  .list-item > :nth-child(2n) {
+  .list-row > :nth-child(2n) {
     white-space: nowrap;
     justify-self: end;
   }
-  .list-item:hover {
+  /* Section navigation: icon, label, counter. */
+  .list-row.nav-row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 8px;
+  }
+  .list-row.nav-row > :nth-child(2) {
+    justify-self: stretch;
+  }
+  .list-row.nav-row > svg {
+    width: 14px;
+    height: 14px;
+    color: var(--muted-foreground);
+  }
+  .list-row:hover {
     background: var(--muted);
   }
-  .list-item.selected {
+  .list-row.selected {
     background: var(--muted);
     box-shadow: inset 2px 0 0 var(--accent);
   }
-  .list-item:focus-visible {
+  .list-row:focus-visible {
     outline: 2px solid var(--ring);
     outline-offset: -2px;
   }
@@ -929,11 +960,15 @@
   /* ---------- callouts ---------- */
   .callout {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
+    align-items: flex-start;
+    gap: 10px;
     padding: 10px 12px;
     border-radius: 8px;
     border: 1px solid transparent;
+  }
+  /* Text-only callouts flow as a paragraph; icon callouts lay out in a row. */
+  .callout:not(:has(> svg)) {
+    display: block;
   }
   .callout-bad {
     background: var(--bad-bg);

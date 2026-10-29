@@ -189,12 +189,8 @@ export function SettingsSection(props: SectionProps) {
             <button
               key={sec.id}
               className={
-                "list-item" + (active_id === sec.id ? " selected" : "")
+                "list-row nav-row" + (active_id === sec.id ? " selected" : "")
               }
-              style={{
-                gridTemplateColumns: "auto minmax(0,1fr) auto",
-                alignItems: "center",
-              }}
               onClick={() => setActiveId(sec.id)}
             >
               <sec.icon aria-hidden />

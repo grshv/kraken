@@ -239,7 +239,6 @@ export function InspectorShell({
         status={status}
         onReview={openReview}
         onDiscard={handlers.onDiscardDraft}
-        onOpenAudit={handlers.onOpenAudit}
       />
       <CommandPalette
         role={role}

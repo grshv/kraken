@@ -188,7 +188,7 @@ export function AccountsSection(props: SectionProps) {
                 <button
                   key={u.username}
                   className={
-                    "list-item" + (selected === u.username ? " selected" : "")
+                    "list-row" + (selected === u.username ? " selected" : "")
                   }
                   style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }}
                   onClick={() => setSelected(u.username)}
@@ -224,7 +224,7 @@ export function AccountsSection(props: SectionProps) {
               <button
                 key={a.username}
                 className={
-                  "list-item" + (selected === a.username ? " selected" : "")
+                  "list-row" + (selected === a.username ? " selected" : "")
                 }
                 style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }}
                 onClick={() => setSelected(a.username)}

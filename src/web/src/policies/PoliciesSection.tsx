@@ -233,7 +233,7 @@ function PolicyRow({
 }) {
   return (
     <button
-      className={"list-item" + (active ? " selected" : "")}
+      className={"list-row" + (active ? " selected" : "")}
       onClick={onClick}
     >
       <span className="ellipsis" style={{ fontWeight: 500 }}>

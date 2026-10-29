@@ -35,6 +35,7 @@ import {
   setClientNetworks,
 } from "../draft/edits";
 import type { Client, Event, Policy, Session, Snapshot } from "../model";
+import { pluralRu } from "../model";
 import type { NavId } from "../shell/nav";
 
 // Inspector shapes (subset of fields the screens render).
@@ -191,7 +192,7 @@ export function ClientsSection(props: SectionProps) {
             {(unknown ?? []).map((u) => (
               <button
                 key={u.source_ip}
-                className="list-item"
+                className="list-row"
                 onClick={() =>
                   setCreating({
                     from: u.source_ip,
@@ -202,7 +203,7 @@ export function ClientsSection(props: SectionProps) {
                 }
               >
                 <span className="mono">{u.source_ip}</span>
-                <Badge variant="destructive">{u.denied} отказов</Badge>
+                <span className="small up">{pluralRu(u.denied, "отказ", "отказа", "отказов")}</span>
               </button>
             ))}
             {(!unknown || unknown.length === 0) && (
@@ -332,7 +333,7 @@ export function ClientsSection(props: SectionProps) {
             return (
               <button
                 key={c.id}
-                className={"list-item" + (selected === c.id ? " selected" : "")}
+                className={"list-row" + (selected === c.id ? " selected" : "")}
                 onClick={() => {
                   setSelected(c.id);
                   setTab("overview");
@@ -347,7 +348,7 @@ export function ClientsSection(props: SectionProps) {
                   {!c.enabled
                     ? "выкл"
                     : st?.denied
-                      ? `${st.denied} отказов`
+                      ? pluralRu(st.denied, "отказ", "отказа", "отказов")
                       : st
                         ? `${st.requests}`
                         : "—"}
@@ -361,7 +362,7 @@ export function ClientsSection(props: SectionProps) {
               {unknown.map((u) => (
                 <button
                   key={u.source_ip}
-                  className="list-item"
+                  className="list-row"
                   onClick={() =>
                     setCreating({
                       from: u.source_ip,
@@ -372,7 +373,7 @@ export function ClientsSection(props: SectionProps) {
                   }
                 >
                   <span className="mono">{u.source_ip}</span>
-                  <span className="small up">{u.denied} отказов</span>
+                  <span className="small up">{pluralRu(u.denied, "отказ", "отказа", "отказов")}</span>
                 </button>
               ))}
             </>
@@ -724,7 +725,7 @@ function OverviewTab({
           <Ban aria-hidden />
           <div className="grow">
             <div style={{ fontWeight: 500 }}>
-              {d.denied} отказов к <span className="mono">{d.host}</span> за 24
+              {pluralRu(d.denied, "отказ", "отказа", "отказов")} к <span className="mono">{d.host}</span> за 24
               ч
             </div>
             <div className="small muted-text">

@@ -158,7 +158,7 @@ export function AuditSection(props: SectionProps) {
                   <button
                     key={a.id}
                     className={
-                      "list-item audit-item" +
+                      "list-row audit-item" +
                       (selectedID === a.id ? " selected" : "")
                     }
                     onClick={() => setSelectedID(a.id)}
