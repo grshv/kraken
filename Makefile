@@ -1,10 +1,10 @@
-.PHONY: help docs-check web-build build test check image integration dev-cert bootstrap password-reset up down
+.PHONY: help docs-check web-build build test check image integration integration-network integration-apt dev-cert bootstrap password-reset up down
 
 help:
 	@echo "build        Build frontend and Go binary in bin/"
 	@echo "check        Docs, frontend type/build, Go race tests, vet and patch checks"
 	@echo "image        Build single-container development image"
-	@echo "integration  Run isolated real-Squid smoke tests (requires image)"
+	@echo "integration  Run smoke, network and APT tests on real Squid (requires image)"
 	@echo "dev-cert     Create localhost development certificate in Compose volume"
 	@echo "bootstrap    Interactively create initial administrator"
 	@echo "password-reset  Reset an existing password locally and revoke sessions"
@@ -32,6 +32,14 @@ image:
 
 integration:
 	python3 src/tests/integration/smoke.py
+	python3 src/tests/integration/network.py
+	python3 src/tests/integration/apt.py
+
+integration-network:
+	python3 src/tests/integration/network.py
+
+integration-apt:
+	python3 src/tests/integration/apt.py
 
 dev-cert:
 	docker compose -f deploy/compose.yaml run --rm --no-deps --user 10013:10013 --entrypoint /usr/local/bin/squid-control squid-control dev-cert

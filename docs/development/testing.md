@@ -6,7 +6,7 @@
 | --- | --- | --- |
 | `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, whitespace | Любое изменение |
 | `make check` | docs-check, typecheck и сборка web, `go test -race ./...`, `go vet`, `git diff --check` | Любое изменение кода |
-| `make integration` | Реальный Squid в образе `squid-control:dev`, локальные fake origins | Изменения policy, runtime, deploy, auth |
+| `make integration` | `smoke.py`, `network.py`, `apt.py`: реальный Squid в образе `squid-control:dev`, локальные fixtures | Изменения policy, runtime, deploy, auth |
 | `npm --prefix src/web run test:e2e` | Playwright в отдельном контейнере | Изменения UI; нужен `make image` и Chromium |
 
 docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
@@ -36,7 +36,21 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
   expert-директив при сохранении черновика; отказ Squid parse с номером строки;
 - apply, idempotency, rollback, восстановление pending journal после restart;
 - неизменность listeners через draft и старые ревизии;
-- CLI password-reset с отзывом сессий; отсутствие plaintext паролей в volume.
+- CLI password-reset с отзывом сессий; отсутствие plaintext паролей в volume;
+- изоляция UID: от `proxy` недоступны SQLite, ключ панели и токен manager.
+
+`network.py` (`make integration-network`) с отдельного all_web-клиента и своим
+DNS-сервером проверяет отказ по ACL (403, `ERR_ACCESS_DENIED`) для IPv4/IPv6
+loopback, link-local, metadata, IPv4-mapped, 6to4, Teredo, NAT64 и private, для имён,
+резолвящихся в них, для CONNECT; DNS rebinding после истечения TTL; поведение
+`allow_private_destinations`; origin получает только контрольные запросы.
+
+`apt.py` (`make integration-apt`) поднимает подписанный локальный репозиторий:
+`apt-get update/install` через прокси по HTTP и через CONNECT, отказ без политики и
+без домена в allowlist, ошибка подписи при подменённом `InRelease`. Блок с настоящим
+архивом Ubuntu включается `SC_TEST_REAL_APT=1` и использует DNS 1.1.1.1/8.8.8.8;
+DNS Docker Desktop/OrbStack отвечает адресами `198.18.0.0/15`, которые прокси
+закрывает как private, поэтому там блок не проходит.
 
 ## Обязательные сценарии
 

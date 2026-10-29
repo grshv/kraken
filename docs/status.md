@@ -10,7 +10,8 @@
 | --- | --- | --- |
 | Панель и вход | HTTPS, bootstrap без default password, Argon2id, серверные сессии, CSRF, CLI password-reset | Go tests, smoke |
 | Пользователи | Роли admin/viewer, блокировка, отзыв сессий, защита последнего admin | Go tests, smoke |
-| Клиенты и политики | Клиенты, сети, группы; all_web и allowlist; default deny; защита loopback/link-local/metadata/private | Go tests, smoke на реальных source IP |
+| Клиенты и политики | Клиенты, сети, группы; all_web и allowlist; default deny; защита loopback/link-local/metadata/private, IPv6-туннельных диапазонов и DNS rebinding | Go tests, smoke и `network.py` на реальных source IP с собственным DNS |
+| APT | `apt-get update/install` через HTTP и CONNECT с проверкой подписей; отказ вне allowlist | `apt.py` на локальном подписанном репозитории; настоящий архив Ubuntu (arm64, ports) проверен вручную при `allow_private_destinations` из-за DNS OrbStack |
 | Proxy auth | Отдельные proxy accounts, Basic только через TLS listener, IP/CIDR + username | Go tests, smoke на Squid 6.13 |
 | Настройки и expert | Визуальные настройки Squid; типизированный upstream proxy (`cache_peer` parent, опция без direct); expert-секция с allowlist директив, запретом файлов-параметров и peers во внутренние сети; строка ошибки parse без вывода Squid | Go tests, мутационная проверка, smoke |
 | Применение | Черновик, preview/diff, parse, apply, fingerprint, LKG, recovery, rollback, service-update | Go fault tests (ENOSPC, SIGKILL), smoke |
@@ -41,9 +42,7 @@
 
 | # | Срез | Критерии приёмки | Состояние |
 | --- | --- | --- | --- |
-| 3 | Сетевые запреты в smoke | С реальных source-адресов отклоняются IPv6 loopback/link-local, IPv4-mapped, 6to4, Teredo, private (при выключенной настройке), metadata; имя, резолвящееся во внутренний адрес; смена DNS-ответа между запросами (rebinding) не открывает внутренний адрес | Не начат |
-| 4 | APT через прокси | `apt-get update` и `apt-get install` тестового пакета из локального подписанного репозитория через HTTP и через HTTPS CONNECT; проверка подписей включена; allowlist-клиент без домена репозитория получает отказ | Не начат |
-| 5 | Ревизия expert-режима | Частые сценарии (кандидаты: upstream proxy, правила кеша пакетов) перенесены в типизированные настройки с тестами; expert остаётся аварийным режимом. Состав сценариев подтверждает владелец | Upstream proxy реализован (Go tests, мутационная проверка; integration — после сведения со срезами 2–4). Остальные сценарии ждут ответа владельца |
+| 5 | Ревизия expert-режима | Частые сценарии (кандидаты: upstream proxy, правила кеша пакетов) перенесены в типизированные настройки с тестами; expert остаётся аварийным режимом. Состав сценариев подтверждает владелец | Upstream proxy реализован (Go tests, мутационная проверка, integration). Остальные сценарии ждут ответа владельца |
 | 6 | Упрощение | Удалены пути совместимости, нужные только прежним локальным установкам (после проверки, что их LKG обновлены), и код без вызывающих; новых fault-injection тестов не добавляется, пока не закрыты 2–4 | Не начат |
 | 7 | Новый UI | Сначала сценарии и макет экранов, согласованные владельцем; затем реализация одним срезом с e2e на ключевые потоки | Ждёт сценариев |
 

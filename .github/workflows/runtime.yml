@@ -18,3 +18,7 @@ jobs:
         run: docker build -f deploy/Dockerfile -t squid-control:dev .
       - name: Exercise real Squid
         run: python3 src/tests/integration/smoke.py
+      - name: Network denials on real Squid
+        run: python3 src/tests/integration/network.py
+      - name: APT through the proxy
+        run: python3 src/tests/integration/apt.py
