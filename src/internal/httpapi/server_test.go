@@ -29,7 +29,7 @@ func fixtureServer(t *testing.T) (*Server, http.Handler) {
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { tel.Close() })
-	if e = Bootstrap(st, "admin", "test-password-only-123"); e != nil {
+	if e = Bootstrap(context.Background(), st, "admin", "test-password-only-123"); e != nil {
 		t.Fatal(e)
 	}
 	rt := local.New(dir, "/unused", "/dev/null", "", "", "test-image")
@@ -126,7 +126,7 @@ func TestDraftConflictAndValidation(t *testing.T) {
 }
 func TestBootstrapIsNotPublicRegistration(t *testing.T) {
 	s, _ := fixtureServer(t)
-	if e := Bootstrap(s.Store, "another", "test-password-only-123"); e == nil {
+	if e := Bootstrap(context.Background(), s.Store, "another", "test-password-only-123"); e == nil {
 		t.Fatal("bootstrap created another admin")
 	}
 	if h, e := PasswordHash("short"); e == nil || h != "" {

@@ -29,16 +29,17 @@ func oldServiceFixture(t *testing.T) (*Server, local.Manifest) {
 }
 func TestServiceUpdateUsesAppliedSnapshotAndAuditedPipeline(t *testing.T) {
 	s, old := oldServiceFixture(t)
+	ctx := context.Background()
 	var draft Draft
-	if err := s.Store.Get("draft", &draft); err != nil {
+	if err := s.Store.Get(ctx, "draft", &draft); err != nil {
 		t.Fatal(err)
 	}
 	draft.Snapshot.TLSProfiles[0].Name = "Unapplied user draft"
 	draft.Version++
-	if err := s.Store.Put("draft", draft); err != nil {
+	if err := s.Store.Put(ctx, "draft", draft); err != nil {
 		t.Fatal(err)
 	}
-	op, err := ApplyServiceUpdate(context.Background(), s.Store, s.Runtime, s.Image)
+	op, err := ApplyServiceUpdate(ctx, s.Store, s.Runtime, s.Image)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,17 +54,17 @@ func TestServiceUpdateUsesAppliedSnapshotAndAuditedPipeline(t *testing.T) {
 		t.Fatal("service update changed user policy", current)
 	}
 	var after Draft
-	if err = s.Store.Get("draft", &after); err != nil || !reflect.DeepEqual(draft, after) {
+	if err = s.Store.Get(ctx, "draft", &after); err != nil || !reflect.DeepEqual(draft, after) {
 		t.Fatal("draft changed", err)
 	}
 	var revision Revision
-	if err = s.Store.Get("revision:"+op.Revision, &revision); err != nil {
+	if err = s.Store.Get(ctx, "revision:"+op.Revision, &revision); err != nil {
 		t.Fatal(err)
 	}
 	if revision.Hash != policy.Hash(old.Snapshot) || !reflect.DeepEqual(revision.Snapshot, old.Snapshot) {
 		t.Fatal(revision)
 	}
-	saved, err := s.loadOperation(op.ID)
+	saved, err := s.loadOperation(ctx, op.ID)
 	if err != nil || saved.Status != "succeeded" {
 		t.Fatal(saved, err)
 	}
@@ -72,17 +73,18 @@ func TestServiceUpdateUsesAppliedSnapshotAndAuditedPipeline(t *testing.T) {
 		t.Fatal(journal, err)
 	}
 	var count int
-	if err = s.Store.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE actor='local-cli' AND action='service_update' AND entity_id=?", op.ID).Scan(&count); err != nil || count != 1 {
+	if err = s.Store.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_events WHERE actor='local-cli' AND action='service_update' AND entity_id=?", op.ID).Scan(&count); err != nil || count != 1 {
 		t.Fatal(count, err)
 	}
-	if _, err = ApplyServiceUpdate(context.Background(), s.Store, s.Runtime, s.Image); err == nil {
+	if _, err = ApplyServiceUpdate(ctx, s.Store, s.Runtime, s.Image); err == nil {
 		t.Fatal("reapplied current service config")
 	}
 }
 func TestServiceUpdateParseFailurePreservesAppliedAndDraft(t *testing.T) {
 	s, old := oldServiceFixture(t)
 	s.Runtime.Command = func(context.Context, ...string) error { return errors.New("parse fault") }
-	op, err := ApplyServiceUpdate(context.Background(), s.Store, s.Runtime, s.Image)
+	ctx := context.Background()
+	op, err := ApplyServiceUpdate(ctx, s.Store, s.Runtime, s.Image)
 	if err == nil || op.Status != "rejected" {
 		t.Fatal(op, err)
 	}
@@ -90,7 +92,7 @@ func TestServiceUpdateParseFailurePreservesAppliedAndDraft(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(current, old) {
 		t.Fatal("changed rejected config", current, err)
 	}
-	saved, err := s.loadOperation(op.ID)
+	saved, err := s.loadOperation(ctx, op.ID)
 	if err != nil || saved.Status != "rejected" {
 		t.Fatal(saved, err)
 	}

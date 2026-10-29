@@ -12,65 +12,36 @@ import (
 	"kraken.local/kraken/internal/store"
 )
 
-// managerScopeContext loads the manager's networks and client IDs through the
-// reader pool. Admins get nil (no filtering). Using the reader keeps scope
-// loading off the write lock so a concurrent apply or audit scroll cannot
-// stall a configured request.
-func (s *Server) managerScopeContext(ctx context.Context, v session) (store.Scope, error) {
+// managerScope loads the manager's networks and client IDs through the reader
+// pool. Admins get nil (no filtering). Using the reader keeps scope loading off
+// the write lock so a concurrent apply or audit scroll cannot stall a
+// configured request.
+func (s *Server) managerScope(ctx context.Context, v session) (store.Scope, error) {
 	if v.Role != "manager" {
 		return store.Scope{}, nil
 	}
-	return s.Store.UserScopeContext(ctx, v.User)
-}
-
-// managerScope is the context.Background wrapper for callers without a request
-// context (periodic maintenance, CLI paths).
-func (s *Server) managerScope(v session) (store.Scope, error) {
-	return s.managerScopeContext(context.Background(), v)
+	return s.Store.UserScope(ctx, v.User)
 }
 
 // activeRevisionSnapshot returns the snapshot of the last successfully applied
 // revision, or the draft snapshot if nothing has been applied yet. Used to
 // decide which objects are "changed" by the manager's draft edit.
-func (s *Server) activeRevisionSnapshot() (policy.Snapshot, error) {
+func (s *Server) activeRevisionSnapshot(ctx context.Context) (policy.Snapshot, error) {
 	manifest, e := s.Runtime.ReadManifest()
 	if e == nil {
 		return manifest.Snapshot, nil
 	}
 	var d Draft
-	if e := s.Store.Get("draft", &d); e != nil {
-		return policy.Snapshot{}, e
-	}
-	return d.Snapshot, nil
-}
-
-// activeRevisionSnapshotContext is the ctx-bound variant used by handlers that
-// already hold a request deadline.
-func (s *Server) activeRevisionSnapshotContext(ctx context.Context) (policy.Snapshot, error) {
-	manifest, e := s.Runtime.ReadManifest()
-	if e == nil {
-		return manifest.Snapshot, nil
-	}
-	var d Draft
-	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+	if e := s.Store.Get(ctx, "draft", &d); e != nil {
 		return policy.Snapshot{}, e
 	}
 	return d.Snapshot, nil
 }
 
 // draftSnapshot loads the current draft snapshot.
-func (s *Server) draftSnapshot() (policy.Snapshot, int, error) {
+func (s *Server) draftSnapshot(ctx context.Context) (policy.Snapshot, int, error) {
 	var d Draft
-	if e := s.Store.Get("draft", &d); e != nil {
-		return policy.Snapshot{}, 0, e
-	}
-	return d.Snapshot, d.Version, nil
-}
-
-// draftSnapshotContext is the ctx-bound variant used by handlers.
-func (s *Server) draftSnapshotContext(ctx context.Context) (policy.Snapshot, int, error) {
-	var d Draft
-	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+	if e := s.Store.Get(ctx, "draft", &d); e != nil {
 		return policy.Snapshot{}, 0, e
 	}
 	return d.Snapshot, d.Version, nil
@@ -539,17 +510,17 @@ func changedEntityIDs(draft, active policy.Snapshot) []string {
 
 // loadActiveManifestOrDraft is a convenience that never fails fatally: a
 // missing manifest falls back to the draft snapshot (no apply yet).
-func (s *Server) loadActiveManifestOrDraft() policy.Snapshot {
-	snap, _ := s.activeRevisionSnapshot()
+func (s *Server) loadActiveManifestOrDraft(ctx context.Context) policy.Snapshot {
+	snap, _ := s.activeRevisionSnapshot(ctx)
 	return snap
 }
 
 // PruneManagerClients removes manager-client assignments for clients that no
 // longer exist in either the draft or the active revision. Called from the
 // periodic maintenance tick alongside store.Prune.
-func (s *Server) PruneManagerClients() error {
-	draft, _, dErr := s.draftSnapshot()
-	active, aErr := s.activeRevisionSnapshot()
+func (s *Server) PruneManagerClients(ctx context.Context) error {
+	draft, _, dErr := s.draftSnapshot(ctx)
+	active, aErr := s.activeRevisionSnapshot(ctx)
 	if dErr != nil && aErr != nil {
 		return nil
 	}
@@ -561,7 +532,7 @@ func (s *Server) PruneManagerClients() error {
 	for i, c := range active.Clients {
 		activeIDs[i] = c.ID
 	}
-	return s.Store.PruneManagerClients(draftIDs, activeIDs)
+	return s.Store.PruneManagerClients(ctx, draftIDs, activeIDs)
 }
 
 var errNotFound = errors.New("not found")

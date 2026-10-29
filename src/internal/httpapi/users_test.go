@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"encoding/json"
 	"kraken.local/kraken/internal/store"
 	"net/http"
@@ -77,7 +78,7 @@ func TestUsersRolesAndServerPermissions(t *testing.T) {
 		t.Fatal("disabled manager session survived")
 	}
 	// Verify a login begun with an old hash cannot mint a session after disable.
-	oldHash, e := s.Store.UserPasswordHashStandalone("observer")
+	oldHash, e := s.Store.UserPasswordHashStandalone(context.Background(), "observer")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -117,7 +118,7 @@ func TestUserChangesRevokeSessionsAndProtectLastAdmin(t *testing.T) {
 		t.Fatal("password change did not revoke sessions")
 	}
 	_, _ = loginAs(t, h, "second", "replacement-password-123")
-	rows, e := s.Store.Users()
+	rows, e := s.Store.Users(context.Background())
 	if e != nil {
 		t.Fatal(e)
 	}

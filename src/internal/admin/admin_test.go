@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
@@ -20,14 +21,14 @@ func openStore(t *testing.T) *store.Store {
 
 func mustCreate(t *testing.T, s *store.Store, name, role string) {
 	t.Helper()
-	if _, e := s.CreateUser(name, "phc-verifier", role, "fixture"); e != nil {
+	if _, e := s.CreateUser(context.Background(), name, "phc-verifier", role, "fixture"); e != nil {
 		t.Fatal(e)
 	}
 }
 
 func mustSession(t *testing.T, s *store.Store, hash, user string) {
 	t.Helper()
-	if _, e := s.DB.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", hash, user, "csrf", 9999999999, 0); e != nil {
+	if _, e := s.DB.ExecContext(context.Background(), "INSERT INTO sessions VALUES(?,?,?,?,?)", hash, user, "csrf", 9999999999, 0); e != nil {
 		t.Fatal(e)
 	}
 }
@@ -35,7 +36,7 @@ func mustSession(t *testing.T, s *store.Store, hash, user string) {
 func sessionCount(t *testing.T, s *store.Store, user string) int {
 	t.Helper()
 	var n int
-	if e := s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE username=?", user).Scan(&n); e != nil {
+	if e := s.DB.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM sessions WHERE username=?", user).Scan(&n); e != nil {
 		t.Fatal(e)
 	}
 	return n
@@ -44,7 +45,7 @@ func sessionCount(t *testing.T, s *store.Store, user string) int {
 func auditCount(t *testing.T, s *store.Store, actor, action string) int {
 	t.Helper()
 	var n int
-	if e := s.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE actor=? AND action=?", actor, action).Scan(&n); e != nil {
+	if e := s.DB.QueryRowContext(context.Background(), "SELECT COUNT(*) FROM audit_events WHERE actor=? AND action=?", actor, action).Scan(&n); e != nil {
 		t.Fatal(e)
 	}
 	return n
@@ -55,7 +56,7 @@ func TestSetEnabledRevokesSessionsAndAudits(t *testing.T) {
 	mustCreate(t, s, "alice", "admin")
 	mustCreate(t, s, "bob", "manager")
 	mustSession(t, s, "h-bob", "bob")
-	if e := SetEnabled(s, "bob", false, "cli"); e != nil {
+	if e := SetEnabled(context.Background(), s, "bob", false, "cli"); e != nil {
 		t.Fatal(e)
 	}
 	if n := sessionCount(t, s, "bob"); n != 0 {
@@ -69,10 +70,11 @@ func TestSetEnabledRevokesSessionsAndAudits(t *testing.T) {
 func TestSetEnabledLastAdminBlocked(t *testing.T) {
 	s := openStore(t)
 	mustCreate(t, s, "only", "admin")
-	if e := SetEnabled(s, "only", false, "cli"); e != ErrLastAdmin {
+	ctx := context.Background()
+	if e := SetEnabled(ctx, s, "only", false, "cli"); e != ErrLastAdmin {
 		t.Fatalf("disable last admin: want ErrLastAdmin, got %v", e)
 	}
-	if e := SetEnabled(s, "absent", false, "cli"); e != ErrNotFound {
+	if e := SetEnabled(ctx, s, "absent", false, "cli"); e != ErrNotFound {
 		t.Fatalf("disable unknown: want ErrNotFound, got %v", e)
 	}
 }
@@ -81,11 +83,11 @@ func TestSetEnabledOneOfTwoAdmins(t *testing.T) {
 	s := openStore(t)
 	mustCreate(t, s, "a", "admin")
 	mustCreate(t, s, "b", "admin")
-	if e := SetEnabled(s, "a", false, "cli"); e != nil {
+	if e := SetEnabled(context.Background(), s, "a", false, "cli"); e != nil {
 		t.Fatalf("disable one of two admins: %v", e)
 	}
 	// Remaining enabled admin is still active and can be disabled.
-	if e := SetEnabled(s, "b", false, "cli"); e != ErrLastAdmin {
+	if e := SetEnabled(context.Background(), s, "b", false, "cli"); e != ErrLastAdmin {
 		t.Fatalf("disable last admin: want ErrLastAdmin, got %v", e)
 	}
 }
@@ -93,7 +95,7 @@ func TestSetEnabledOneOfTwoAdmins(t *testing.T) {
 func TestSetRoleDemoteLastAdminBlocked(t *testing.T) {
 	s := openStore(t)
 	mustCreate(t, s, "only", "admin")
-	if e := SetRole(s, "only", "manager", "cli"); e != ErrLastAdmin {
+	if e := SetRole(context.Background(), s, "only", "manager", "cli"); e != ErrLastAdmin {
 		t.Fatalf("demote last admin: want ErrLastAdmin, got %v", e)
 	}
 }
@@ -103,7 +105,7 @@ func TestSetRoleRevokesSessions(t *testing.T) {
 	mustCreate(t, s, "a", "admin")
 	mustCreate(t, s, "b", "admin")
 	mustSession(t, s, "h-b", "b")
-	if e := SetRole(s, "b", "manager", "cli"); e != nil {
+	if e := SetRole(context.Background(), s, "b", "manager", "cli"); e != nil {
 		t.Fatal(e)
 	}
 	if n := sessionCount(t, s, "b"); n != 0 {
@@ -114,7 +116,7 @@ func TestSetRoleRevokesSessions(t *testing.T) {
 func TestSetRoleInvalid(t *testing.T) {
 	s := openStore(t)
 	mustCreate(t, s, "a", "admin")
-	if e := SetRole(s, "a", "viewer", "cli"); e == nil {
+	if e := SetRole(context.Background(), s, "a", "viewer", "cli"); e == nil {
 		t.Fatal("invalid role accepted")
 	}
 }
@@ -126,7 +128,7 @@ func TestRevokeSessionsOneUser(t *testing.T) {
 	mustSession(t, s, "h1", "a")
 	mustSession(t, s, "h2", "a")
 	mustSession(t, s, "h3", "b")
-	n, e := RevokeSessions(s, "a", "cli")
+	n, e := RevokeSessions(context.Background(), s, "a", "cli")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -151,7 +153,7 @@ func TestRevokeSessionsAll(t *testing.T) {
 	mustSession(t, s, "h1", "a")
 	mustSession(t, s, "h2", "b")
 	mustSession(t, s, "h3", "b")
-	n, e := RevokeSessions(s, "", "cli")
+	n, e := RevokeSessions(context.Background(), s, "", "cli")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -167,7 +169,7 @@ func TestListUsersIncludesSessionCounts(t *testing.T) {
 	mustSession(t, s, "h1", "alice")
 	mustSession(t, s, "h2", "alice")
 	mustSession(t, s, "h3", "bob")
-	rows, e := ListUsers(s)
+	rows, e := ListUsers(context.Background(), s)
 	if e != nil {
 		t.Fatal(e)
 	}

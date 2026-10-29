@@ -5,6 +5,7 @@
 package admin
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 
@@ -22,8 +23,8 @@ type UserRow struct {
 }
 
 // ListUsers returns every user with the number of currently stored sessions.
-func ListUsers(st *store.Store) ([]UserRow, error) {
-	rows, e := st.Read.Query(`SELECT username, role, enabled,
+func ListUsers(ctx context.Context, st *store.Store) ([]UserRow, error) {
+	rows, e := st.Read.QueryContext(ctx, `SELECT username, role, enabled,
 		(SELECT COUNT(*) FROM sessions WHERE sessions.username=users.username)
 		FROM users ORDER BY username`)
 	if e != nil {
@@ -44,36 +45,36 @@ func ListUsers(st *store.Store) ([]UserRow, error) {
 // SetEnabled toggles a user. Disabling revokes that user's sessions; the last
 // enabled admin cannot be disabled. Delegates to store.ChangeUser so the guard,
 // revocation and audit transaction stay identical to PATCH /users.
-func SetEnabled(st *store.Store, username string, enabled bool, actor string) error {
-	_, e := st.ChangeUser(username, nil, &enabled, nil, actor)
+func SetEnabled(ctx context.Context, st *store.Store, username string, enabled bool, actor string) error {
+	_, e := st.ChangeUser(ctx, username, nil, &enabled, nil, actor)
 	return mapError(e)
 }
 
 // SetRole changes a user's role to admin or manager. Demoting the last enabled
 // admin fails with ErrLastAdmin; any role change revokes the user's sessions.
-func SetRole(st *store.Store, username, role, actor string) error {
+func SetRole(ctx context.Context, st *store.Store, username, role, actor string) error {
 	if !store.ValidRole(role) {
 		return errors.New("invalid role")
 	}
 	r := role
-	_, e := st.ChangeUser(username, &r, nil, nil, actor)
+	_, e := st.ChangeUser(ctx, username, &r, nil, nil, actor)
 	return mapError(e)
 }
 
 // RevokeSessions deletes sessions for one user, or for every user when username
 // is empty, and returns how many were removed. The audit row is written in the
 // same transaction so a crash cannot leave a revoke unattributed.
-func RevokeSessions(st *store.Store, username, actor string) (int, error) {
-	tx, e := st.BeginTx()
+func RevokeSessions(ctx context.Context, st *store.Store, username, actor string) (int, error) {
+	tx, e := st.BeginTx(ctx)
 	if e != nil {
 		return 0, e
 	}
 	defer tx.Rollback()
 	var res sql.Result
 	if username == "" {
-		res, e = tx.Exec("DELETE FROM sessions")
+		res, e = tx.ExecContext(ctx, "DELETE FROM sessions")
 	} else {
-		res, e = tx.Exec("DELETE FROM sessions WHERE username=?", username)
+		res, e = tx.ExecContext(ctx, "DELETE FROM sessions WHERE username=?", username)
 	}
 	if e != nil {
 		return 0, e
@@ -82,7 +83,7 @@ func RevokeSessions(st *store.Store, username, actor string) (int, error) {
 	if e != nil {
 		return 0, e
 	}
-	if e = st.AuditTx(tx, actor, "revoke_sessions", username); e != nil {
+	if e = st.AuditTx(ctx, tx, actor, "revoke_sessions", username); e != nil {
 		return 0, e
 	}
 	if e = tx.Commit(); e != nil {

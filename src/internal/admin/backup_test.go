@@ -198,7 +198,7 @@ func TestBackupVacuumedCopyIsConsistent(t *testing.T) {
 				return
 			default:
 			}
-			_ = st.Audit("writer", "tick", "")
+			_ = st.Audit(context.Background(), "writer", "tick", "")
 			time.Sleep(time.Millisecond)
 		}
 	}()

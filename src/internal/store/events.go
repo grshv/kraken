@@ -83,13 +83,9 @@ func scopeFingerprint(s any) string {
 	return hex.EncodeToString(h[:])
 }
 
-func (s *Store) AuditPage(q AuditQuery) (Page[AuditEvent], error) {
-	return s.AuditPageContext(context.Background(), q)
-}
-
-// AuditPageContext reads the audit page through the reader pool so a long
-// audit scroll never blocks logins or apply.
-func (s *Store) AuditPageContext(ctx context.Context, q AuditQuery) (Page[AuditEvent], error) {
+func (s *Store) AuditPage(ctx context.Context, q AuditQuery) (Page[AuditEvent], error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	p := Page[AuditEvent]{Items: []AuditEvent{}, ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
 	if q.Limit < 1 || q.Limit > 200 {
 		return p, errors.New("invalid limit")

@@ -41,7 +41,7 @@ func (s *Server) statistics(w http.ResponseWriter, r *http.Request, v session) {
 	from := now.Add(-24 * time.Hour)
 	var ts *telemetry.Scope
 	if v.Role == "manager" {
-		sc, e := s.managerScopeContext(ctx, v)
+		sc, e := s.managerScope(ctx, v)
 		if e != nil {
 			if s.failStorageBusy(w, e) {
 				return
@@ -139,7 +139,7 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request, v session) {
 	from := now.Add(-time.Duration(minutes) * time.Minute)
 	var ts *telemetry.Scope
 	if v.Role == "manager" {
-		sc, e := s.managerScopeContext(ctx, v)
+		sc, e := s.managerScope(ctx, v)
 		if e != nil {
 			if s.failStorageBusy(w, e) {
 				return

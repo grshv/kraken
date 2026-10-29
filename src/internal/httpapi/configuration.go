@@ -36,7 +36,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 	m, e := s.Runtime.ReadManifest()
 	var changed any
 	var runtimeUpdate any
-	if e == nil && s.Store.GetContext(ctx, "draft", &d) == nil {
+	if e == nil && s.Store.Get(ctx, "draft", &d) == nil {
 		changed = len(semanticDiff(m.Snapshot, d.Snapshot)) > 0
 		if config, renderErr := policy.Render(m.Snapshot, s.Runtime.Options); renderErr == nil {
 			runtimeUpdate = config != m.Config
@@ -51,7 +51,7 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session) {
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	rows, e := s.Store.ListRevisionsContext(ctx)
+	rows, e := s.Store.ListRevisions(ctx)
 	if e != nil {
 		if s.failStorageBusy(w, e) {
 			return
@@ -76,7 +76,7 @@ func (s *Server) expertTemplate(w http.ResponseWriter, r *http.Request, v sessio
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	var d Draft
-	if e := s.Store.GetContext(ctx, "draft", &d); e != nil {
+	if e := s.Store.Get(ctx, "draft", &d); e != nil {
 		if s.failStorageBusy(w, e) {
 			return
 		}
@@ -336,7 +336,7 @@ func (s *Server) configurationPreview(w http.ResponseWriter, r *http.Request, v 
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	var draft Draft
-	if e := s.Store.GetContext(ctx, "draft", &draft); e != nil {
+	if e := s.Store.Get(ctx, "draft", &draft); e != nil {
 		if s.failStorageBusy(w, e) {
 			return
 		}

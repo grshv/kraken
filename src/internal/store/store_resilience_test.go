@@ -24,7 +24,7 @@ func TestPruneUsesAuditRetention(t *testing.T) {
 	if _, e := st.DB.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", "recent-actor", "test", "e-recent", recent.Unix()); e != nil {
 		t.Fatal(e)
 	}
-	if e := st.Prune(now.Add(-AuditRetention), 0); e != nil {
+	if e := st.Prune(context.Background(), now.Add(-AuditRetention), 0); e != nil {
 		t.Fatal(e)
 	}
 	var n int
@@ -49,16 +49,16 @@ func TestTouchSessionConditionalAndExistence(t *testing.T) {
 	defer st.Close()
 	ctx := context.Background()
 	// Bootstrap a user + session via the store helpers.
-	tx, e := st.BeginTxContext(ctx)
+	tx, e := st.BeginTx(ctx)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e := st.InsertUser(tx, "admin", "phc-hash"); e != nil {
+	if e := st.InsertUser(ctx, tx, "admin", "phc-hash"); e != nil {
 		t.Fatal(e)
 	}
 	hash := "test-token-hash"
 	now := time.Now().Unix()
-	if e := st.InsertSession(tx, hash, "admin", "csrf", now+3600, now); e != nil {
+	if e := st.InsertSession(ctx, tx, hash, "admin", "csrf", now+3600, now); e != nil {
 		t.Fatal(e)
 	}
 	if e := tx.Commit(); e != nil {
@@ -70,7 +70,7 @@ func TestTouchSessionConditionalAndExistence(t *testing.T) {
 		t.Fatalf("conditional touch on existing session failed: touched=%v err=%v", touched, e)
 	}
 	// Delete the session (simulating a concurrent password reset).
-	if e := st.DeleteSessionContext(ctx, hash); e != nil {
+	if e := st.DeleteSession(ctx, hash); e != nil {
 		t.Fatal(e)
 	}
 	// Touch again with the stale expected last_seen — should NOT touch (row gone).

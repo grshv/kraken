@@ -11,36 +11,37 @@ import (
 // the caller has already started so the cross-statement atomicity is
 // preserved without exposing bare SQL to the caller.
 
-// BeginTx returns a transaction the caller can pass to the per-step session
-// helpers below. The transaction's lifecycle (Commit/Rollback) stays owned
-// by the caller so a multi-statement flow can rollback cleanly on a late
-// failure.
-func (s *Store) BeginTx() (*sql.Tx, error) { return s.DB.Begin() }
-
-// BeginTxContext starts a write transaction bound to ctx so a handler deadline
-// interrupts lock acquisition instead of waiting out busy_timeout.
-func (s *Store) BeginTxContext(ctx context.Context) (*sql.Tx, error) {
+// BeginTx is the single way to start a write transaction. The caller owns the
+// transaction's lifecycle (Commit/Rollback); pass the same ctx to the per-step
+// helpers below so the OpTimeout ceiling bound to the begin also covers them.
+func (s *Store) BeginTx(ctx context.Context) (*sql.Tx, error) {
 	return s.DB.BeginTx(ctx, nil)
 }
 
 // LookupSession loads (username, csrf, expires_at, last_seen_at) for the
 // given token hash within tx. Returns sql.ErrNoRows if not found.
-func (s *Store) LookupSession(tx *sql.Tx, tokenHash string) (username, csrf string, expires, lastSeen int64, err error) {
-	err = tx.QueryRow("SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", tokenHash).Scan(&username, &csrf, &expires, &lastSeen)
+func (s *Store) LookupSession(ctx context.Context, tx *sql.Tx, tokenHash string) (username, csrf string, expires, lastSeen int64, err error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	err = tx.QueryRowContext(ctx, "SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", tokenHash).Scan(&username, &csrf, &expires, &lastSeen)
 	return
 }
 
 // LookupSessionContext is the reader-pool variant used by readSession so a
 // session check never takes the write lock.
 func (s *Store) LookupSessionContext(ctx context.Context, tokenHash string) (username, csrf string, expires, lastSeen int64, err error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	err = s.Read.QueryRowContext(ctx, "SELECT username,csrf,expires_at,last_seen_at FROM sessions WHERE token_hash=?", tokenHash).Scan(&username, &csrf, &expires, &lastSeen)
 	return
 }
 
 // TouchSession updates last_seen_at in place within tx. Used by write paths
 // that already hold a transaction.
-func (s *Store) TouchSession(tx *sql.Tx, tokenHash string, now int64) error {
-	_, e := tx.Exec("UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, tokenHash)
+func (s *Store) TouchSession(ctx context.Context, tx *sql.Tx, tokenHash string, now int64) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	_, e := tx.ExecContext(ctx, "UPDATE sessions SET last_seen_at=? WHERE token_hash=?", now, tokenHash)
 	return e
 }
 
@@ -50,6 +51,8 @@ func (s *Store) TouchSession(tx *sql.Tx, tokenHash string, now int64) error {
 // caller then re-checks existence to tell revocation from a concurrent touch
 // so a deleted session can never be revived or reused.
 func (s *Store) TouchSessionConditional(ctx context.Context, tokenHash string, expectedLastSeen, now int64) (bool, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	res, e := s.DB.ExecContext(ctx, "UPDATE sessions SET last_seen_at=? WHERE token_hash=? AND last_seen_at=?", now, tokenHash, expectedLastSeen)
 	if e != nil {
 		return false, e
@@ -62,6 +65,8 @@ func (s *Store) TouchSessionConditional(ctx context.Context, tokenHash string, e
 // Used after a conditional touch noop to distinguish revocation from a
 // concurrent touch.
 func (s *Store) SessionExists(ctx context.Context, tokenHash string) (bool, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	var one int
 	e := s.Read.QueryRowContext(ctx, "SELECT 1 FROM sessions WHERE token_hash=?", tokenHash).Scan(&one)
 	if errors.Is(e, sql.ErrNoRows) {
@@ -73,66 +78,73 @@ func (s *Store) SessionExists(ctx context.Context, tokenHash string) (bool, erro
 // DeleteSession removes one row by token hash. Used by logout and by
 // newSession when rotating an anonymous CSRF holder into an authenticated
 // session.
-func (s *Store) DeleteSession(tokenHash string) error {
-	return s.DeleteSessionContext(context.Background(), tokenHash)
-}
-func (s *Store) DeleteSessionContext(ctx context.Context, tokenHash string) error {
+func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	_, e := s.DB.ExecContext(ctx, "DELETE FROM sessions WHERE token_hash=?", tokenHash)
 	return e
 }
 
 // DeleteSessionTx is the within-transaction variant of DeleteSession.
-func (s *Store) DeleteSessionTx(tx *sql.Tx, tokenHash string) error {
-	_, e := tx.Exec("DELETE FROM sessions WHERE token_hash=?", tokenHash)
+func (s *Store) DeleteSessionTx(ctx context.Context, tx *sql.Tx, tokenHash string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	_, e := tx.ExecContext(ctx, "DELETE FROM sessions WHERE token_hash=?", tokenHash)
 	return e
 }
 
 // DeleteSessionsByUser removes every session for a user. Used by ResetPassword
 // to atomically revoke active sessions when the password changes.
-func (s *Store) DeleteSessionsByUser(tx *sql.Tx, username string) error {
-	_, e := tx.Exec("DELETE FROM sessions WHERE username=?", username)
+func (s *Store) DeleteSessionsByUser(ctx context.Context, tx *sql.Tx, username string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	_, e := tx.ExecContext(ctx, "DELETE FROM sessions WHERE username=?", username)
 	return e
 }
 
 // DeleteExpiredSessions removes sessions that have passed their expiry or
 // have not been seen for 30 minutes, within tx. Used by newSession during
 // the pool guard step.
-func (s *Store) DeleteExpiredSessions(tx *sql.Tx, now int64, idleCutoff int64) error {
-	_, e := tx.Exec("DELETE FROM sessions WHERE expires_at<? OR last_seen_at<?", now, idleCutoff)
+func (s *Store) DeleteExpiredSessions(ctx context.Context, tx *sql.Tx, now int64, idleCutoff int64) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	_, e := tx.ExecContext(ctx, "DELETE FROM sessions WHERE expires_at<? OR last_seen_at<?", now, idleCutoff)
 	return e
 }
 
 // SessionCount returns the stored session count within tx. Used by newSession
 // to enforce the persisted session capacity.
-func (s *Store) SessionCount(tx *sql.Tx) (total int, err error) {
-	err = tx.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&total)
+func (s *Store) SessionCount(ctx context.Context, tx *sql.Tx) (total int, err error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	err = tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM sessions").Scan(&total)
 	return total, err
 }
 
 // InsertSession writes one session row within tx.
-func (s *Store) InsertSession(tx *sql.Tx, hash, user, csrf string, expires, now int64) error {
-	_, e := tx.Exec("INSERT INTO sessions VALUES(?,?,?,?,?)", hash, user, csrf, expires, now)
+func (s *Store) InsertSession(ctx context.Context, tx *sql.Tx, hash, user, csrf string, expires, now int64) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	_, e := tx.ExecContext(ctx, "INSERT INTO sessions VALUES(?,?,?,?,?)", hash, user, csrf, expires, now)
 	return e
 }
 
 // UserPasswordHash loads the salted Argon2id PHC string for one user, or
 // returns sql.ErrNoRows. The lookup happens within tx so a parallel
 // ResetPassword cannot change the hash between read and use.
-func (s *Store) UserPasswordHash(tx *sql.Tx, username string) (string, error) {
+func (s *Store) UserPasswordHash(ctx context.Context, tx *sql.Tx, username string) (string, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	var h string
-	e := tx.QueryRow("SELECT password_hash FROM users WHERE username=?", username).Scan(&h)
+	e := tx.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE username=?", username).Scan(&h)
 	return h, e
 }
 
-// UserPasswordHashStandalone is the outside-transaction variant used by
-// login() before it has opened a tx.
-func (s *Store) UserPasswordHashStandalone(username string) (string, error) {
-	return s.UserPasswordHashStandaloneContext(context.Background(), username)
-}
-
-// UserPasswordHashStandaloneContext reads the verifier through the reader pool
-// so a login probe never blocks apply or event ingestion.
-func (s *Store) UserPasswordHashStandaloneContext(ctx context.Context, username string) (string, error) {
+// UserPasswordHashStandalone reads the verifier through the reader pool so a
+// login probe never blocks apply or event ingestion.
+func (s *Store) UserPasswordHashStandalone(ctx context.Context, username string) (string, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	var h string
 	e := s.Read.QueryRowContext(ctx, "SELECT password_hash FROM users WHERE username=?", username).Scan(&h)
 	return h, e
@@ -140,8 +152,10 @@ func (s *Store) UserPasswordHashStandaloneContext(ctx context.Context, username 
 
 // UpdateUserPasswordHash updates the password_hash for an existing user
 // within tx. Caller checks RowsAffected to detect unknown user.
-func (s *Store) UpdateUserPasswordHash(tx *sql.Tx, username, hash string) (int64, error) {
-	result, e := tx.Exec("UPDATE users SET password_hash=? WHERE username=?", hash, username)
+func (s *Store) UpdateUserPasswordHash(ctx context.Context, tx *sql.Tx, username, hash string) (int64, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	result, e := tx.ExecContext(ctx, "UPDATE users SET password_hash=? WHERE username=?", hash, username)
 	if e != nil {
 		return 0, e
 	}
@@ -150,15 +164,19 @@ func (s *Store) UpdateUserPasswordHash(tx *sql.Tx, username, hash string) (int64
 
 // UserCount returns the number of users within tx. Used by Bootstrap to
 // gate first-admin creation.
-func (s *Store) UserCount(tx *sql.Tx) (int, error) {
+func (s *Store) UserCount(ctx context.Context, tx *sql.Tx) (int, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
 	var n int
-	e := tx.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+	e := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM users").Scan(&n)
 	return n, e
 }
 
 // InsertUser adds one user row within tx. Used by Bootstrap.
-func (s *Store) InsertUser(tx *sql.Tx, username, hash string) error {
-	_, e := tx.Exec("INSERT INTO users(username,password_hash) VALUES(?,?)", username, hash)
+func (s *Store) InsertUser(ctx context.Context, tx *sql.Tx, username, hash string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	_, e := tx.ExecContext(ctx, "INSERT INTO users(username,password_hash) VALUES(?,?)", username, hash)
 	return e
 }
 
@@ -168,7 +186,9 @@ func (s *Store) InsertUser(tx *sql.Tx, username, hash string) error {
 // row in one tx). actor is the entity taking the action; for anonymous
 // paths caller should pass the remote host rather than "" so monitoring
 // can correlate events to a source even without an authenticated user.
-func (s *Store) AuditTx(tx *sql.Tx, actor, action, entity string) error {
-	_, e := tx.Exec("INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
+func (s *Store) AuditTx(ctx context.Context, tx *sql.Tx, actor, action, entity string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	_, e := tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
 	return e
 }

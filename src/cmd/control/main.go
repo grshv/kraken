@@ -160,9 +160,9 @@ func run() error {
 		}
 		defer st.Close()
 		if cmd == "bootstrap" {
-			e = httpapi.Bootstrap(st, *username, password)
+			e = httpapi.Bootstrap(ctx, st, *username, password)
 		} else {
-			e = httpapi.ResetPassword(st, *username, password)
+			e = httpapi.ResetPassword(ctx, st, *username, password)
 		}
 		if e != nil {
 			return e
@@ -254,12 +254,12 @@ func run() error {
 					prune := func() error {
 						// Audit retention is age-based (store.AuditRetention, 3y);
 						// keep the last 20 unreferenced revisions.
-						if e := st.Prune(time.Now().Add(-store.AuditRetention), 20); e != nil {
+						if e := st.Prune(maintenanceCtx, time.Now().Add(-store.AuditRetention), 20); e != nil {
 							return e
 						}
 						// Drop manager-client assignments for clients removed
 						// from both draft and active revision.
-						return s.PruneManagerClients()
+						return s.PruneManagerClients(maintenanceCtx)
 					}
 					if e := m.Maintain(maintenanceCtx, prune); e != nil {
 						slog.Warn("maintenance tick failed", "error", e)
@@ -268,11 +268,11 @@ func run() error {
 						slog.Warn("telemetry maintenance failed", "error", e)
 					}
 				case <-checkpoint.C:
-					if e := st.Checkpoint(); e != nil {
+					if e := st.Checkpoint(maintenanceCtx); e != nil {
 						slog.Warn("wal checkpoint failed", "error", e)
 					}
 				case <-optimize.C:
-					if e := st.Optimize(); e != nil {
+					if e := st.Optimize(maintenanceCtx); e != nil {
 						slog.Warn("optimize failed", "error", e)
 					}
 				}
@@ -488,9 +488,10 @@ func runUser(args []string) error {
 		return e
 	}
 	defer st.Close()
+	ctx := context.Background()
 	switch sub {
 	case "list":
-		rows, e := admin.ListUsers(st)
+		rows, e := admin.ListUsers(ctx, st)
 		if e != nil {
 			return failStore(e)
 		}
@@ -512,7 +513,7 @@ func runUser(args []string) error {
 		if len(args) != 2 {
 			return fail("Использование: kraken user enable <имя>")
 		}
-		if e := admin.SetEnabled(st, args[1], true, "cli"); e != nil {
+		if e := admin.SetEnabled(ctx, st, args[1], true, "cli"); e != nil {
 			return mapUserErr(e)
 		}
 		fmt.Println("Учётная запись включена.")
@@ -521,7 +522,7 @@ func runUser(args []string) error {
 		if len(args) != 2 {
 			return fail("Использование: kraken user disable <имя>")
 		}
-		if e := admin.SetEnabled(st, args[1], false, "cli"); e != nil {
+		if e := admin.SetEnabled(ctx, st, args[1], false, "cli"); e != nil {
 			return mapUserErr(e)
 		}
 		fmt.Println("Учётная запись отключена, сессии отозваны.")
@@ -530,7 +531,7 @@ func runUser(args []string) error {
 		if len(args) != 3 || (args[2] != "admin" && args[2] != "manager") {
 			return fail("Использование: kraken user role <имя> admin|manager")
 		}
-		if e := admin.SetRole(st, args[1], args[2], "cli"); e != nil {
+		if e := admin.SetRole(ctx, st, args[1], args[2], "cli"); e != nil {
 			return mapUserErr(e)
 		}
 		fmt.Printf("Роль изменена на %s, сессии отозваны.\n", args[2])
@@ -577,7 +578,8 @@ func runSessions(args []string) error {
 		return e
 	}
 	defer st.Close()
-	n, e := admin.RevokeSessions(st, *user, "cli")
+	ctx := context.Background()
+	n, e := admin.RevokeSessions(ctx, st, *user, "cli")
 	if e != nil {
 		return failStore(e)
 	}
@@ -606,7 +608,9 @@ func runStatus(m *local.Manager) error {
 	fmt.Printf("Squid: %s\n", squid)
 	if st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")); e == nil {
 		var n int
-		_ = st.Read.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+		sctx, scancel := context.WithTimeout(ctx, 5*time.Second)
+		_ = st.Read.QueryRowContext(sctx, "SELECT COUNT(*) FROM users").Scan(&n)
+		scancel()
 		st.Close()
 		fmt.Printf("Пользователей: %d\n", n)
 	} else {
@@ -633,7 +637,7 @@ func runBackup() error {
 	if target == "" {
 		target = filepath.Join(dataDir, "backups", "kraken-"+time.Now().UTC().Format("20060102-150405")+".tar")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 	defer cancel()
 	if e := admin.Backup(ctx, st, dataDir, target); e != nil {
 		return fail("Ошибка копии: " + e.Error())

@@ -41,6 +41,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "parameters": [],
@@ -189,6 +207,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "parameters": [],
@@ -219,6 +255,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "parameters": [],
@@ -242,6 +296,24 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -512,6 +584,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Admin-only; manager receives 403 admin_required."
@@ -534,6 +624,24 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -574,6 +682,24 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -710,6 +836,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "parameters": [
@@ -743,6 +887,24 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -974,6 +1136,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1115,6 +1295,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Admin-only; manager receives 403 admin_required. Empty client rules generate fail-closed http_access deny all, rather than an empty editor."
@@ -1200,6 +1398,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1252,6 +1468,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1284,6 +1518,24 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1498,6 +1750,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Admin-only; manager receives 403 admin_required."
@@ -1694,6 +1964,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "parameters": [],
@@ -1722,7 +2010,22 @@
             "description": "Insufficient permissions"
           },
           "503": {
-            "description": "Statistics unavailable; never fake zero counters on storage error"
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -1774,7 +2077,22 @@
             "description": "Insufficient permissions"
           },
           "503": {
-            "description": "Statistics unavailable; never fake zero counters on storage error"
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         },
         "description": "Admin/manager read-only operational view over retained completed access-log events in [from,to). minutes=15, 60 (default), 1440 (day), 10080 (week) or 43200 (rolling 30 days). Sources grouped by IP and proxy username; issues additionally by sanitized destination and exact Squid result. Denied means DENIED; errors count other >=400/FAIL/ABORTED results. At most 10 rows per group, sorted by frequency; totals expose omissions. No inference of client availability, matched ACL or live tunnel contents. Applied policy counts come from confirmed runtime manifest, never draft. Ingestion exposes public quality fields only. 503 on storage error.",
@@ -1836,6 +2154,24 @@
           },
           "default": {
             "description": "Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -1975,6 +2311,24 @@
           },
           "404": {
             "description": "Client not found in draft or active revision, or outside the manager's scope"
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -2020,6 +2374,24 @@
           },
           "404": {
             "description": "Policy not found, or referenced only by clients outside the manager's scope"
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -2046,6 +2418,24 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {
@@ -2099,6 +2489,24 @@
           },
           "404": {
             "description": "Event not found, or outside the manager's scope"
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -2132,6 +2540,24 @@
                 }
               }
             }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
           }
         }
       }
@@ -2157,6 +2583,24 @@
           },
           "default": {
             "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
             "content": {
               "application/json": {
                 "schema": {

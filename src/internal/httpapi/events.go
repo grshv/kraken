@@ -106,6 +106,13 @@ func queryFailure(w http.ResponseWriter, e error) {
 		fail(w, 400, "invalid_cursor", "Страница устарела или фильтры изменились. Откройте последние записи")
 		return
 	}
+	// A busy/deadline condition surfaces as 503 storage_busy so the client can
+	// retry; other storage failures stay the generic 503 storage_unavailable.
+	if isStorageBusy(e) {
+		w.Header().Set("Retry-After", "2")
+		fail(w, 503, "storage_busy", "Хранилище занято, повторите запрос")
+		return
+	}
 	fail(w, 503, "storage_unavailable", "История временно недоступна")
 }
 
@@ -156,8 +163,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 		return
 	}
 	if v.Role == "manager" {
-		sc, e := s.managerScope(v)
+		sc, e := s.managerScope(r.Context(), v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -189,8 +199,11 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 func (s *Server) eventClients(w http.ResponseWriter, r *http.Request, v session) {
 	var scope *telemetry.Scope
 	if v.Role == "manager" {
-		sc, e := s.managerScope(v)
+		sc, e := s.managerScope(r.Context(), v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -259,8 +272,11 @@ func (s *Server) eventFacets(w http.ResponseWriter, r *http.Request, v session) 
 		return
 	}
 	if v.Role == "manager" {
-		sc, e := s.managerScope(v)
+		sc, e := s.managerScope(r.Context(), v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
@@ -366,14 +382,19 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, v session) 
 	}
 	aq := store.AuditQuery{Actor: q.Get("actor"), Action: q.Get("action"), EntityID: q.Get("entity_id"), Cursor: q.Get("cursor"), Limit: limit}
 	if v.Role == "manager" {
-		sc, e := s.managerScope(v)
+		sc, e := s.managerScope(r.Context(), v)
 		if e != nil {
+			if s.failStorageBusy(w, e) {
+				return
+			}
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
 		aq.Scope = &store.AuditScope{ClientIDs: sc.ClientIDs, Networks: sc.Networks, Actor: v.User}
 	}
-	p, e := s.Store.AuditPage(aq)
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	p, e := s.Store.AuditPage(ctx, aq)
 	if e != nil {
 		queryFailure(w, e)
 		return

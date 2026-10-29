@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"strings"
@@ -55,12 +56,12 @@ func TestSessionRequiresExistingUser(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer st.DB.Close()
-	tx, e := st.BeginTx()
+	tx, e := st.BeginTx(context.Background())
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer tx.Rollback()
-	if e = st.InsertSession(tx, "hash", "nobody", "csrf", 9999999999, 1); e == nil {
+	if e = st.InsertSession(context.Background(), tx, "hash", "nobody", "csrf", 9999999999, 1); e == nil {
 		t.Fatal("session for unknown user stored")
 	}
 }
@@ -74,7 +75,7 @@ func TestAuditTimestampIntegerRoundTrip(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer st.DB.Close()
-	if e := st.Audit("tester", "action_under_test", "entity-1"); e != nil {
+	if e := st.Audit(context.Background(), "tester", "action_under_test", "entity-1"); e != nil {
 		t.Fatal(e)
 	}
 	var created any

@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"database/sql"
 	"encoding/base64"
 	"errors"
@@ -48,7 +49,7 @@ func TestResetPasswordRevokesSessionsAndDoesNotPersistPlaintext(t *testing.T) {
 		t.Fatal(e)
 	}
 	newPassword := "test-only-replacement-secret"
-	if e := ResetPassword(s.Store, "admin", newPassword); e != nil {
+	if e := ResetPassword(context.Background(), s.Store, "admin", newPassword); e != nil {
 		t.Fatal(e)
 	}
 	if w := request(h, "GET", "/status", nil, cookie, "", ""); w.Code != 401 {
@@ -91,10 +92,10 @@ func TestResetUnknownUserOrWeakPasswordDoesNotChangeCredentials(t *testing.T) {
 	s, _ := fixtureServer(t)
 	var before string
 	s.Store.DB.QueryRow("SELECT password_hash FROM users WHERE username='admin'").Scan(&before)
-	if e := ResetPassword(s.Store, "missing", "test-only-reset-password"); e == nil {
+	if e := ResetPassword(context.Background(), s.Store, "missing", "test-only-reset-password"); e == nil {
 		t.Fatal("unknown user silently created")
 	}
-	if e := ResetPassword(s.Store, "admin", "short"); e == nil {
+	if e := ResetPassword(context.Background(), s.Store, "admin", "short"); e == nil {
 		t.Fatal("weak password accepted")
 	}
 	var after string
