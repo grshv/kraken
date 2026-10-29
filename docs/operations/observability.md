@@ -8,7 +8,7 @@
 
 ## Источники
 
-- Squid access log в явно выбранном format; его доступность и поля проверяются image spike.
+- Squid access log в явно выбранном format; его поля проверяются integration-тестами на образе.
 - Squid/Pebble service logs — reload, DNS, startup и TLS/helper failures.
 - Внутренний operation journal — этап, duration, candidate/LKG hashes, findings.
 - Web structured logs — request/operation ID, safe actor ID, status, duration.
@@ -58,9 +58,9 @@ proxy HTTP status >= 400). Неизвестный matched ACL не угадыв�
 GET /audit показывает actor/action/entity/time из audit_events с точными
 фильтрами actor/action и cursor. Это журнал принятых действий: итог apply смотрят
 в operation/history. Пароли, session tokens, ключи и тела конфигураций туда не
-добавляются. Доступ к событиям, /events/clients и аудиту имеют admin и viewer;
-изменение конфигурации/учётных записей viewer недоступно.
-Решение: [ADR 0011](../adr/0011-durable-diagnostics.md).
+добавляются. Доступ к событиям, /events/clients и аудиту имеют admin и manager; менеджер видит
+только свою область ([ADR 0016](../adr/0016-admin-and-manager-roles.md)). Хранилище —
+[ADR 0017](../adr/0017-telemetry-storage.md).
 
 ## Метрики
 
@@ -98,7 +98,7 @@ UI показывает наблюдаемый факт (например TCP_DE
 count и периодической ротацией по размеру, не автоматическим TTL. Disk watermarks
 и byte quotas для управляющей БД — будущая работа. Watermarks диска и сроки
 уточнить до deploy. Alert по runtime down, config drift, rollback degraded, cert
-expiry и log gaps. Уведомляющий внешний канал в MVP не подключён; предупреждения
+expiry и log gaps. Уведомляющего внешнего канала нет; предупреждения
 панели не обещают доставку при выключенном браузере. Audit в локальной SQLite не
 является неизменяемым forensic-хранилищем.
 
@@ -147,8 +147,7 @@ UI переводит локальный datetime в ISO с timezone; новая
 с deadline2с. За [from,to) группирует источники по IP+username и проблемы
 дополнительно по назначению+result. В ответе максимум10 наиболее частых групп
 каждого типа, исходные totals отмечают усечение. Нет raw URL/path/body, checkpoint
-paths/anchors и произвольных manager queries. Admin/viewer имеют те же права
-чтения, что events. Сводка содержит только публичные ingestion quality fields и
+paths/anchors и произвольных manager queries. Права чтения и область — как у events. Сводка содержит только публичные ingestion quality fields и
 счётчики включённых клиентов из confirmed manifest. Ошибка storage даёт503, не
 пустую успешную историю. Сервер не делает вывод о доступности клиента или точной
 ACL по отсутствию/наличию записей. `/statistics` остаётся API суточной статистики,
@@ -171,7 +170,7 @@ ACL по отсутствию/наличию записей. `/statistics` ос�
 клиента (96 корзин по 15 мин), попадания доменов политики за 24 ч и 7 д, неописанные
 источники, объяснение отказа по активной политике, влияние черновика и встроенные
 шаблоны доменов. Окна считаются по `Event.Timestamp` относительно текущего времени
-(часы инжектируемые для тестов). Доступ — admin и viewer (`read`), анонимно 401.
+(часы инжектируемые для тестов). Доступ — admin и manager в своей области (`read`), анонимно 401.
 В ответах нет URL path/query, credentials и вывода Squid: хост назначения
 освобождён от порта, userinfo и path. Статистика и попадания доменов читают
 агрегаты `rollups.db` (1–2 SQL-запроса по PK без rowid); explain и draft-impact

@@ -80,8 +80,8 @@ Squid; новый Go процесс выполняет reconciliation до mutat
 проходит те же проверки, не доверяет pending candidate.
 
 Health показывает состояния раздельно. Watchdog не пересоздаёт весь контейнер
-только из-за отказа web, если Squid работает. Конкретный Pebble plan и fallback
-при испорченном journal — обязательные тесты spike.
+только из-за отказа web, если Squid работает. Перезапуск сервисов и fail closed
+при испорченном journal покрыты Go-тестами runtime и integration.
 
 Обновление приложения или Squid меняет общий image и может разорвать CONNECT:
 нужно окно. Для первой установки достаточно записать source commit, image ID/digest,
