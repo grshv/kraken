@@ -51,6 +51,8 @@ export type Session = {
   // Type drift here previously meant callers that decoded it as if always
   // present silently dropped the value.
   expires_at: string | null;
+  // Managers get their assigned networks and client IDs; admins/null get none.
+  scope?: { networks: string[]; client_ids: string[] } | null;
 };
 export type Component = {
   state: "up" | "down" | "unknown" | "degraded";

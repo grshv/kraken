@@ -183,11 +183,11 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, v session) 
 		return
 	}
 	q := r.URL.Query()
-	if len(q.Get("actor")) > 256 || len(q.Get("action")) > 128 || strings.ContainsRune(q.Get("actor"), '\x00') {
+	if len(q.Get("actor")) > 256 || len(q.Get("action")) > 128 || len(q.Get("entity_id")) > 256 || strings.ContainsRune(q.Get("actor"), '\x00') {
 		fail(w, 400, "invalid_filter", "Некорректный фильтр аудита")
 		return
 	}
-	aq := store.AuditQuery{Actor: q.Get("actor"), Action: q.Get("action"), Cursor: q.Get("cursor"), Limit: limit}
+	aq := store.AuditQuery{Actor: q.Get("actor"), Action: q.Get("action"), EntityID: q.Get("entity_id"), Cursor: q.Get("cursor"), Limit: limit}
 	if v.Role == "manager" {
 		scope, e := s.managerScope(v)
 		if e != nil {

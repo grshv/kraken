@@ -197,7 +197,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/configuration/preview", s.adminOnly(s.configurationPreview))
 	mux.HandleFunc("GET /api/v1/configuration/expert-template", s.adminOnly(s.expertTemplate))
 	mux.HandleFunc("GET /api/v1/configuration/draft", s.authorized("configure", s.getDraft))
+	mux.HandleFunc("GET /api/v1/configuration/active", s.authorized("configure", s.getActiveConfiguration))
 	mux.HandleFunc("PUT /api/v1/configuration/draft", s.authorized("configure", s.updateDraft))
+	mux.HandleFunc("DELETE /api/v1/configuration/draft", s.authorized("configure", s.discardDraft))
 	mux.HandleFunc("POST /api/v1/revisions", s.authorized("configure", s.createRevision))
 	mux.HandleFunc("GET /api/v1/revisions/{id}", s.adminOnly(s.getRevision))
 	mux.HandleFunc("GET /api/v1/revisions/{id}/preview", s.adminOnly(s.preview))
@@ -293,6 +295,66 @@ func (s *Server) getDraft(w http.ResponseWriter, r *http.Request, v session) {
 	}
 	respond(w, 200, d)
 }
+func (s *Server) getActiveConfiguration(w http.ResponseWriter, r *http.Request, v session) {
+	snap := s.activeConfigurationSnapshot()
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		snap = managerDraftView(snap, scope)
+		snap.Expert = ""
+	}
+	respond(w, 200, map[string]any{"snapshot": snap})
+}
+func (s *Server) discardDraft(w http.ResponseWriter, r *http.Request, v session) {
+	var input struct {
+		Expected int `json:"expected_version"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	s.draftMu.Lock()
+	defer s.draftMu.Unlock()
+	var current Draft
+	if e := s.Store.Get("draft", &current); e != nil {
+		fail(w, 503, "storage_unavailable", "Черновик недоступен")
+		return
+	}
+	active := s.activeConfigurationSnapshot()
+	// Manager may discard only if every draft change is in his scope, mirroring
+	// the createRevision/apply gate. A foreign change blocks discard without
+	// touching the draft.
+	if v.Role == "manager" {
+		scope, e := s.managerScope(v)
+		if e != nil {
+			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			return
+		}
+		if draftChangesOutOfScope(current.Snapshot, active, scope) {
+			fail(w, 403, "draft_out_of_scope", "Черновик содержит изменения вне вашей области")
+			return
+		}
+	}
+	entities := changedEntityIDs(current.Snapshot, active)
+	d := Draft{Version: input.Expected + 1, Snapshot: active, Updated: stamp()}
+	if e := s.Store.DiscardDraft(d, v.User, input.Expected, entities); e != nil {
+		if errors.Is(e, store.ErrConflict) {
+			fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")
+			return
+		}
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	out := d
+	if v.Role == "manager" {
+		scope, _ := s.managerScope(v)
+		out.Snapshot = managerDraftView(d.Snapshot, scope)
+		out.Snapshot.Expert = ""
+	}
+	respond(w, 200, out)
+}
 func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) {
 	var input struct {
 		Expected int             `json:"expected_version"`
@@ -366,10 +428,11 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 		return
 	}
 	d := Draft{Version: input.Expected + 1, Snapshot: finalSnapshot, Updated: stamp()}
+	entities := changedEntityIDs(finalSnapshot, manifest.Snapshot)
 	if v.Role == "manager" {
-		e = s.Store.ChangeDraftWithAssignments(d, v.User, "update_draft", input.Expected, v.User, newIDs)
+		e = s.Store.ChangeDraftWithAssignments(d, v.User, "update_draft", input.Expected, v.User, newIDs, entities)
 	} else {
-		e = s.Store.Change("draft", d, v.User, "update_draft", input.Expected)
+		e = s.Store.ChangeDraft(d, v.User, "update_draft", input.Expected, entities)
 	}
 	if errors.Is(e, store.ErrConflict) {
 		fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,5 +113,72 @@ func TestHistorySurvivesSourceFailureAndReportsFreshness(t *testing.T) {
 	}
 	if len(body.Items) != 1 || body.Ingestion.Available || body.Ingestion.Stale {
 		t.Fatal("missing source not visible: " + w.Body.String())
+	}
+}
+
+// TestAuditByEntityFilter covers GET /audit?entity_id=: admin sees only rows
+// for that entity (including update_draft per-entity rows), an over-long
+// entity_id is rejected with 400 invalid_filter, and a manager querying a
+// foreign client's entity gets an empty list (not 404).
+func TestAuditByEntityFilter(t *testing.T) {
+	s, h := fixtureServer(t)
+	admin, acsrf := loginTest(t, h)
+	myCID, foreignCID, _ := seedDraftWithTwoClients(t, h, admin, acsrf)
+	// Editing myCID in the draft writes an update_draft audit row whose
+	// entity_id is myCID (per-entity, alongside the legacy "draft" row).
+	d := acceptDraft(t, h, admin)
+	for i := range d.Snapshot.Clients {
+		if d.Snapshot.Clients[i].ID == myCID {
+			d.Snapshot.Clients[i].Description = "audited change"
+		}
+	}
+	acceptCode(t, acceptPut(h, admin, acsrf, d), 200, "")
+	// Admin filters audit by that entity_id: only rows for myCID.
+	w := request(h, "GET", "/audit?entity_id="+myCID+"&limit=50", nil, admin, "", "")
+	if w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var page store.Page[store.AuditEvent]
+	json.Unmarshal(w.Body.Bytes(), &page)
+	if len(page.Items) == 0 {
+		t.Fatalf("no audit rows for %s", myCID)
+	}
+	for _, ev := range page.Items {
+		if ev.Entity != myCID {
+			t.Fatalf("entity filter leaked %q: %+v", ev.Entity, ev)
+		}
+		if ev.Action != "update_draft" {
+			t.Fatalf("unexpected action %q for %s", ev.Action, myCID)
+		}
+	}
+	// Confirm the update_draft per-entity row exists for myCID directly.
+	var n int
+	if e := s.Store.DB.QueryRow("SELECT COUNT(*) FROM audit_events WHERE action='update_draft' AND entity_id=?", myCID).Scan(&n); e != nil || n == 0 {
+		t.Fatalf("missing update_draft audit row for %s (n=%d)", myCID, n)
+	}
+	// A foreign-client entity_id returns no rows for admin either (foreignCID
+	// was never changed), proving the filter is exact, not a wildcard.
+	w = request(h, "GET", "/audit?entity_id="+foreignCID+"&limit=50", nil, admin, "", "")
+	json.Unmarshal(w.Body.Bytes(), &page)
+	for _, ev := range page.Items {
+		if ev.Entity != foreignCID {
+			t.Fatalf("foreign filter leaked %q: %+v", ev.Entity, ev)
+		}
+	}
+	// Over-long entity_id → 400 invalid_filter.
+	long := strings.Repeat("a", 257)
+	if w := request(h, "GET", "/audit?entity_id="+long, nil, admin, "", ""); w.Code != 400 {
+		t.Fatalf("over-long entity_id: %d %s", w.Code, w.Body.String())
+	}
+	// Manager: querying a foreign client's entity returns an empty list, not 404.
+	createManagerUser(t, h, admin, acsrf, "mgr", []string{"10.1.0.0/16"}, []string{myCID})
+	mgr, _ := loginAs(t, h, "mgr", "manager-password-123")
+	w = request(h, "GET", "/audit?entity_id="+foreignCID+"&limit=50", nil, mgr, "", "")
+	if w.Code != 200 {
+		t.Fatalf("manager foreign entity_id: %d %s", w.Code, w.Body.String())
+	}
+	json.Unmarshal(w.Body.Bytes(), &page)
+	if len(page.Items) != 0 {
+		t.Fatalf("manager saw foreign audit entity: %+v", page.Items)
 	}
 }
