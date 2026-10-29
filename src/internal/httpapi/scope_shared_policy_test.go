@@ -9,10 +9,12 @@ import (
 )
 
 // seedSharedPolicyScenario sets up a draft with:
-//   c-a  (manager's, 10.1.1.0/24, p-own)
-//   c-a2 (manager's, 10.1.2.0/24, p-shared)
-//   c-b  (foreign,   10.2.0.0/16,  p-shared)
-//   c-d  (foreign,   10.1.0.9/32,  p-foreign)
+//
+//	c-a  (manager's, 10.1.1.0/24, p-own)
+//	c-a2 (manager's, 10.1.2.0/24, p-shared)
+//	c-b  (foreign,   10.2.0.0/16,  p-shared)
+//	c-d  (foreign,   10.1.0.9/32,  p-foreign)
+//
 // Manager network: 10.1.0.0/16. Manager is assigned c-a and c-a2.
 func seedSharedPolicyScenario(t *testing.T, h http.Handler, admin *http.Cookie, csrf string) {
 	t.Helper()
