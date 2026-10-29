@@ -5,7 +5,7 @@
 | Команда | Что проверяет | Когда обязательна |
 | --- | --- | --- |
 | `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace | Любое изменение |
-| `make check` | docs-check, typecheck и сборка web, `go test -race ./...`, `go vet`, `git diff --check` | Любое изменение кода |
+| `make check` | docs-check, typecheck и сборка web, `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` | Любое изменение кода |
 | `make integration` | `smoke.py`, `network.py`, `apt.py`: реальный Squid в образе `kraken:dev`, локальные fixtures | Изменения policy, runtime, deploy, auth |
 | `npm --prefix src/web run test:e2e` | Playwright в отдельном контейнере | Изменения UI; нужен `make image` и Chromium |
 

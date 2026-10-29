@@ -19,8 +19,8 @@ func ValidRole(role string) bool { return role == "admin" || role == "manager" }
 
 // Scope is the manager's assigned networks and clients, read fresh per request.
 type Scope struct {
-	Networks   []string `json:"networks"`
-	ClientIDs  []string `json:"client_ids"`
+	Networks  []string `json:"networks"`
+	ClientIDs []string `json:"client_ids"`
 }
 
 // UserScope loads the manager scope from the sidecar tables within tx.

@@ -20,7 +20,7 @@ Kraken — web-панель управления исходящим доступ
 | Команда | Что делает |
 | --- | --- |
 | `make docs-check` | Ссылки, реестр ADR, структура docs, OpenAPI, пример политики |
-| `make check` | docs-check, сборка web, `go test -race ./...`, `go vet`, `git diff --check` |
+| `make check` | docs-check, сборка web, `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` |
 | `make image` / `make integration` | Сборка контейнера / smoke на реальном Squid (нужен image) |
 | `make build`, `make dev-cert`, `make bootstrap`, `make up`, `make down`, `make password-reset` | Локальная сборка и запуск |
 

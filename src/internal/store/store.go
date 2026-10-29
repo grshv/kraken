@@ -268,6 +268,7 @@ func (s *Store) ChangeDraftWithAssignments(v any, actor, action string, expected
 	}
 	return tx.Commit()
 }
+
 // audit events older than the cutoff are deleted, and revision blobs that are
 // neither the current LKG nor among the most recent N are dropped. Callers run
 // this from the periodic maintenance loop so the database cannot grow without

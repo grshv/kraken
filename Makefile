@@ -25,6 +25,7 @@ test: web-build
 
 check: docs-check web-build test
 	cd src && go vet ./...
+	@test -z "$$(gofmt -l src)" || { gofmt -l src; echo 'gofmt: files above need formatting'; exit 1; }
 	git diff --check
 
 image:
