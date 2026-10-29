@@ -4,7 +4,7 @@ help:
 	@echo "check        Docs, frontend type/build, Go race tests, vet and patch checks"
 	@echo "docs-check   Local documentation checks (Go: links, ADR, map, headings, OpenAPI, example)"
 	@echo "image        Build single-container development image"
-	@echo "integration  Run smoke, network, APT and ops tests on real Squid (requires image)"
+	@echo "integration  Go tests on real Squid: smoke, network, APT, ops (requires image; RUN=TestOps)"
 
 docs-check:
 	cd src && go run ./tools/docs-check
@@ -28,7 +28,4 @@ image:
 	docker build -f deploy/Dockerfile -t kraken:dev .
 
 integration:
-	python3 src/tests/integration/smoke.py
-	python3 src/tests/integration/network.py
-	python3 src/tests/integration/apt.py
-	python3 src/tests/integration/ops.py
+	cd src && go test -tags integration -count=1 -timeout 60m $(if $(RUN),-run $(RUN),) ./tests/integration/...

@@ -6,7 +6,8 @@
 | --- | --- | --- |
 | `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace — реализован на Go (`src/tools/docs-check`) | Любое изменение |
 | `make check` | docs-check, typecheck и сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` | Любое изменение кода |
-| `make integration` | `smoke.py`, `network.py`, `apt.py`, `ops.py`: реальный Squid в образе `kraken:dev`/`kraken:ops`, локальные fixtures | Изменения policy, runtime, deploy, auth |
+| `make integration` | `go test -tags integration` на реальном Squid в образе `kraken:dev`/`kraken:ops` (`smoke_test.go`, `network_test.go`, `apt_test.go`, `ops_test.go`), локальные fixtures; фильтр через `RUN=` | Изменения policy, runtime, deploy, auth |
+| `make integration RUN=TestOps` | `ops_test.go` (`TestOpsBackupRestore`, `TestOpsCertReplace`, `TestOpsImageUpdate`, `TestOpsDiskFull`, `TestOpsForcedKill`): эксплуатационные процедуры runbook на образе `kraken:ops` — копия/восстановление `/data`, замена сертификата, обновление образа, заполненный диск | Изменения deploy, runbook, runtime/recovery |
 | `npm --prefix src/web run test` | vitest: чистая логика каркаса (пределы панелей, навигация по ролям, конечный автомат применения) | Изменения логики в `src/web/src/shell` и `src/web/src/draft` |
 
 docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
@@ -52,63 +53,32 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `accounts/rules` | `canDemote`/`canDisable`: false только для единственного включённого admin; `buildManagerScopeBody`: нормализация CIDR через `parseNetwork`, дедуп, дроп мусора, пусто → пустые массивы |
 | `settings/edits` | `effectiveSettings` (defaults при отсутствии), `patchSettings` (merge без мутации), `setBlockedDomains`, `setUpstream` (вкл/выкл через null), `setExpertConfig` (mode + текст) |
 
-E2e (Playwright) на ключевые потоки — отдельный срез; `@playwright/test` и
-`tests/*.spec.ts` удалены вместе со старыми экранами.
+Браузерных e2e нет: владелец исключил Playwright, ключевые потоки проверяются
+на уровне API в integration.
 
-## Integration smoke
+## Integration
 
-`src/tests/integration/smoke.py` создаёт отдельные контейнеры, сеть и volume,
-пароли передаёт только через stdin. Проверяет:
+Запуск из корня: `make integration`. Теги сборки `integration` изолируют эти
+тесты от обычного `go test ./...`. Каждый файл — отдельный `Test*` с `t.Run`
+subtests по шагам сценария; один прогон создаёт только уникально именованные
+disposable контейнеры/сети/volumes и удаляет их в `t.Cleanup` даже при падении.
+Фильтр: `make integration RUN=TestSmoke` (или `RUN=TestOpsDiskFull` и т. п.).
+Образ — env `KRAKEN_TEST_IMAGE` (по умолчанию `kraken:dev`), для ops image-update
+— `KRAKEN_TEST_IMAGE_NEXT` (пересобирается из текущего дерева). Пароли передаются
+только через stdin; сертификаты и ключи генерируются в `t.TempDir()` через
+`crypto/x509` и не коммитятся.
 
-- неизвестный source, all_web, allowlist, raw IP, защитные запреты loopback/metadata;
-- HTTPS CONNECT с проверкой сертификата origin; TLS к прокси, отказ plaintext downgrade;
-- proxy auth: 407/403, разные identities за NAT, reset/disable на живом соединении;
-- визуальные настройки и expert ACL на реальном трафике; отказ запрещённых
-  expert-директив при сохранении черновика; отказ Squid parse с номером строки;
-- apply, idempotency, rollback, восстановление pending journal после restart;
-- неизменность listeners через draft и старые ревизии;
-- CLI password-reset с отзывом сессий; отсутствие plaintext паролей в volume;
-- изоляция UID: от `proxy` недоступны SQLite, ключ панели и токен manager.
+| Файл | Тест | Что покрывает |
+| --- | --- | --- |
+| `smoke_test.go` | `TestSmoke` | неизвестный source, all_web, allowlist, raw IP, защитные запреты loopback/metadata; HTTPS CONNECT с проверкой сертификата origin; TLS к прокси, отказ plaintext downgrade; proxy auth: 407/403, разные identities за NAT, reset/disable на живом соединении; визуальные настройки и expert ACL на реальном трафике; отказ запрещённых expert-директив при сохранении черновика; отказ Squid parse с номером строки; apply, idempotency, rollback, восстановление pending journal после restart; неизменность listeners через draft и старые ревизии; CLI password-reset с отзывом сессий; отсутствие plaintext паролей в volume; изоляция UID |
+| `network_test.go` | `TestNetwork` | отказ по ACL (403, `ERR_ACCESS_DENIED`) для IPv4/IPv6 loopback, link-local, metadata, IPv4-mapped, 6to4, Teredo, NAT64 и private, для имён, резолвящихся в них, для CONNECT; DNS rebinding после истечения TTL; поведение `allow_private_destinations`; origin получает только контрольные запросы |
+| `apt_test.go` | `TestApt` | подписанный локальный репозиторий: `apt-get update/install` через прокси по HTTP и через CONNECT, отказ без политики и без домена в allowlist, ошибка подписи при подменённом `InRelease`. Блок с настоящим архивом Ubuntu включается `KRAKEN_TEST_REAL_APT=1` и использует DNS 1.1.1.1/8.8.8.8; DNS Docker Desktop/OrbStack отвечает адресами `198.18.0.0/15`, которые прокси закрывает как private, поэтому там блок не проходит |
+| `ops_test.go` | `TestOpsBackupRestore`, `TestOpsCertReplace`, `TestOpsImageUpdate`, `TestOpsDiskFull`, `TestOpsForcedKill` | процедуры runbook на образе `kraken:ops` (тег параметризуется через `KRAKEN_TEST_IMAGE`; образ собирается `docker build -f deploy/Dockerfile -t kraken:ops .`): копия/восстановление `/data` с сохранением прав/UID, та же активная ревизия/fingerprint, политика действует, история событий и аудит на месте; замена сертификата панели и прокси (панель — UID 10013 0600, прокси — группа 13 0640), новый CA проходит, старый — нет, ключ не попадает в логи; обновление образа на том же volume — dirty draft не применён, активная ревизия та же, сессии и новый вход работают; заполненный диск (tmpfs `/data`) — draft/apply завершаются понятной ошибкой без частичного применения, Squid продолжает обслуживать, после освобождения места panel восстанавливается; `kraken check` и успешные чтения БД; forced kill + restart — squid-start чистит stale PID, та же политика |
 
-`network.py` (часть `make integration`) с отдельного all_web-клиента и своим
-DNS-сервером проверяет отказ по ACL (403, `ERR_ACCESS_DENIED`) для IPv4/IPv6
-loopback, link-local, metadata, IPv4-mapped, 6to4, Teredo, NAT64 и private, для имён,
-резолвящихся в них, для CONNECT; DNS rebinding после истечения TTL; поведение
-`allow_private_destinations`; origin получает только контрольные запросы.
-
-`apt.py` (часть `make integration`) поднимает подписанный локальный репозиторий:
-`apt-get update/install` через прокси по HTTP и через CONNECT, отказ без политики и
-без домена в allowlist, ошибка подписи при подменённом `InRelease`. Блок с настоящим
-архивом Ubuntu включается `KRAKEN_TEST_REAL_APT=1` и использует DNS 1.1.1.1/8.8.8.8;
-DNS Docker Desktop/OrbStack отвечает адресами `198.18.0.0/15`, которые прокси
-закрывает как private, поэтому там блок не проходит.
-
-`ops.py` (часть `make integration`) исполняет процедуры runbook на образе `kraken:ops`
-(тег параметризуется через `KRAKEN_TEST_IMAGE`; образ собирается
-`docker build -f deploy/Dockerfile -t kraken:ops .`). Создаёт только уникально
-именованные disposable контейнеры/сети/volumes во временных подсетях `11.253.x.0/24`
-и удаляет их в `finally`, не трогая пользовательский Compose и чужие ресурсы.
-Каждый шаг печатает `PASS: …`; шаг, который невозможно проверить в среде, помечается
-`SKIP` с причиной, а не ложным PASS. Проверяет:
-
-- копия и восстановление `/data`: остановить контейнер, скопировать весь named volume
-  с сохранением прав/UID (`tar | tar`), поднять новый контейнер на новом volume из
-  копии — тот же пароль открывает admin, та же активная ревизия/fingerprint, политика
-  действует (разрешённый — 200, запрещённый — 403), история событий и аудит на месте;
-- замена сертификата панели и прокси по процедуре runbook: новый dev-CA и leaf-сертификаты
-  генерируются во временном каталоге, заменяются с сохранением прав (панель — UID 10013
-  0600, прокси — группа 13 0640), клиент с новым CA проходит TLS, со старым — нет,
-  частный ключ не попадает в логи контейнера;
-- обновление образа: второй тег того же образа (`kraken:ops-next`, тривиальное отличие
-  через label без изменения кода) заменяет контейнер на том же volume — dirty draft
-  не применён, активная ревизия та же, существующие сессии и новый вход работают;
-- заполненный диск: `/data` на tmpfs с лимитом размера, заполнение до отказа записи —
-  draft/apply завершаются понятной ошибкой без частичного применения, Squid продолжает
-  обслуживать по последней рабочей конфигурации, после освобождения места panel
-  восстанавливается и apply проходит; целостность — `kraken check` и успешные чтения
-  БД (в образе нет `sqlite3` CLI).
-
-Сертификаты и ключи генерируются во временный каталог и никогда не коммитятся.
+Каждый шаг сценария — отдельный `t.Run` с кодами ответов, заголовками и
+негативными случаями. Шаг, который нельзя проверить в среде, помечается `t.Skip`
+с причиной. Сетевые правила проверяются с отдельных source-адресов: запрос с
+localhost доказывает только исключение localhost.
 
 ## Обязательные сценарии
 
