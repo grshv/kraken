@@ -175,7 +175,7 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 	if e = s.Store.DeleteExpiredSessions(tx, now, now-30*60); e != nil {
 		return v, e
 	}
-	count, _, e := s.Store.SessionCounts(tx)
+	count, e := s.Store.SessionCount(tx)
 	if e != nil {
 		return v, e
 	}

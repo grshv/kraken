@@ -79,29 +79,53 @@ func Open(path string) (*Store, error) {
 	return &Store{db}, nil
 }
 
-// migrate commits schema changes, copied data and the version ledger together.
-// Both SQL errors and a killed process leave the previous schema intact.
+// migrate applies pending migrations, their data and the version ledger in one
+// transaction. A recorded checksum that differs from this build's means the
+// database came from an incompatible build; Open refuses it.
 func migrate(db *sql.DB) error {
 	tx, e := db.Begin()
 	if e != nil {
 		return e
 	}
 	defer tx.Rollback()
-	if _, e = tx.Exec(migrations.Initial); e != nil {
-		return fmt.Errorf("migration 1: %w", e)
+	if _, e = tx.Exec("CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at INTEGER NOT NULL)"); e != nil {
+		return e
 	}
+	known := map[int]string{}
 	for _, m := range migrations.Ordered {
-		if m.Version <= 1 {
-			continue
-		}
-		var applied int
-		if e = tx.QueryRow("SELECT COUNT(*) FROM schema_migrations WHERE version=?", m.Version).Scan(&applied); e != nil {
+		known[m.Version] = m.Checksum
+	}
+	rows, e := tx.Query("SELECT version, checksum FROM schema_migrations")
+	if e != nil {
+		return e
+	}
+	applied := map[int]bool{}
+	for rows.Next() {
+		var version int
+		var checksum string
+		if e = rows.Scan(&version, &checksum); e != nil {
+			rows.Close()
 			return e
 		}
-		if applied == 0 {
-			if _, e = tx.Exec(m.SQL); e != nil {
-				return fmt.Errorf("migration %d: %w", m.Version, e)
-			}
+		if known[version] != checksum {
+			rows.Close()
+			return fmt.Errorf("database schema version %d is from an incompatible build; recreate the data volume", version)
+		}
+		applied[version] = true
+	}
+	rows.Close()
+	if e = rows.Err(); e != nil {
+		return e
+	}
+	for _, m := range migrations.Ordered {
+		if applied[m.Version] {
+			continue
+		}
+		if _, e = tx.Exec(m.SQL); e != nil {
+			return fmt.Errorf("migration %d: %w", m.Version, e)
+		}
+		if _, e = tx.Exec("INSERT INTO schema_migrations(version, checksum, applied_at) VALUES(?,?,?)", m.Version, m.Checksum, time.Now().Unix()); e != nil {
+			return fmt.Errorf("migration %d: %w", m.Version, e)
 		}
 	}
 	return tx.Commit()
@@ -216,7 +240,7 @@ func (s *Store) Prune(auditCutoff time.Time, revisionRetention int) error {
 		return e
 	}
 	defer tx.Rollback()
-	// created_at is INTEGER unix seconds since migration 002; comparing against
+	// created_at is INTEGER unix seconds; comparing against
 	// the same unit keeps range deletes O(log n) on the index instead of falling
 	// back to a full scan with TEXT comparison.
 	if _, e = tx.Exec("DELETE FROM audit_events WHERE created_at < ?", auditCutoff.Unix()); e != nil {

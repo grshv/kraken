@@ -3,63 +3,70 @@ package store
 import (
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"squid-control.local/squid/migrations"
 )
 
-// TestMigrationsApplyInOrder verifies the migration runner brings a fresh DB
-// to the latest schema, records each version in schema_migrations, and re-runs
-// are idempotent. The audit_events.created_at INTEGER type is the visible
-// schema property introduced by migration 002; asserting it via PRAGMA
-// table_info guards against accidental rollback of the type unification.
-func TestMigrationsApplyInOrder(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "control.db")
+// TestMigrationsRecordLedgerAndReopen checks a fresh database records every
+// migration and reopening does not reapply them.
+func TestMigrationsRecordLedgerAndReopen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.db")
 	st, e := Open(path)
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer st.DB.Close()
-	var count int
-	if e := st.DB.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&count); e != nil {
-		t.Fatal(e)
+	var versions int
+	if e := st.DB.QueryRow("SELECT COUNT(*) FROM schema_migrations").Scan(&versions); e != nil || versions != len(migrations.Ordered) {
+		t.Fatalf("ledger has %d rows, want %d: %v", versions, len(migrations.Ordered), e)
 	}
-	if count < 2 {
-		t.Fatalf("expected at least 2 migrations recorded, got %d", count)
+	st.DB.Close()
+	st, e = Open(path)
+	if e != nil {
+		t.Fatalf("re-open migrated DB: %v", e)
 	}
-	// audit_events.created_at must be INTEGER after migration 002.
-	rows, e := st.DB.Query("PRAGMA table_info(audit_events)")
+	st.DB.Close()
+}
+
+// TestOpenRejectsIncompatibleSchema refuses a ledger written by another build.
+func TestOpenRejectsIncompatibleSchema(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "control.db")
+	db, e := sql.Open("sqlite", path)
 	if e != nil {
 		t.Fatal(e)
 	}
-	defer rows.Close()
-	for rows.Next() {
-		var cid int
-		var name, ctype string
-		var notnull, pk int
-		var dflt sql.NullString
-		if e = rows.Scan(&cid, &name, &ctype, &notnull, &dflt, &pk); e != nil {
-			t.Fatal(e)
-		}
-		if name == "created_at" && ctype != "INTEGER" {
-			t.Fatalf("audit_events.created_at is %s, want INTEGER", ctype)
-		}
-	}
-	if e = rows.Err(); e != nil {
+	if _, e = db.Exec("CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, checksum TEXT NOT NULL, applied_at TEXT NOT NULL); INSERT INTO schema_migrations VALUES(1,'7d2b8e0b','2026-10-27T00:00:00Z'); INSERT INTO schema_migrations VALUES(5,'proxy-accounts-v1','2026-10-27T00:00:00Z')"); e != nil {
 		t.Fatal(e)
 	}
-	// Reopening an already-migrated DB must not apply migrations again and
-	// must not error on the conditional SELECT FROM schema_migrations.
-	if st2, e := Open(path); e != nil {
-		t.Fatalf("re-open migrated DB: %v", e)
-	} else {
-		st2.DB.Close()
+	db.Close()
+	if st, e := Open(path); e == nil {
+		st.DB.Close()
+		t.Fatal("incompatible schema accepted")
+	} else if !strings.Contains(e.Error(), "incompatible build") {
+		t.Fatalf("unexpected error: %v", e)
+	}
+}
+
+// TestSessionRequiresExistingUser relies on the sessions → users foreign key.
+func TestSessionRequiresExistingUser(t *testing.T) {
+	st, e := Open(filepath.Join(t.TempDir(), "control.db"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer st.DB.Close()
+	tx, e := st.BeginTx()
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer tx.Rollback()
+	if e = st.InsertSession(tx, "hash", "nobody", "csrf", 9999999999, 1); e == nil {
+		t.Fatal("session for unknown user stored")
 	}
 }
 
 // TestAuditTimestampIntegerRoundTrip verifies that an Audit insert followed by
-// a SELECT returns an INTEGER created_at, not a TEXT RFC3339 string. This
-// locks in the migration 002 invariant at the application layer: future code
-// that accidentally writes a formatted string would be detected at read time.
+// a SELECT returns an INTEGER created_at, not a TEXT RFC3339 string.
 func TestAuditTimestampIntegerRoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	st, e := Open(filepath.Join(dir, "control.db"))
@@ -80,6 +87,6 @@ func TestAuditTimestampIntegerRoundTrip(t *testing.T) {
 			t.Fatalf("non-positive audit timestamp: %d", v)
 		}
 	default:
-		t.Fatalf("audit_events.created_at came back as %T (%v), want int64 after migration 002", created, created)
+		t.Fatalf("audit_events.created_at came back as %T (%v), want int64", created, created)
 	}
 }

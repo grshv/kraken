@@ -59,16 +59,11 @@ func (s *Store) DeleteExpiredSessions(tx *sql.Tx, now int64, idleCutoff int64) e
 	return e
 }
 
-// SessionCounts returns (total, anonymous) session counts within tx. Used by
-// newSession to enforce the persisted session capacity.
-func (s *Store) SessionCounts(tx *sql.Tx) (total, anonymous int, err error) {
-	if e := tx.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&total); e != nil {
-		return 0, 0, e
-	}
-	if e := tx.QueryRow("SELECT COUNT(*) FROM sessions WHERE username=''").Scan(&anonymous); e != nil {
-		return 0, 0, e
-	}
-	return total, anonymous, nil
+// SessionCount returns the stored session count within tx. Used by newSession
+// to enforce the persisted session capacity.
+func (s *Store) SessionCount(tx *sql.Tx) (total int, err error) {
+	err = tx.QueryRow("SELECT COUNT(*) FROM sessions").Scan(&total)
+	return total, err
 }
 
 // InsertSession writes one session row within tx.

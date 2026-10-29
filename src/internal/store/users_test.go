@@ -1,9 +1,7 @@
 package store
 
 import (
-	"database/sql"
 	"path/filepath"
-	"squid-control.local/squid/migrations"
 	"sync"
 	"testing"
 )
@@ -74,40 +72,5 @@ func TestUserAuditFailureRollsBackChangesAndRevocation(t *testing.T) {
 	_ = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE username='two'").Scan(&n)
 	if !active || n != 1 {
 		t.Fatal("partial user mutation committed")
-	}
-}
-
-func TestExistingAdministratorMigratesWithoutCredentialReset(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "legacy.db")
-	db, e := sql.Open("sqlite", path)
-	if e != nil {
-		t.Fatal(e)
-	}
-	if _, e = db.Exec(migrations.Initial); e != nil {
-		t.Fatal(e)
-	}
-	if _, e = db.Exec("INSERT INTO users VALUES('existing-admin','unchanged-legacy-verifier')"); e != nil {
-		t.Fatal(e)
-	}
-	if _, e = db.Exec("INSERT INTO sessions VALUES('existing-session','existing-admin','csrf',9999999999,9999999999)"); e != nil {
-		t.Fatal(e)
-	}
-	db.Close()
-	s, e := Open(path)
-	if e != nil {
-		t.Fatal(e)
-	}
-	defer s.DB.Close()
-	var hash, role string
-	var enabled bool
-	if e = s.DB.QueryRow("SELECT password_hash,role,enabled FROM users WHERE username='existing-admin'").Scan(&hash, &role, &enabled); e != nil {
-		t.Fatal(e)
-	}
-	if hash != "unchanged-legacy-verifier" || role != "admin" || !enabled {
-		t.Fatal("migration changed existing administrator")
-	}
-	var n int
-	if e = s.DB.QueryRow("SELECT COUNT(*) FROM sessions WHERE token_hash='existing-session'").Scan(&n); e != nil || n != 1 {
-		t.Fatal("migration reset existing sessions")
 	}
 }

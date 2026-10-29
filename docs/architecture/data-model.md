@@ -77,13 +77,11 @@ secret references и terminal outcome. Он связывается с запис
   lookup и CountSucceededByRevision идут через store.Store методы, raw SQL в
   HTTP handlers не используется.
 - `audit_events` — отдельная таблица `(id, actor, action, entity_id,
-  created_at INTEGER)`. С migration 002 `created_at` хранится как INTEGER unix
-  секунд (раньше был TEXT RFC3339); range-queries на Prune используют индекс
+  created_at INTEGER)` — unix секунды; range-queries на Prune используют индекс
   на created_at.
-- `sessions` — авторизованные sessions с hash случайного cookie token.
-  Новые анонимные CSRF holders подписываются в памяти без DB rows. FK пока не
-  добавлен для совместимости с прежними anonymous rows (`username=''`), которые
-  истекают и удаляются обычной очисткой; целостность проверяет приложение.
+- `sessions` — только авторизованные sessions с hash случайного cookie token,
+  FK на `users` с `ON DELETE CASCADE`. Анонимные CSRF holders подписываются в
+  памяти без DB rows.
 
 Не запланированный переход к полной реляционной схеме потребовал бы новых миграций и пересмотра
 `draftMu`/`opsMu` (см. ADR 0009).
@@ -93,12 +91,12 @@ secret references и terminal outcome. Он связывается с запис
 Миграции вперёд нумеруются и checksum фиксируется. Перед изменением схемы — backup.
 Откат приложения возможен только при совместимой схеме, иначе restore согласованной
 копии, а не произвольное `down`. Compatibility window документируется в релизе.
-Первая миграция (`migrations/001.sql`) регистрируется в `schema_migrations` с
-checksum; будущие миграции обязаны следовать тому же шаблону.
-Bootstrap, DDL, перенос данных и версия выполняются одной транзакцией SQLite.
-Ошибка откатывает весь переход, повторный запуск начинает с прежней схемы.
-Это не заменяет backup и не чинит автоматически частичную миграцию, созданную
-старой версией приложения. См. [ADR 0010](../adr/0010-session-and-recovery-safety.md).
+`migrations/001.sql` — базовая схема; следующие миграции добавляются файлами
+`002.sql` и далее в `migrations.Ordered`. Runner записывает version и checksum в
+`schema_migrations`. DDL, перенос данных и версия выполняются одной транзакцией
+SQLite: ошибка откатывает весь переход. Записанный checksum, не совпадающий с
+checksum этой сборки, означает базу несовместимой сборки — `store.Open`
+отказывается её открывать. См. [ADR 0010](../adr/0010-session-and-recovery-safety.md).
 
 Текущий retention нормализованных событий и audit указан ниже. Отдельные
 30-дневные агрегаты и disk watermark automation не реализованы и не входят в
@@ -108,9 +106,7 @@ rotation сырого access.log не равна backup.
 `store.Prune` реализует базовый retention: удаляет audit_events старше cutoff (по
 умолчанию 90 дней) и оставшиеся сверху 5000 событий по capped-retention, а также
 ревизии, которые не ссылаются на succeeded operation и не входят в последние N
-(по умолчанию 20). Вызывается из периодического `Manager.Maintain`. Schema-level
-FK на сессии пока не добавлен из-за legacy anonymous rows; новые anonymous
-holders в таблицу не записываются. Целостность проверяется приложением.
+(по умолчанию 20). Вызывается из периодического `Manager.Maintain`.
 
 ## Реализованное расширение
 
@@ -120,7 +116,7 @@ users.password_hash хранит только Argon2id PHC verifier. CLI reset �
 его вместе с удалением sessions/audit в одной транзакции. Логическая схема выше
 не объявляет будущие tables/migration retention полностью реализованными.
 
-## Диагностическая история (migration 003)
+## Диагностическая история
 
 proxy_events: seq INTEGER PRIMARY KEY AUTOINCREMENT, event_id UNIQUE, client_id,
 client_name, failed, ingested_at, body (нормализованный JSON). Индексы client/seq,
@@ -136,10 +132,9 @@ SQL параметры связаны; произвольный cursor не ра
 не сдвигают старые страницы, retention может сократить доступную историю.
 Client labels фиксируются при сборе; revision_id null. См. [ADR 0011](../adr/0011-durable-diagnostics.md).
 
-## Учётные записи (migrations 004/005)
+## Учётные записи
 
-users дополнен role (admin/viewer) и enabled; существующие users получают admin/true
-без изменения verifier. Серверный readSession читает актуальное состояние user.
+users хранит role (admin/viewer) и enabled. Серверный readSession читает актуальное состояние user.
 Role/enabled/password mutation и удаление его sessions/audit атомарны. Проверка
 последнего active admin входит в ту же transaction. Имена неизменяемы; вместо
 удаления используется блокировка с сохранением audit identity.
