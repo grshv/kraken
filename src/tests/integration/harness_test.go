@@ -564,6 +564,38 @@ func (p *Panel) op(t *testing.T, action, revID string, expected any, validation 
 	})
 }
 
+// waitForEvent polls /events with the given query (without the leading "?")
+// until at least one item is returned, returning the first (newest) event.
+func (p *Panel) waitForEvent(t *testing.T, seconds int, query string) map[string]any {
+	t.Helper()
+	return waitForResult(t, seconds, func() (map[string]any, error) {
+		page := p.apiOK(t, "GET", "/events?"+query, nil, "")
+		items, _ := page["items"].([]any)
+		if len(items) == 0 {
+			return nil, errf("no event: %s", query)
+		}
+		return items[0].(map[string]any), nil
+	})
+}
+
+// applyAsManager applies a snapshot as a manager. The revision preview endpoint
+// is admin-only, so the caller supplies the current applied revision (from
+// /status) as expected_applied_revision instead of deriving it from the preview.
+func (p *Panel) applyAsManager(t *testing.T, snap policy.Snapshot, expected int, appliedRev string) {
+	t.Helper()
+	d := p.putDraft(t, snap, expected)
+	rev := p.apiOK(t, "POST", "/revisions", map[string]any{"expected_draft_version": d.Version}, "")
+	var prev any
+	if appliedRev != "" {
+		prev = appliedRev
+	}
+	validate := p.op(t, "validate", rev["id"].(string), prev, "")
+	applied := p.op(t, "apply", rev["id"].(string), prev, validate["id"].(string))
+	if applied["status"] != "succeeded" {
+		t.Fatalf("manager apply did not succeed: %v", applied)
+	}
+}
+
 // genOriginCert writes origin.key/origin.crt (RSA 2048, SAN allowed.test and
 // denied.test) into dir using crypto/x509, replacing the openssl call.
 func genOriginCert(t *testing.T, dir string) {
