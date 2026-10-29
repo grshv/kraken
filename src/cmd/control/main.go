@@ -19,14 +19,19 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"syscall"
+	"text/tabwriter"
 	"time"
 
+	"kraken.local/kraken/internal/admin"
 	"kraken.local/kraken/internal/httpapi"
 	"kraken.local/kraken/internal/proxyauth"
 	local "kraken.local/kraken/internal/runtime"
 	"kraken.local/kraken/internal/store"
 	"kraken.local/kraken/web"
+
+	"golang.org/x/term"
 )
 
 const baseImage = "ubuntu/squid@sha256:6a097f68bae708cedbabd6188d68c7e2e7a38cedd05a176e1cc0ba29e3bbe029"
@@ -46,20 +51,26 @@ func manager() *local.Manager {
 }
 func main() {
 	if e := run(); e != nil {
-		slog.Error("kraken stopped", "error", e)
+		if !errors.Is(e, errQuiet) {
+			slog.Error("kraken stopped", "error", e)
+		}
 		os.Exit(1)
 	}
 }
 func run() error {
-	if len(os.Args) < 2 {
-		return errors.New("usage: kraken serve|bootstrap|password-reset|dev-cert|squid-start|check|proxy-auth|service-update")
+	if len(os.Args) < 2 || os.Args[1] == "help" {
+		printHelp()
+		return nil
 	}
 	cmd := os.Args[1]
-	// serve and every CLI subcommand except squid-start/proxy-auth refuse to
-	// run as root: a privileged panel process would defeat the per-UID filesystem
-	// isolation between Squid (proxy) and the panel (kraken).
-	if os.Geteuid() == 0 && cmd != "squid-start" && cmd != "proxy-auth" {
-		return errors.New("refusing to run as root")
+	// Every CLI subcommand except squid-start and proxy-auth drops root to the
+	// kraken user (UID/GID 10013, no supplementary groups) before opening any
+	// file. docker exec runs as root by default; the panel and Squid keep their
+	// per-UID filesystem isolation (ADR 0015). Non-root invocations are unchanged.
+	if requiresPrivilegeDrop(cmd) && os.Geteuid() == 0 {
+		if e := dropPrivileges(); e != nil {
+			return e
+		}
 	}
 	m := manager()
 	ctx := context.Background()
@@ -282,8 +293,16 @@ func run() error {
 			return nil
 		}
 		return e
+	case "user":
+		return runUser(os.Args[2:])
+	case "sessions":
+		return runSessions(os.Args[2:])
+	case "status":
+		return runStatus(m)
+	case "backup":
+		return runBackup()
 	default:
-		return fmt.Errorf("unknown command: %s", cmd)
+		return fmt.Errorf("unknown command: %s; run 'kraken help'", cmd)
 	}
 }
 func devCert() error {
@@ -356,4 +375,260 @@ func devCert() error {
 	}
 	fmt.Println("Created self-signed localhost certificate (development only)")
 	return nil
+}
+
+// errQuiet is returned after a command has already printed a Russian message
+// to stderr: main exits non-zero without adding an English slog line.
+var errQuiet = errors.New("")
+
+func fail(msg string) error {
+	fmt.Fprintln(os.Stderr, msg)
+	return errQuiet
+}
+
+func openStore() (*store.Store, error) {
+	st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3"))
+	if e != nil {
+		return nil, fail("Не удалось открыть базу данных: " + e.Error())
+	}
+	return st, nil
+}
+
+func failStore(e error) error {
+	return fail("Хранилище недоступно: " + e.Error())
+}
+
+const (
+	krakenUID = 10013
+	krakenGID = 10013
+)
+
+// requiresPrivilegeDrop reports whether cmd must drop root privileges before
+// doing any work. squid-start and proxy-auth keep their dedicated credentials.
+func requiresPrivilegeDrop(cmd string) bool {
+	switch cmd {
+	case "squid-start", "proxy-auth":
+		return false
+	}
+	return true
+}
+
+// dropPrivileges irrevocably drops to the kraken user (UID/GID 10013) with no
+// supplementary groups. Linux only: the container runs as root and every panel
+// CLI command drops before opening files.
+func dropPrivileges() error {
+	if runtime.GOOS != "linux" {
+		return errors.New("privilege drop is supported only on linux")
+	}
+	if e := syscall.Setgroups([]int{}); e != nil {
+		return fmt.Errorf("setgroups: %w", e)
+	}
+	if e := syscall.Setgid(krakenGID); e != nil {
+		return fmt.Errorf("setgid: %w", e)
+	}
+	if e := syscall.Setuid(krakenUID); e != nil {
+		return fmt.Errorf("setuid: %w", e)
+	}
+	return nil
+}
+
+func printHelp() {
+	fmt.Println(`Команды:
+  serve            Запустить HTTPS-панель (под Pebble)
+  bootstrap        Создать первого администратора
+  password-reset   Сменить пароль и отозвать сессии
+  user             Учётные записи: list, enable, disable, role
+  sessions         Отзыв сессий: revoke [--user <имя>]
+  status           Ревизия, Squid, пользователи, место на /data
+  backup           Онлайн-копия данных в tar
+  dev-cert         Самоподписанные dev-сертификаты (только разработка)
+  check            Проверка образа и работающего Squid
+  service-update   Служебное обновление squid.conf из LKG
+  squid-start      Запуск Squid (под пользователем proxy)
+  proxy-auth       Helper аутентификации прокси`)
+}
+
+func runUser(args []string) error {
+	if len(args) == 0 {
+		return fail("Использование: kraken user list|enable|disable|role ...")
+	}
+	sub := args[0]
+	st, e := openStore()
+	if e != nil {
+		return e
+	}
+	defer st.DB.Close()
+	switch sub {
+	case "list":
+		rows, e := admin.ListUsers(st)
+		if e != nil {
+			return failStore(e)
+		}
+		if len(rows) == 0 {
+			fmt.Println("Нет пользователей.")
+			return nil
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+		fmt.Fprintln(w, "ИМЯ\tРОЛЬ\tВКЛЮЧ\tСЕССИЙ")
+		for _, r := range rows {
+			en := "нет"
+			if r.Enabled {
+				en = "да"
+			}
+			fmt.Fprintf(w, "%s\t%s\t%s\t%d\n", r.Username, r.Role, en, r.Sessions)
+		}
+		return w.Flush()
+	case "enable":
+		if len(args) != 2 {
+			return fail("Использование: kraken user enable <имя>")
+		}
+		if e := admin.SetEnabled(st, args[1], true, "cli"); e != nil {
+			return mapUserErr(e)
+		}
+		fmt.Println("Учётная запись включена.")
+		return nil
+	case "disable":
+		if len(args) != 2 {
+			return fail("Использование: kraken user disable <имя>")
+		}
+		if e := admin.SetEnabled(st, args[1], false, "cli"); e != nil {
+			return mapUserErr(e)
+		}
+		fmt.Println("Учётная запись отключена, сессии отозваны.")
+		return nil
+	case "role":
+		if len(args) != 3 || (args[2] != "admin" && args[2] != "manager") {
+			return fail("Использование: kraken user role <имя> admin|manager")
+		}
+		if e := admin.SetRole(st, args[1], args[2], "cli"); e != nil {
+			return mapUserErr(e)
+		}
+		fmt.Printf("Роль изменена на %s, сессии отозваны.\n", args[2])
+		return nil
+	default:
+		return fail("Неизвестная подкоманда user: " + sub)
+	}
+}
+
+func mapUserErr(e error) error {
+	switch {
+	case errors.Is(e, admin.ErrLastAdmin):
+		return fail("Нельзя отключить или понизить последнего включённого администратора.")
+	case errors.Is(e, admin.ErrNotFound):
+		return fail("Пользователь не найден.")
+	default:
+		return fail("Не удалось изменить пользователя: " + e.Error())
+	}
+}
+
+func runSessions(args []string) error {
+	if len(args) == 0 || args[0] != "revoke" {
+		return fail("Использование: kraken sessions revoke [--user <имя>] [--yes]")
+	}
+	fs := flag.NewFlagSet("sessions revoke", flag.ContinueOnError)
+	user := fs.String("user", "", "отозвать сессии одного пользователя (по умолчанию все)")
+	yes := fs.Bool("yes", false, "не спрашивать подтверждение для отзыва всех сессий")
+	if e := fs.Parse(args[1:]); e != nil {
+		return errQuiet
+	}
+	if *user == "" && !*yes {
+		if !term.IsTerminal(int(os.Stdin.Fd())) {
+			return fail("Отзыв всех сессий в неинтерактивном режиме требует --yes.")
+		}
+		fmt.Fprint(os.Stderr, "Отозвать ВСЕ сессии? Введите yes: ")
+		var resp string
+		fmt.Fscanln(os.Stdin, &resp)
+		if resp != "yes" {
+			return fail("Отменено.")
+		}
+	}
+	st, e := openStore()
+	if e != nil {
+		return e
+	}
+	defer st.DB.Close()
+	n, e := admin.RevokeSessions(st, *user, "cli")
+	if e != nil {
+		return failStore(e)
+	}
+	if *user == "" {
+		fmt.Printf("Отозвано сессий: %d\n", n)
+	} else {
+		fmt.Printf("Отозвано сессий пользователя %s: %d\n", *user, n)
+	}
+	return nil
+}
+
+func runStatus(m *local.Manager) error {
+	ctx := context.Background()
+	rev, e := m.ReadManifest()
+	revision := "(нет)"
+	if e == nil && rev.Revision != "" {
+		revision = rev.Revision
+	}
+	fmt.Printf("Ревизия: %s\n", revision)
+	vctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	squid := "ok"
+	if ve := m.Verify(vctx, rev.Hash); ve != nil {
+		squid = "ошибка: " + ve.Error()
+	}
+	fmt.Printf("Squid: %s\n", squid)
+	if st, e := store.Open(env("KRAKEN_DATABASE_PATH", "/data/app/control.sqlite3")); e == nil {
+		var n int
+		_ = st.DB.QueryRow("SELECT COUNT(*) FROM users").Scan(&n)
+		st.DB.Close()
+		fmt.Printf("Пользователей: %d\n", n)
+	} else {
+		fmt.Printf("Пользователей: (база недоступна)\n")
+	}
+	dataDir := env("KRAKEN_DATA_DIR", "/data")
+	fmt.Printf("Свободно на %s: %s\n", dataDir, humanBytes(diskFree(dataDir)))
+	return nil
+}
+
+func runBackup() error {
+	fs := flag.NewFlagSet("backup", flag.ContinueOnError)
+	out := fs.String("out", "", "путь к tar-архиву (по умолчанию /data/backups/kraken-<UTC>.tar)")
+	if e := fs.Parse(os.Args[2:]); e != nil {
+		return errQuiet
+	}
+	dataDir := env("KRAKEN_DATA_DIR", "/data")
+	st, e := openStore()
+	if e != nil {
+		return e
+	}
+	defer st.DB.Close()
+	target := *out
+	if target == "" {
+		target = filepath.Join(dataDir, "backups", "kraken-"+time.Now().UTC().Format("20060102-150405")+".tar")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+	if e := admin.Backup(ctx, st, dataDir, target); e != nil {
+		return fail("Ошибка копии: " + e.Error())
+	}
+	fmt.Println(target)
+	return nil
+}
+
+func diskFree(path string) uint64 {
+	var s syscall.Statfs_t
+	if e := syscall.Statfs(path, &s); e != nil {
+		return 0
+	}
+	return uint64(s.Bavail) * uint64(s.Bsize)
+}
+
+func humanBytes(b uint64) string {
+	const unit = 1024
+	if b < unit {
+		return fmt.Sprintf("%d B", b)
+	}
+	div, exp := uint64(unit), 0
+	for n := b / unit; n >= unit; n /= unit {
+		div *= unit
+		exp++
+	}
+	return fmt.Sprintf("%.1f %ciB", float64(b)/float64(div), "KMGTPE"[exp])
 }

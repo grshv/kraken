@@ -16,8 +16,7 @@
 | [configuration-lifecycle](architecture/configuration-lifecycle.md) | Apply, проверка, аварии, rollback |
 | [data-model](architecture/data-model.md) | Таблицы, инварианты, retention, миграции |
 | [threat-model](security/threat-model.md) | Активы, границы доверия, меры защиты |
-| [authentication-and-certificates](security/authentication-and-certificates.md) | Вход, сессии, TLS-сертификаты |
-| [password-lifecycle](security/password-lifecycle.md) | Хранение пароля и локальный reset |
+| [authentication-and-certificates](security/authentication-and-certificates.md) | Вход, сессии, пароли, TLS-сертификаты |
 | [deployment](operations/deployment.md) | Целевая установка и prerequisites |
 | [local-development](operations/local-development.md) | Локальный запуск и сертификаты |
 | [runbooks](operations/runbooks.md) | Аварии, копия данных, восстановление, обновление |

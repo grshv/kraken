@@ -1,18 +1,13 @@
-.PHONY: help docs-check web-build web-test build test check image integration integration-network integration-apt integration-ops dev-cert bootstrap password-reset up down
+.PHONY: help docs-check check image integration web-build web-test test
 
 help:
-	@echo "build        Build frontend and Go binary in bin/"
 	@echo "check        Docs, frontend type/build, Go race tests, vet and patch checks"
+	@echo "docs-check   Local documentation checks (Go: links, ADR, map, headings, OpenAPI, example)"
 	@echo "image        Build single-container development image"
 	@echo "integration  Run smoke, network, APT and ops tests on real Squid (requires image)"
-	@echo "integration-ops  Run operational runbook tests (backup/restore, cert, image update, disk full)"
-	@echo "dev-cert     Create localhost development certificate in Compose volume"
-	@echo "bootstrap    Interactively create initial administrator"
-	@echo "password-reset  Reset an existing password locally and revoke sessions"
-	@echo "up / down    Start/stop local Compose deployment"
 
 docs-check:
-	python3 scripts/check_docs.py
+	cd src && go run ./tools/docs-check
 
 web-build:
 	npm --prefix src/web ci --no-audit --no-fund
@@ -20,9 +15,6 @@ web-build:
 
 web-test:
 	npm --prefix src/web run test
-
-build: web-build
-	cd src && go build -trimpath -o ../bin/kraken ./cmd/control
 
 test: web-build
 	cd src && go test -race ./...
@@ -40,27 +32,3 @@ integration:
 	python3 src/tests/integration/network.py
 	python3 src/tests/integration/apt.py
 	python3 src/tests/integration/ops.py
-
-integration-network:
-	python3 src/tests/integration/network.py
-
-integration-apt:
-	python3 src/tests/integration/apt.py
-
-integration-ops:
-	python3 src/tests/integration/ops.py
-
-dev-cert:
-	docker compose -f deploy/compose.yaml run --rm --no-deps --user 10013:10013 --entrypoint /usr/local/bin/kraken kraken dev-cert
-
-bootstrap:
-	python3 src/tools/bootstrap.py
-
-password-reset:
-	python3 src/tools/password_reset.py
-
-up:
-	docker compose -f deploy/compose.yaml up -d
-
-down:
-	docker compose -f deploy/compose.yaml down
