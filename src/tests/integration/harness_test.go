@@ -27,6 +27,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -82,15 +83,53 @@ func randPassword(n int) string {
 	return base64.RawURLEncoding.EncodeToString(b) + " +%"
 }
 
-// freePort grabs an unused localhost TCP port for the panel mapping.
-func freePort(t *testing.T) string {
-	t.Helper()
+// freeHostPort returns an unused localhost TCP port. The caller must bind it
+// before relying on exclusivity; the listener is closed before returning.
+func freeHostPort() string {
 	l, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
-		t.Fatalf("free port: %v", err)
+		return ""
 	}
 	defer l.Close()
 	return fmt.Sprintf("%d", l.Addr().(*net.TCPAddr).Port)
+}
+
+// portAllocError reports whether a docker run failure is a host-port bind
+// conflict ("port is already allocated" / "address already in use") that a
+// fresh port would fix.
+func portAllocError(output string) bool {
+	low := strings.ToLower(output)
+	return strings.Contains(low, "port is already allocated") ||
+		strings.Contains(low, "address already in use") ||
+		strings.Contains(low, "bind: address already in use")
+}
+
+// runPortMapped runs `docker run -d` with a published host port. build receives
+// a candidate host port and returns the full arg list (starting with "run"). On
+// a port-allocation conflict the helper retries with a fresh free port, up to 5
+// attempts. It returns the host port actually bound. Centralising the retry
+// here keeps every parallel test safe against the freePort→docker-run race.
+func runPortMapped(t *testing.T, build func(hostPort string) []string) string {
+	t.Helper()
+	var lastOut string
+	for attempt := 0; attempt < 5; attempt++ {
+		port := freeHostPort()
+		if port == "" {
+			t.Fatalf("free port: no port available")
+		}
+		args := build(port)
+		out, err := dockerErr(args...)
+		if err == nil {
+			return port
+		}
+		lastOut = out
+		if !portAllocError(out) {
+			t.Fatalf("docker %s: %v\n%s", args[0], err, tail(out, 3000))
+		}
+		// Port conflict: retry with a new free port.
+	}
+	t.Fatalf("could not allocate host port after 5 attempts:\n%s", tail(lastOut, 1000))
+	return ""
 }
 
 // resources tracks disposable Docker containers/networks/volumes so t.Cleanup
@@ -699,13 +738,24 @@ func writeFile(path string, data []byte) {
 // of where `go test` was invoked from.
 func repoRoot(t *testing.T) string {
 	t.Helper()
+	dir, ok := findRepoRoot()
+	if !ok {
+		t.Fatal("deploy/Dockerfile not found walking up from working directory")
+	}
+	return dir
+}
+
+// findRepoRoot is the non-fatal variant of repoRoot so ensureNextImage can use
+// it inside a sync.Once without calling t.Fatal (which would Goexit the
+// once-goroutine and leave waiters without an error).
+func findRepoRoot() (string, bool) {
 	dir, err := os.Getwd()
 	if err != nil {
-		t.Fatalf("getwd: %v", err)
+		return "", false
 	}
 	for i := 0; i < 8; i++ {
 		if _, err := os.Stat(filepath.Join(dir, "deploy", "Dockerfile")); err == nil {
-			return dir
+			return dir, true
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
@@ -713,9 +763,16 @@ func repoRoot(t *testing.T) string {
 		}
 		dir = parent
 	}
-	t.Fatal("deploy/Dockerfile not found walking up from " + dir)
-	return dir
+	return "", false
 }
+
+// nextImageOnce ensures the NEXT image is built at most once per test binary:
+// every waiting test sees the same build result. The build uses layer cache so
+// it stays cheap; the guard prevents parallel rebuilds racing on the same tag.
+var (
+	nextImageOnce sync.Once
+	nextImageErr  error
+)
 
 // splitLines splits trimmed s on newlines.
 func splitLines(s string) []string { return split(strings.TrimSpace(s), "\n") }
@@ -820,9 +877,8 @@ type instance struct {
 }
 
 // launchInstance brings up a disposable kraken instance: isolated network and
-// volume, dev-cert, bootstrap, then a proxy container restarted once so the
-// published host port lines up with KRAKEN_PUBLIC_ORIGIN. Returns the panel
-// client already logged in with squid up.
+// volume, dev-cert, bootstrap, then a proxy container with a published host
+// port. Returns the panel client already logged in with squid up.
 func launchInstance(t *testing.T, r *resources, fixturesDir, subnet, base string) instance {
 	t.Helper()
 	name := randName("sc-test")
@@ -834,29 +890,20 @@ func launchInstance(t *testing.T, r *resources, fixturesDir, subnet, base string
 	password := randPassword(24)
 	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", volume+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", testImage(), "bootstrap", "--password-stdin")
 	proxy := r.addContainer(name + "-proxy")
-	// First start with an ephemeral port to discover a free host port, then
-	// recreate with a fixed mapping so KRAKEN_PUBLIC_ORIGIN matches.
-	docker(t, "run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1::8443", "-v", volume+":/var/lib/kraken",
-		"-e", "KRAKEN_PUBLIC_ORIGIN=https://localhost",
-		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", testImage())
-	port := strings.Split(docker(t, "port", proxy, "8443/tcp"), ":")
-	hostPort := port[len(port)-1]
-	origin := "https://localhost:" + hostPort
-	docker(t, "rm", "-f", "-v", proxy)
-	r.removeContainer(proxy)
-	time.Sleep(time.Second) // let the host port binding release before rebind
-	proxy = r.addContainer(name + "-proxy")
-	docker(t, "run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1:"+hostPort+":8443", "-v", volume+":/var/lib/kraken",
-		"-e", "KRAKEN_PUBLIC_ORIGIN="+origin,
-		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", testImage())
+	port := runPortMapped(t, func(p string) []string {
+		return []string{"run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base + ".2",
+			"-v", volume + ":/var/lib/kraken",
+			"-p", "127.0.0.1:" + p + ":8443",
+			"-e", "KRAKEN_PUBLIC_ORIGIN=https://localhost:" + p,
+			"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", testImage()}
+	})
+	origin := "https://localhost:" + port
 	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", fixturesDir+"/panel.crt")
 	docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", fixturesDir+"/proxy.crt")
 	panel := newPanel(origin, fixturesDir+"/panel.crt", password)
 	panel.login(t, password)
 	panel.waitUp(t, 60)
-	return instance{panel: panel, proxy: proxy, network: network, volume: volume, password: password, port: hostPort}
+	return instance{panel: panel, proxy: proxy, network: network, volume: volume, password: password, port: port}
 }
 
 // fetchStatus runs a Python one-liner in a container to fetch through the
@@ -893,9 +940,8 @@ func startOriginClient(t *testing.T, r *resources, net, fixtures, ident, base st
 	return origin, client
 }
 
-// launchOpsInstance is the ops-section variant of launchInstance: it reserves a
-// free host port up front (no recreate-to-discover dance) and accepts the
-// image tag so the image-update section can boot the NEXT_IMAGE.
+// launchOpsInstance is the ops-section variant of launchInstance: it accepts
+// the image tag so the image-update section can boot the NEXT_IMAGE.
 func launchOpsInstance(t *testing.T, r *resources, fixtures, subnet, base, image string, copyProxy bool) instance {
 	t.Helper()
 	name := randName("sc-ops")
@@ -906,13 +952,15 @@ func launchOpsInstance(t *testing.T, r *resources, fixtures, subnet, base, image
 	docker(t, "run", "--rm", "--user", controlUser, "-v", volume+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", image, "dev-cert")
 	password := randPassword(24)
 	dockerIn(t, password+"\n", "run", "--rm", "-i", "--user", controlUser, "-v", volume+":/var/lib/kraken", "--entrypoint", "/usr/local/bin/kraken", image, "bootstrap", "--password-stdin")
-	port := freePort(t)
-	origin := "https://localhost:" + port
 	proxy := r.addContainer(name + "-p")
-	docker(t, "run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base+".2",
-		"-p", "127.0.0.1:"+port+":8443", "-v", volume+":/var/lib/kraken",
-		"-e", "KRAKEN_PUBLIC_ORIGIN="+origin,
-		"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", image)
+	port := runPortMapped(t, func(p string) []string {
+		return []string{"run", "-d", "--name", proxy, "--network", network, "--network-alias", "proxy", "--ip", base + ".2",
+			"-v", volume + ":/var/lib/kraken",
+			"-p", "127.0.0.1:" + p + ":8443",
+			"-e", "KRAKEN_PUBLIC_ORIGIN=https://localhost:" + p,
+			"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key", image}
+	})
+	origin := "https://localhost:" + port
 	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", fixtures+"/panel.crt")
 	if copyProxy {
 		docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", fixtures+"/proxy.crt")
@@ -925,11 +973,25 @@ func launchOpsInstance(t *testing.T, r *resources, fixtures, subnet, base, image
 
 // ensureNextImage builds KRAKEN_TEST_IMAGE_NEXT from the current tree with a
 // trivial label difference, as ops.py does. Always rebuilt (layer cache keeps
-// it cheap) so a stale tag cannot test an incompatible schema.
+// it cheap) so a stale tag cannot test an incompatible schema. sync.Once
+// guarantees the build runs at most once per test binary; every waiting test
+// sees the same result.
 func ensureNextImage(t *testing.T) {
 	t.Helper()
-	root := repoRoot(t)
-	docker(t, "build", "-f", filepath.Join(root, "deploy", "Dockerfile"), "--label", "kraken.ops.variant=next", "-t", nextImage(), root)
+	nextImageOnce.Do(func() {
+		root, ok := findRepoRoot()
+		if !ok {
+			nextImageErr = fmt.Errorf("deploy/Dockerfile not found")
+			return
+		}
+		out, err := dockerErr("build", "-f", filepath.Join(root, "deploy", "Dockerfile"), "--label", "kraken.ops.variant=next", "-t", nextImage(), root)
+		if err != nil {
+			nextImageErr = fmt.Errorf("docker build next image: %v\n%s", err, tail(out, 3000))
+		}
+	})
+	if nextImageErr != nil {
+		t.Fatalf("ensureNextImage: %v", nextImageErr)
+	}
 }
 
 // opsFetch is the ops.py fetch: a Python one-liner returning the HTTP status.

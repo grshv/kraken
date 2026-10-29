@@ -14,6 +14,7 @@ import (
 // unknown source promotion, manager scope boundaries, and apply failure with
 // rollback. Each step is a numbered t.Run sharing one instance and subnet.
 func TestFlows(t *testing.T) {
+	t.Parallel()
 	fixtures := t.TempDir()
 	r := resources{}
 	r.track(t)

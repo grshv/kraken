@@ -25,6 +25,7 @@ func managerSecretHash(t *testing.T, container string) string {
 
 func TestLayout(t *testing.T) {
 	requireImage(t, testImage())
+	t.Parallel()
 	const subnet, base = "11.253.30.0/24", "11.253.30"
 	fixtures := t.TempDir()
 	r := resources{}

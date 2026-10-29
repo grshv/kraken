@@ -56,6 +56,7 @@ http.server.HTTPServer(('0.0.0.0',80),H).serve_forever()
 `
 
 func TestNetwork(t *testing.T) {
+	t.Parallel()
 	fixtures := t.TempDir()
 	r := resources{}
 	r.track(t)

@@ -79,6 +79,7 @@ func aptRun(client string, args ...string) (int, string, string) {
 }
 
 func TestApt(t *testing.T) {
+	t.Parallel()
 	fixtures := t.TempDir()
 	r := resources{}
 	r.track(t)
