@@ -59,7 +59,7 @@ Draft использует optimistic lock `version`. Preview и validation пр
 Apply передаёт immutable snapshot, expected applied revision и idempotency key.
 
 Runtime module держит один межпроцессный file lock для validate/promote/reload/rollback и certificate rotation.
-Новый apply при занятом lock получает busy; скрытой очереди в MVP нет.
+Новый apply при занятом lock получает busy; скрытой очереди нет.
 Одинаковый idempotency key с тем же payload возвращает прежний operation ID;
 с другим payload — conflict. Повтор после timeout не запускает второе применение.
 
@@ -97,11 +97,10 @@ mutations. При недоступной DB новая mutation не начин�
 10. При ошибке после promotion: journal `rolling_back`, вернуть предыдущий bundle,
     повторно parse/reload/verify; закончить `rolled_back` или `degraded`.
 
-Предварительные budgets: parse 15 s, reload acknowledgement 10 s, verify 30 s
+Бюджеты по умолчанию: parse 15 s, reload acknowledgement 10 s, verify 30 s
 (соответствует `VerifyBudget` в `manager.go`), rollback до 45 s. Значения
 конфигурируемы через env `KRAKEN_PARSE_TIMEOUT` / `KRAKEN_RELOAD_TIMEOUT` /
-`KRAKEN_VERIFY_BUDGET` (Go duration syntax, диапазон (0, 5 m]) и проверяются spike,
-не обещание SLA. Нельзя убивать безопасное восстановление только потому, что
+`KRAKEN_VERIFY_BUDGET` (Go duration syntax, диапазон (0, 5 m]); это не обещание SLA. Нельзя убивать безопасное восстановление только потому, что
 браузер закрылся.
 
 Recover после рестарта читает journal. Незавершённый apply восстанавливает
@@ -124,7 +123,7 @@ pending journal и возвращается вызывающему коду; ser
 
 Чтобы новая разрешающая ревизия не была ошибочно проверена по старым ACL,
 verification должен наблюдать её fingerprint доступным проверенным механизмом
-и/или отличающий old/new поведенческий canary. Механизм фиксируется image spike.
+— loopback canary с fingerprint ревизии ([image compatibility](../research/image-compatibility.md)).
 Если поддерживаемого доказательства нет, UI показывает `unverified`, а applied/LKG
 не объявляется подтверждённой только по `squid -k reconfigure` exit code.
 
@@ -185,8 +184,7 @@ and `validating`, or the spec could be trimmed to the emitted statuses only.
 
 Recovery gate выполняет reconciliation filesystem/journal **перед каждым** запуском
 Squid: первоначальный старт, restart контейнера/VM и отдельный restart Squid
-через Pebble. Gate — короткий подрежим того же Go-бинарника; точный startup path
-проверяется image spike. Он и web worker используют один lock, чтобы Squid не
+через Pebble. Gate — `kraken squid-start` того же бинарника. Он и web worker используют один lock, чтобы Squid не
 стартовал на pending candidate. Web readiness не требуется для старта из LKG.
 При restart только панели работающий Squid не останавливают; прежде новых
 mutations worker завершает reconciliation, при необходимости rollback/reload.

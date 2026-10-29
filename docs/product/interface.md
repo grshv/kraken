@@ -237,6 +237,5 @@ Admin видит все разделы. Manager видит свою област
 
 ## Проверки
 
-Логика каркаса (`shell/layout.ts`, `shell/nav.ts`, `draft/applyFlow.ts`)
-покрыта unit-тестами vitest в `src/web/tests/unit`. E2e на ключевые потоки —
-отдельный срез.
+Логика экранов вынесена в чистые модули и покрыта vitest в `src/web/tests/unit`
+([testing](../development/testing.md)); браузерных e2e нет по решению владельца.
