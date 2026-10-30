@@ -8,9 +8,21 @@ import {
   Search,
   TriangleAlert,
 } from "lucide-react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Callout, KeyValue } from "../components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import { PaneResizer } from "../shell/PaneResizer";
@@ -74,6 +86,16 @@ const EXPLAIN_REASON: Record<string, string> = {
 // did (split(':')[0].split('/')[0]) so "example.com:443/p" -> "example.com".
 function hostOf(destination: string): string {
   return destination.split(":")[0].split("/")[0];
+}
+
+// resultCode extracts the HTTP status code shown in the events table: prefer
+// the structured proxy_http_status field, fall back to the trailing number in
+// proxy_result ("TCP_DENIED/403" -> "403"). The full proxy_result is still
+// shown in the request detail pane.
+function resultCode(e: Event): string {
+  if (e.proxy_http_status != null) return String(e.proxy_http_status);
+  const m = (e.proxy_result || "").match(/(\d{3})\b/);
+  return m ? m[1] : e.proxy_result || "—";
 }
 
 // LogSection: live proxy event stream with search tokens, facets, a per-minute
@@ -260,135 +282,167 @@ export function LogSection(props: SectionProps) {
   const allowedCount = facets?.allowed ?? 0;
   const deniedCount = facets?.denied ?? 0;
 
-  // Clicking a client facet turns into a `client:<name>` search token, which
+  // Clicking a client facet toggles a `client:<name>` search token, which
   // parseLogQuery + resolveClient map back to the same client_id for
-  // GET /events. Replaces any existing client: token so re-clicking a different
-  // client switches the filter instead of stacking.
+  // GET /events. A single client: token is kept, so re-clicking a different
+  // client switches the filter; re-clicking the active one clears it.
   const applyClientFacet = useCallback(
     (id: string) => {
       const name = clientNameByID.get(id);
       if (!name) return;
       const rest = queryText.split(/\s+/).filter((t) => !/^client:/i.test(t));
-      rest.push(`client:${name}`);
+      if (parsed.client?.toLowerCase() !== name.toLowerCase())
+        rest.push(`client:${name}`);
       setQueryText(rest.join(" "));
     },
-    [clientNameByID, queryText],
+    [clientNameByID, queryText, parsed.client],
   );
 
-  // Clicking a result facet adds a `result:` token (allowed|denied), replacing
-  // any existing one. Russian synonyms are accepted by parseLogQuery.
+  // Clicking a result facet toggles a `result:` token (allowed|denied).
+  // Russian synonyms are accepted by parseLogQuery.
   const applyResultFacet = useCallback(
     (value: "allowed" | "denied") => {
       const rest = queryText
         .split(/\s+/)
         .filter((t) => !/^(result|результат):/i.test(t));
-      rest.push(`result:${value}`);
+      if (parsed.result !== value) rest.push(`result:${value}`);
       setQueryText(rest.join(" "));
     },
-    [queryText],
+    [queryText, parsed.result],
   );
 
-  // Clicking a method facet adds a `method:` token, replacing any existing one.
+  // Clicking a method facet toggles a `method:` token.
   const applyMethodFacet = useCallback(
     (value: string) => {
       const rest = queryText.split(/\s+/).filter((t) => !/^method:/i.test(t));
-      rest.push(`method:${value}`);
+      if (parsed.method?.toLowerCase() !== value.toLowerCase())
+        rest.push(`method:${value}`);
       setQueryText(rest.join(" "));
     },
-    [queryText],
+    [queryText, parsed.method],
   );
+
+  // Keep the first row selected when the list refreshes with nothing picked, so
+  // the detail pane is populated on first load and after every query change
+  // (the debounced-fetch effect clears selectedID). Matches the prototype.
+  useEffect(() => {
+    if (selectedID === null && events.length > 0) {
+      setSelectedID(events[0].id);
+    }
+  }, [events, selectedID]);
 
   return (
     <section
-      className="log-section"
+      className="grid min-h-0 w-full flex-1 [grid-template-columns:190px_minmax(0,1fr)_var(--detail-w,400px)] max-[1180px]:[grid-template-columns:minmax(0,1fr)_min(var(--detail-w,400px),320px)] max-[820px]:grid-cols-[1fr] max-[820px]:grid-rows-[auto_auto_auto]"
       style={{ ["--detail-w" as string]: `${detail.width}px` }}
     >
-      <aside className="log-facets">
+      <aside className="flex w-[190px] min-h-0 flex-col gap-3.5 overflow-y-auto border-r bg-card p-3 max-[1180px]:hidden">
         <FacetGroup title="Результат">
           <FacetRow
             label="Разрешено"
             value={allowedCount}
-            swatch="allow"
+            checked={parsed.result === "allowed"}
             onClick={() => applyResultFacet("allowed")}
           />
           <FacetRow
             label="Отказ"
             value={deniedCount}
-            swatch="deny"
+            checked={parsed.result === "denied"}
             onClick={() => applyResultFacet("denied")}
           />
         </FacetGroup>
         <FacetGroup title="Клиент">
           {clientCounts.map((c) => {
             const name = c.id ? (clientNameByID.get(c.id) ?? c.id) : "";
+            const on = c.id ? () => applyClientFacet(c.id) : undefined;
             return (
               <FacetRow
                 key={c.id || "_unknown"}
                 label={name || "Не описан"}
                 value={c.count}
-                onClick={c.id ? () => applyClientFacet(c.id) : undefined}
+                checked={
+                  !!name && parsed.client?.toLowerCase() === name.toLowerCase()
+                }
+                onClick={on}
               />
             );
           })}
           {clientCounts.length === 0 && (
-            <div className="muted-text small">—</div>
+            <div className="text-sm text-muted-foreground">—</div>
           )}
         </FacetGroup>
         <FacetGroup title="Метод">
-          {methodCounts.map((m) => (
-            <FacetRow
-              key={m.method || "_"}
-              label={m.method || "—"}
-              value={m.count}
-              onClick={m.method ? () => applyMethodFacet(m.method) : undefined}
-            />
-          ))}
+          {methodCounts.map((m) => {
+            const on = m.method ? () => applyMethodFacet(m.method) : undefined;
+            return (
+              <FacetRow
+                key={m.method || "_"}
+                label={m.method || "—"}
+                value={m.count}
+                checked={
+                  !!m.method &&
+                  parsed.method?.toLowerCase() === m.method.toLowerCase()
+                }
+                onClick={on}
+              />
+            );
+          })}
           {methodCounts.length === 0 && (
-            <div className="muted-text small">—</div>
+            <div className="text-sm text-muted-foreground">—</div>
           )}
         </FacetGroup>
       </aside>
 
-      <div className="log-main">
-        <div className="log-head">
-          <div className="search-input grow">
-            <Search aria-hidden />
+      <div className="flex min-h-0 min-w-0 flex-col">
+        <div className="flex h-[52px] flex-none items-center gap-2 border-b px-3.5">
+          <span className="font-semibold">Журнал</span>
+          {!paused && (
+            <Badge variant="ok">
+              <span className="size-1.5 rounded-full bg-current" /> обновляется
+            </Badge>
+          )}
+          <div className="relative flex min-w-0 max-w-[520px] flex-1 items-center">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
+            />
             <Input
               aria-label="Поиск по журналу"
+              className="h-8 pl-[30px]"
               placeholder="client:ci-01 host:example.com результат:отказ"
               value={queryText}
               onChange={(e) => setQueryText(e.target.value)}
             />
           </div>
-          <div
-            className="log-window-toggle"
-            role="group"
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            size="sm"
+            value={window.label}
             aria-label="Окно журнала"
+            onValueChange={(v) => {
+              const w = FACET_WINDOWS.find((x) => x.label === v);
+              if (w) setWindow(w);
+            }}
           >
             {FACET_WINDOWS.map((w) => (
-              <Button
-                key={w.label}
-                size="xs"
-                variant={w.label === window.label ? "secondary" : "ghost"}
-                onClick={() => setWindow(w)}
-              >
+              <ToggleGroupItem key={w.label} value={w.label}>
                 {w.label}
-              </Button>
+              </ToggleGroupItem>
             ))}
-          </div>
+          </ToggleGroup>
           {paused ? (
-            <Button size="xs" onClick={() => setPaused(false)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaused(false)}
+            >
               <Play aria-hidden /> Продолжить
             </Button>
           ) : (
-            <Button size="xs" variant="ghost" onClick={() => setPaused(true)}>
+            <Button variant="outline" size="sm" onClick={() => setPaused(true)}>
               <Pause aria-hidden /> Пауза
             </Button>
-          )}
-          {!paused && (
-            <Badge variant="secondary">
-              <span className="status-dot up" /> обновляется
-            </Badge>
           )}
           {stale && (
             <Badge variant="secondary">
@@ -402,15 +456,17 @@ export function LogSection(props: SectionProps) {
           )}
         </div>
 
-        <div className="log-chart">
-          <div className="legend">
-            <span>
-              <i style={{ background: "var(--s-allow)" }} /> разрешено
+        <div className="flex-none border-b p-2.5">
+          <div className="mb-1.5 flex gap-3 text-sm text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <span className="size-2.5 rounded-[2px] bg-s-allow" aria-hidden />
+              разрешено
+            </span>
+            <span className="flex items-center gap-1">
+              <span className="size-2.5 rounded-[2px] bg-s-deny" aria-hidden />
+              отказ
             </span>
             <span>
-              <i style={{ background: "var(--s-deny)" }} /> отказ
-            </span>
-            <span className="muted-text">
               {window.step === "1m"
                 ? "по минутам"
                 : window.step === "15m"
@@ -419,7 +475,7 @@ export function LogSection(props: SectionProps) {
             </span>
           </div>
           <div
-            className="log-bars"
+            className="flex h-12 items-end gap-px"
             role="img"
             aria-label="Гистограмма запросов"
           >
@@ -434,12 +490,12 @@ export function LogSection(props: SectionProps) {
               return (
                 <div
                   key={b.start}
-                  className="log-bar-col"
+                  className="relative min-w-px flex-1 rounded-t-sm bg-s-allow/70"
                   style={{ height: `${h}%` }}
                   title={`${label}: ${b.allowed} разрешено, ${b.denied} отказ`}
                 >
                   <div
-                    className="log-bar-denied"
+                    className="absolute inset-x-0 top-0 rounded-t-sm bg-s-deny/95"
                     style={{ height: `${denyH}%` }}
                   />
                 </div>
@@ -448,9 +504,9 @@ export function LogSection(props: SectionProps) {
           </div>
         </div>
 
-        <div className="log-table-wrap">
+        <div className="min-h-0 flex-1 overflow-auto">
           {loadError ? (
-            <div className="inspector-body">
+            <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
               <ErrorState
                 title="Журнал недоступен"
                 detail="Не удалось загрузить события. Повторяем запрос…"
@@ -458,66 +514,78 @@ export function LogSection(props: SectionProps) {
               />
             </div>
           ) : events.length === 0 ? (
-            <div className="inspector-body">
+            <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
               <EmptyState icon={<Search />} title="Запросов нет">
                 По текущему фильтру нет событий. Как только машины обратятся к
                 прокси, записи появятся здесь.
               </EmptyState>
             </div>
           ) : (
-            <table className="log-table">
-              <thead>
-                <tr>
-                  <th>Время</th>
-                  <th>Клиент</th>
-                  <th>Назначение</th>
-                  <th>Результат</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="text-base">
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                    Время
+                  </TableHead>
+                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                    Клиент
+                  </TableHead>
+                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                    Назначение
+                  </TableHead>
+                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                    Результат
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {events.map((e) => {
                   const denied = isDenied(e);
                   return (
-                    <tr
+                    <TableRow
                       key={e.id}
-                      className={selectedID === e.id ? "selected" : undefined}
+                      data-state={selectedID === e.id ? "selected" : undefined}
+                      className="cursor-pointer data-[state=selected]:bg-sel data-[state=selected]:shadow-[inset_2px_0_0_var(--accent)]"
                       onClick={() => setSelectedID(e.id)}
                     >
-                      <td className="num muted-text small">
+                      <TableCell className="px-3 py-2 tabular-nums text-sm text-muted-foreground">
                         {e.timestamp.slice(11, 19)}
-                      </td>
-                      <td>
-                        <div style={{ fontWeight: 500 }}>
+                      </TableCell>
+                      <TableCell className="px-3 py-2">
+                        <div className="font-medium">
                           {e.client_name ?? "не описан"}
                         </div>
-                        <div className="mono muted-text small">
+                        <div className="font-mono text-sm text-muted-foreground">
                           {e.source_ip}
                         </div>
-                      </td>
-                      <td className="mono log-dest">
+                      </TableCell>
+                      <TableCell className="px-3 py-2 font-mono [overflow-wrap:anywhere]">
                         {e.method !== "CONNECT" && (
-                          <span className="muted-text">{e.method} </span>
+                          <span className="text-muted-foreground">
+                            {e.method}{" "}
+                          </span>
                         )}
                         {e.destination}
-                      </td>
-                      <td>
-                        <Badge variant={denied ? "destructive" : "secondary"}>
-                          {e.proxy_result}
+                      </TableCell>
+                      <TableCell className="px-3 py-2">
+                        <Badge variant={denied ? "bad" : "ok"}>
+                          {resultCode(e)}
                           {denied ? " отказ" : ""}
-                          {e.count && e.count > 1 ? ` ×${e.count}` : ""}
                         </Badge>
-                      </td>
-                    </tr>
+                        {e.count && e.count > 1 ? (
+                          <span className="ml-1 tabular-nums text-sm text-muted-foreground">
+                            ×{e.count}
+                          </span>
+                        ) : null}
+                      </TableCell>
+                    </TableRow>
                   );
                 })}
-              </tbody>
-            </table>
+              </TableBody>
+            </Table>
           )}
           {cursor && !loadError && (
-            <div
-              className="row"
-              style={{ justifyContent: "center", padding: 12 }}
-            >
+            <div className="flex justify-center p-3">
               <Button size="xs" variant="ghost" onClick={loadMore}>
                 Ещё
               </Button>
@@ -545,7 +613,7 @@ export function LogSection(props: SectionProps) {
             onNavigate={onNavigate}
           />
         ) : (
-          <div className="muted-text small">
+          <div className="text-sm text-muted-foreground">
             Выберите запрос, чтобы увидеть детали и действия.
           </div>
         )}
@@ -562,8 +630,10 @@ function FacetGroup({
   children: React.ReactNode;
 }) {
   return (
-    <div className="facet-group">
-      <h4>{title}</h4>
+    <div className="flex flex-col gap-1">
+      <h4 className="mb-1 text-sm font-medium text-muted-foreground">
+        {title}
+      </h4>
       {children}
     </div>
   );
@@ -572,32 +642,39 @@ function FacetGroup({
 function FacetRow({
   label,
   value,
-  swatch,
+  checked,
   onClick,
 }: {
   label: string;
   value: number;
-  swatch?: "allow" | "deny";
-  // When set, the row becomes a button that applies a search filter.
+  checked?: boolean;
+  // When set, the row becomes a toggle that applies/clears a search filter.
   onClick?: () => void;
 }) {
-  const Comp = onClick ? "button" : "div";
+  const interactive = !!onClick;
   return (
-    <Comp
-      className="facet-item"
+    <div
+      role={interactive ? "button" : undefined}
+      tabIndex={interactive ? 0 : undefined}
+      className={cn(
+        "flex w-full items-center gap-2 py-px text-left text-base",
+        interactive && "cursor-pointer",
+      )}
       onClick={onClick}
-      type={onClick ? "button" : undefined}
-      aria-label={onClick ? `Фильтровать по «${label}»` : undefined}
+      aria-label={interactive ? `Фильтровать по «${label}»` : undefined}
+      aria-pressed={interactive ? checked : undefined}
     >
-      {swatch === "allow" && (
-        <i className="facet-swatch" style={{ background: "var(--s-allow)" }} />
-      )}
-      {swatch === "deny" && (
-        <i className="facet-swatch" style={{ background: "var(--s-deny)" }} />
-      )}
-      <span className="grow ellipsis">{label}</span>
-      <span className="num muted-text">{value}</span>
-    </Comp>
+      <Checkbox
+        checked={checked}
+        aria-hidden
+        tabIndex={-1}
+        className="pointer-events-none"
+      />
+      <span className="min-w-0 flex-1 truncate">{label}</span>
+      <span className="tabular-nums text-sm text-muted-foreground">
+        {value}
+      </span>
+    </div>
   );
 }
 
@@ -710,68 +787,82 @@ function LogDetail({
       onToast(res.message ?? "Не удалось изменить черновик");
   }
 
+  const kvItems: [React.ReactNode, React.ReactNode][] = [
+    [
+      "Время",
+      <span className="tabular-nums">
+        {event.timestamp.replace("T", " ").slice(0, 19)}
+      </span>,
+    ],
+    [
+      "Источник",
+      <span>
+        {event.client_name && (
+          <>
+            <button
+              type="button"
+              className="font-medium text-accent hover:underline"
+              onClick={() => onNavigate("clients")}
+            >
+              {event.client_name}
+            </button>{" "}
+          </>
+        )}
+        <span className="font-mono">{event.source_ip}</span>
+      </span>,
+    ],
+    [
+      "Запрос",
+      <span className="font-mono">
+        {event.method} {event.destination}
+      </span>,
+    ],
+    [
+      "Результат",
+      <Badge variant={denied ? "bad" : "secondary"}>
+        {event.proxy_result}
+        {denied ? " отказ" : ""}
+      </Badge>,
+    ],
+  ];
+  if (event.count != null && event.count > 1) {
+    kvItems.push([
+      "Повторов",
+      <span className="tabular-nums">{event.count}</span>,
+    ]);
+  }
+  if (event.revision_id) {
+    kvItems.push([
+      "Ревизия",
+      <span className="font-mono">{event.revision_id.slice(0, 8)}</span>,
+    ]);
+  }
+
   return (
     <>
-      <div style={{ fontWeight: 600 }}>Запрос</div>
-      <dl className="kv-row">
-        <dt>Время</dt>
-        <dd className="num">
-          {event.timestamp.replace("T", " ").slice(0, 19)}
-        </dd>
-        <dt>Источник</dt>
-        <dd>
-          {event.client_name && (
-            <>
-              <button className="link" onClick={() => onNavigate("clients")}>
-                {event.client_name}
-              </button>{" "}
-            </>
-          )}
-          <span className="mono">{event.source_ip}</span>
-        </dd>
-        <dt>Запрос</dt>
-        <dd className="mono">
-          {event.method} {event.destination}
-        </dd>
-        <dt>Результат</dt>
-        <dd>
-          <Badge variant={denied ? "destructive" : "secondary"}>
-            {event.proxy_result}
-            {denied ? " отказ" : ""}
-          </Badge>
-        </dd>
-        {event.count != null && event.count > 1 && (
-          <>
-            <dt>Повторов</dt>
-            <dd className="num">{event.count}</dd>
-          </>
-        )}
-        {event.revision_id && (
-          <>
-            <dt>Ревизия</dt>
-            <dd className="mono">{event.revision_id.slice(0, 8)}</dd>
-          </>
-        )}
-      </dl>
+      <div className="font-semibold">Запрос</div>
+      <KeyValue items={kvItems} />
 
       {denied ? (
-        <div className="callout callout-bad">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span style={{ fontWeight: 500 }}>Почему отказано</span>
-            <span className="muted-text small">по текущим правилам</span>
+        <Callout tone="bad">
+          <div className="flex w-full items-center justify-between">
+            <span className="font-medium">Почему отказано</span>
+            <span className="text-sm text-muted-foreground">
+              по текущим правилам
+            </span>
           </div>
           {explainFailed ? (
-            <div className="small muted-text">
+            <div className="text-sm text-muted-foreground">
               Не удалось получить объяснение. Возможно, событие уже устарело.
             </div>
           ) : explain ? (
-            <div className="small">
+            <div className="text-sm">
               {EXPLAIN_REASON[explain.reason] ?? explain.reason}
             </div>
           ) : (
-            <div className="small muted-text">Загружаем…</div>
+            <div className="text-sm text-muted-foreground">Загружаем…</div>
           )}
-          <div className="callout-actions">
+          <div className="mt-1.5 flex gap-2">
             {allowDomain && (
               <Button size="xs" onClick={allowHost}>
                 <Plus aria-hidden /> Разрешить домен
@@ -793,29 +884,33 @@ function LogDetail({
             {!allowDomain &&
               !describeSource &&
               explain?.reason !== "blocked_for_all" && (
-                <span className="muted-text small">
+                <span className="text-sm text-muted-foreground">
                   Это встроенный запрет, разрешить нельзя
                 </span>
               )}
             {explain?.reason === "blocked_for_all" && (
-              <span className="muted-text small">
+              <span className="text-sm text-muted-foreground">
                 Домен уже запрещён для всех
               </span>
             )}
           </div>
-        </div>
+        </Callout>
       ) : (
-        <div className="callout callout-info">
-          <Info aria-hidden />
-          <div className="grow small">
+        <Callout
+          tone="info"
+          icon={<Info aria-hidden />}
+          actions={
+            blockForAll ? (
+              <Button size="xs" variant="ghost" onClick={blockHost}>
+                <Ban aria-hidden /> Запретить домен для всех
+              </Button>
+            ) : undefined
+          }
+        >
+          <span className="text-sm">
             Запрос разрешён действующей политикой.
-          </div>
-          {blockForAll && (
-            <Button size="xs" variant="ghost" onClick={blockHost}>
-              <Ban aria-hidden /> Запретить домен для всех
-            </Button>
-          )}
-        </div>
+          </span>
+        </Callout>
       )}
     </>
   );
