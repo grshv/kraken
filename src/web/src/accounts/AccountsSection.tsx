@@ -417,8 +417,10 @@ function RoleOption({
       title={title}
       onClick={onClick}
       className={cn(
-        "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 rounded-lg border p-3 text-left disabled:cursor-not-allowed disabled:opacity-60",
-        selected ? "border-muted-foreground/45 bg-hover" : "border-border",
+        "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 rounded-lg border p-3 text-left disabled:cursor-not-allowed",
+        selected
+          ? "border-muted-foreground/45 bg-hover"
+          : "border-border disabled:opacity-60",
       )}
     >
       <span

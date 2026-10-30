@@ -7,9 +7,8 @@ import { PANE_LIMITS } from "./layout";
 function paneOf(handle: HTMLElement, kind: PaneKind): HTMLElement | null {
   if (kind === "detail") return handle.parentElement;
   return (
-    handle.parentElement?.querySelector<HTMLElement>(
-      "[data-slot=list-pane]",
-    ) ?? null
+    handle.parentElement?.querySelector<HTMLElement>("[data-slot=list-pane]") ??
+    null
   );
 }
 

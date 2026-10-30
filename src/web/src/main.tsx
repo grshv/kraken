@@ -157,7 +157,16 @@ function App() {
     return result as T;
   }
 
-  const request: Request = api;
+  // Stable identity: sections key effects on request, and api is recreated on
+  // every render (it closes over the CSRF token), which refetched and blanked
+  // panels on each status poll.
+  const apiRef = useRef(api);
+  apiRef.current = api;
+  const request = useCallback<Request>(
+    (path, method, data, key, signal) =>
+      apiRef.current(path, method, data, key, signal),
+    [],
+  );
 
   const allowed = useCallback(
     (permission: string, who: Session | null = session) =>
@@ -608,6 +617,7 @@ function App() {
       applyRun={applyRun}
       navId={visibleNav.includes(navId) ? navId : "help"}
       badges={{ clients: unknownSources }}
+      onOpen={openWithIntent}
       request={request}
       settings={active?.settings}
       onNavigate={setNavId}

@@ -1,21 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Activity,
-  BookOpen,
-  History,
-  KeyRound,
-  Moon,
-  Search,
-  Settings2,
-  ShieldCheck,
-  SlidersHorizontal,
-  Sun,
-  Users,
-} from "lucide-react";
+import { Moon, Search, Settings2, Sun } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 import type { NavId, Role } from "./nav";
 import { navItems } from "./nav";
+import { navIcons } from "./navIcons";
 import { KrakenMark } from "./KrakenMark";
 import { PaneResizer } from "./PaneResizer";
 import { usePaneWidth } from "./usePaneWidth";
@@ -36,17 +25,8 @@ import type {
   Status,
 } from "../model";
 import type { Request } from "../api";
+import type { SectionIntent } from "../sections/sectionProps";
 import type { ApplyRun } from "../draft/useApplyFlow";
-
-const railIcons: Record<NavId, typeof Users> = {
-  clients: Users,
-  policies: ShieldCheck,
-  log: Activity,
-  audit: History,
-  accounts: KeyRound,
-  help: BookOpen,
-  settings: SlidersHorizontal,
-};
 
 export type ShellHandlers = {
   onLogout: () => void;
@@ -71,6 +51,7 @@ export function InspectorShell({
   badges,
   request,
   settings,
+  onOpen,
   onNavigate,
   handlers,
   toast,
@@ -90,6 +71,8 @@ export function InspectorShell({
   // Counters on rail items, e.g. undescribed sources on Клиенты.
   badges?: Partial<Record<NavId, number>>;
   request: Request;
+  // Opens a section with an entity selected (palette client search).
+  onOpen?: (nav: NavId, intent: SectionIntent) => void;
   // Applied settings: ports for the status popover.
   settings?: Settings;
   onNavigate: (id: NavId) => void;
@@ -207,7 +190,7 @@ export function InspectorShell({
           {items
             .filter((n) => n.group === "main")
             .map((n) => {
-              const Icon = railIcons[n.id];
+              const Icon = navIcons[n.id];
               return (
                 <RailItem
                   key={n.id}
@@ -225,7 +208,7 @@ export function InspectorShell({
           {items
             .filter((n) => n.group === "bottom")
             .map((n) => {
-              const Icon = railIcons[n.id];
+              const Icon = navIcons[n.id];
               return (
                 <RailItem
                   key={n.id}
@@ -289,6 +272,8 @@ export function InspectorShell({
         onOpenChange={setPaletteOpen}
         onNavigate={onNavigate}
         onAction={act}
+        clients={draft?.snapshot.clients ?? []}
+        onOpenClient={(id) => onOpen?.("clients", `client:${id}`)}
       />
       <ReviewSheet
         open={reviewOpen}

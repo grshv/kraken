@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Ban,
   Check,
@@ -205,20 +205,29 @@ export function LogSection(props: SectionProps) {
     [request, facetsQuery],
   );
 
-  // Debounced fetch on query change; aborts the in-flight request when the
-  // query changes mid-flight.
+  // Debounced fetch on query or window change; aborts the in-flight request
+  // when they change mid-flight. The latest fetchers are read through a ref:
+  // fetchFacets changes with the server clock on every poll, which must not
+  // trigger a second load.
+  const fetchers = useRef({ fetchFirst, fetchFacets });
+  fetchers.current = { fetchFirst, fetchFacets };
   useEffect(() => {
     const ctrl = new AbortController();
     const t = setTimeout(() => {
-      void fetchFirst(ctrl.signal);
-      void fetchFacets(ctrl.signal);
+      void fetchers.current.fetchFirst(ctrl.signal);
+      void fetchers.current.fetchFacets(ctrl.signal);
     }, DEBOUNCE_MS);
-    setSelectedID(null);
     return () => {
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [fetchFirst, fetchFacets]);
+  }, [query, window]);
+
+  // A new query or window starts a new selection; polling (which moves the
+  // facet window with the server clock) keeps the selected row.
+  useEffect(() => {
+    setSelectedID(null);
+  }, [query]);
 
   // Auto-refresh every 5s unless paused. Stops while a load is in-flight so
   // overlapping requests cannot thrash the histogram.
@@ -327,11 +336,13 @@ export function LogSection(props: SectionProps) {
   // Keep the first row selected when the list refreshes with nothing picked, so
   // the detail pane is populated on first load and after every query change
   // (the debounced-fetch effect clears selectedID). Matches the prototype.
+  // Closing the pane keeps it closed until a row is picked again.
+  const [detailClosed, setDetailClosed] = useState(false);
   useEffect(() => {
-    if (selectedID === null && events.length > 0) {
+    if (selectedID === null && events.length > 0 && !detailClosed) {
       setSelectedID(events[0].id);
     }
-  }, [events, selectedID]);
+  }, [events, selectedID, detailClosed]);
 
   return (
     <section className="flex min-h-0 w-full flex-1 flex-col">
@@ -397,7 +408,9 @@ export function LogSection(props: SectionProps) {
       </div>
       <div
         className="grid min-h-0 w-full flex-1 [grid-template-columns:190px_minmax(0,1fr)_var(--detail-w,400px)] max-[1180px]:[grid-template-columns:minmax(0,1fr)_min(var(--detail-w,400px),320px)] max-[820px]:grid-cols-[1fr] max-[820px]:grid-rows-[auto_auto_auto]"
-        style={{ ["--detail-w" as string]: `${detail.width}px` }}
+        style={{
+          ["--detail-w" as string]: `${detailClosed ? 0 : detail.width}px`,
+        }}
       >
         <aside className="flex w-[190px] min-h-0 flex-col gap-3.5 overflow-y-auto border-r bg-card p-3 max-[1180px]:hidden">
           <FacetGroup title="Результат">
@@ -558,7 +571,10 @@ export function LogSection(props: SectionProps) {
                           selectedID === e.id ? "selected" : undefined
                         }
                         className="cursor-pointer data-[state=selected]:bg-sel data-[state=selected]:shadow-[inset_2px_0_0_var(--accent)]"
-                        onClick={() => setSelectedID(e.id)}
+                        onClick={() => {
+                          setDetailClosed(false);
+                          setSelectedID(e.id);
+                        }}
                       >
                         <TableCell className="px-3 py-2 tabular-nums text-sm text-muted-foreground">
                           {localTime(e.timestamp)}
@@ -606,7 +622,7 @@ export function LogSection(props: SectionProps) {
           </div>
         </div>
 
-        <aside className="log-detail-pane">
+        <aside className={cn("log-detail-pane", detailClosed && "hidden")}>
           <PaneResizer
             kind="detail"
             direction="left"
@@ -624,6 +640,10 @@ export function LogSection(props: SectionProps) {
               onToast={onToast}
               onNavigate={onNavigate}
               onOpen={onOpen}
+              onClose={() => {
+                setDetailClosed(true);
+                setSelectedID(null);
+              }}
             />
           ) : (
             <div className="text-sm text-muted-foreground">
@@ -703,6 +723,7 @@ function LogDetail({
   onToast,
   onNavigate,
   onOpen,
+  onClose,
 }: {
   event: Event;
   snap: Snapshot | null;
@@ -714,6 +735,7 @@ function LogDetail({
   onToast: (m: string) => void;
   onNavigate: (id: NavId) => void;
   onOpen?: SectionProps["onOpen"];
+  onClose?: () => void;
 }) {
   const denied = isDenied(event);
   const [explain, setExplain] = useState<Explain | null>(null);
@@ -862,7 +884,19 @@ function LogDetail({
 
   return (
     <>
-      <div className="font-semibold">Запрос</div>
+      <div className="flex items-center justify-between">
+        <span className="font-semibold">Запрос</span>
+        {onClose && (
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Закрыть панель"
+            onClick={onClose}
+          >
+            <X aria-hidden />
+          </Button>
+        )}
+      </div>
       <KeyValue items={kvItems} />
 
       {denied ? (
