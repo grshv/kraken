@@ -149,24 +149,23 @@ export function InspectorShell({
       <a className="skip-link" href="#main-content">
         К содержимому
       </a>
-      <header className="grid h-[52px] flex-none grid-cols-[72px_var(--list-w,300px)_minmax(0,1fr)_minmax(0,520px)_minmax(0,1fr)] items-center border-b bg-card pr-4 max-[1180px]:grid-cols-[72px_min(var(--list-w,300px),260px)_minmax(0,0.4fr)_minmax(0,520px)_minmax(0,1fr)] max-[820px]:grid-cols-[auto_auto_minmax(0,1fr)_auto] max-[820px]:gap-2.5 max-[820px]:px-3.5">
-        <div className="flex justify-center">
+      {/* Brand | search centred on the window | status. Equal side columns keep
+          the search in the middle whatever the list width. */}
+      <header className="grid h-[52px] flex-none grid-cols-[minmax(0,1fr)_minmax(0,520px)_minmax(0,1fr)] items-center gap-4 border-b bg-card pr-4 max-[820px]:grid-cols-[auto_minmax(0,1fr)_auto] max-[820px]:gap-2.5">
+        <div className="flex min-w-0 items-center">
           <span
-            className="grid size-[34px] place-items-center text-foreground"
+            className="grid w-[72px] shrink-0 place-items-center text-foreground"
             aria-hidden
           >
             <KrakenMark title="" className="size-[30px]" />
           </span>
-        </div>
-        <div className="flex min-w-0 items-center pl-3">
-          <span className="whitespace-nowrap text-sm font-semibold uppercase tracking-[0.24em] text-foreground">
+          <span className="whitespace-nowrap pl-3 text-sm font-semibold uppercase tracking-[0.24em] text-foreground max-[820px]:hidden">
             Kraken
           </span>
         </div>
-        <div className="max-[820px]:hidden" aria-hidden />
         <button
           type="button"
-          className="col-start-4 flex h-[34px] min-w-0 cursor-text items-center gap-2 justify-self-stretch rounded-md border bg-background px-3 text-base text-muted-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring max-[820px]:col-start-3"
+          className="flex h-[34px] min-w-0 cursor-text items-center gap-2 justify-self-stretch rounded-md border bg-background px-3 text-base text-muted-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
           onClick={() => setPaletteOpen(true)}
         >
           <Search aria-hidden className="size-3.5" />
@@ -177,7 +176,7 @@ export function InspectorShell({
             ⌘K
           </kbd>
         </button>
-        <div className="col-start-5 flex justify-end max-[820px]:col-start-4">
+        <div className="flex justify-end">
           <StatusIndicator
             status={status}
             settings={settings}

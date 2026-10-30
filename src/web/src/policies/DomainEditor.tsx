@@ -3,6 +3,7 @@ import { Globe, Lock, Plus, Undo, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
   Table,
   TableBody,
@@ -81,13 +82,25 @@ export function DomainEditor({
         <TableBody>
           {destinations.map((d) => {
             const h = hits?.[d.domain]?.hits_24h ?? 0;
+            // Only flagged once hit counts have loaded.
+            const unused =
+              !!hits &&
+              Object.keys(hits).length > 0 &&
+              (hits[d.domain]?.hits_7d ?? 0) === 0;
             return (
               <TableRow key={d.domain}>
                 <TableCell>
-                  <Chip>
+                  <Chip
+                    className={unused ? "text-muted-foreground" : undefined}
+                  >
                     {d.include_subdomains ? "*." : ""}
                     {d.domain}
                   </Chip>
+                  {unused && (
+                    <Badge variant="secondary" className="ml-1.5">
+                      не используется
+                    </Badge>
+                  )}
                 </TableCell>
                 <TableCell>
                   <Switch
@@ -164,7 +177,10 @@ export function DomainEditor({
             }}
           />
           <label className="flex items-center gap-1.5 text-sm whitespace-nowrap">
-            <Switch checked={withSubdomains} onCheckedChange={setWithSubdomains} />
+            <Switch
+              checked={withSubdomains}
+              onCheckedChange={setWithSubdomains}
+            />
             с поддоменами
           </label>
           <Button variant="outline" onClick={add}>

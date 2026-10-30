@@ -21,8 +21,17 @@ describe("pane limits", () => {
 describe("navigation by role", () => {
   it("admin sees all sections in agreed order", () => {
     const items = navItems("admin");
-    expect(items.filter((i) => i.group === "main").map((i) => i.id)).toEqual(["clients", "policies", "log", "audit", "accounts"]);
-    expect(items.filter((i) => i.group === "bottom").map((i) => i.id)).toEqual(["help", "settings"]);
+    expect(items.filter((i) => i.group === "main").map((i) => i.id)).toEqual([
+      "clients",
+      "policies",
+      "log",
+      "audit",
+      "accounts",
+    ]);
+    expect(items.filter((i) => i.group === "bottom").map((i) => i.id)).toEqual([
+      "help",
+      "settings",
+    ]);
     expect(items.find((i) => i.id === "log")?.label).toBe("Журнал");
   });
   it("manager has no settings but keeps accounts and help", () => {
@@ -48,12 +57,37 @@ describe("apply flow", () => {
   });
   it("maps failures", () => {
     const running = applyReducer(initialApplyState, { type: "start" });
-    expect(applyReducer(running, { type: "error", status: 409, code: "revision_conflict" }).phase).toBe("conflict");
-    expect(applyReducer(running, { type: "error", status: 403, code: "draft_out_of_scope" })).toMatchObject({ phase: "failed", code: "draft_out_of_scope", step: "revision" });
-    expect(applyReducer(running, { type: "operation", status: "rolled_back" }).phase).toBe("rolled_back");
-    expect(applyReducer(running, { type: "operation", status: "rejected" })).toMatchObject({ phase: "failed", code: "rejected" });
+    expect(
+      applyReducer(running, {
+        type: "error",
+        status: 409,
+        code: "revision_conflict",
+      }).phase,
+    ).toBe("conflict");
+    expect(
+      applyReducer(running, {
+        type: "error",
+        status: 403,
+        code: "draft_out_of_scope",
+      }),
+    ).toMatchObject({
+      phase: "failed",
+      code: "draft_out_of_scope",
+      step: "revision",
+    });
+    expect(
+      applyReducer(running, { type: "operation", status: "rolled_back" }).phase,
+    ).toBe("rolled_back");
+    expect(
+      applyReducer(running, { type: "operation", status: "rejected" }),
+    ).toMatchObject({ phase: "failed", code: "rejected" });
   });
   it("ignores operation updates when idle", () => {
-    expect(applyReducer(initialApplyState, { type: "operation", status: "succeeded" }).phase).toBe("idle");
+    expect(
+      applyReducer(initialApplyState, {
+        type: "operation",
+        status: "succeeded",
+      }).phase,
+    ).toBe("idle");
   });
 });

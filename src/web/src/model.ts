@@ -209,11 +209,29 @@ export const defaultSettings: Settings = {
 };
 
 // Russian plural: pluralRu(3, "отказ", "отказа", "отказов") === "3 отказа".
-export function pluralRu(n: number, one: string, few: string, many: string): string {
+export function pluralRu(
+  n: number,
+  one: string,
+  few: string,
+  many: string,
+): string {
   const abs = Math.abs(n);
   const mod10 = abs % 10;
   const mod100 = abs % 100;
   if (mod10 === 1 && mod100 !== 11) return `${n} ${one}`;
-  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return `${n} ${few}`;
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14))
+    return `${n} ${few}`;
   return `${n} ${many}`;
+}
+
+// localTime renders an RFC 3339 timestamp as local wall-clock time ("14:02:11"
+// or "14:02"); slicing the ISO string would show UTC.
+export function localTime(iso: string, seconds = true): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString("ru-RU", {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...(seconds ? { second: "2-digit" } : {}),
+  });
 }

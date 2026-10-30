@@ -9,6 +9,44 @@ import type { ReactNode } from "react";
 
 export type MarkdownLinkTarget = { slug: string; text: string };
 
+// sectionID is the anchor of the n-th "##" heading, shared by the renderer
+// and the table of contents.
+export function sectionID(n: number): string {
+  return `section-${n + 1}`;
+}
+
+// splitArticle separates the lead (the first paragraph, shown under the
+// title) from the body and lists the "##" headings for the table of contents.
+// Fenced code is skipped so a "## " inside a code block is not a heading.
+export function splitArticle(markdown: string): {
+  lead: string;
+  body: string;
+  outline: string[];
+} {
+  const lines = markdown.replace(/\r\n/g, "\n").split("\n");
+  let start = 0;
+  while (start < lines.length && !lines[start].trim()) start++;
+  let lead = "";
+  let end = start;
+  const plain = (l: string) =>
+    !!l.trim() && !/^(#|```|\s*[-*]\s|\s*\d+\.\s|>)/.test(l);
+  if (plain(lines[start] ?? "")) {
+    while (end < lines.length && plain(lines[end])) end++;
+    lead = lines.slice(start, end).join(" ").trim();
+  }
+  const body = lead ? lines.slice(end).join("\n") : markdown;
+  const outline: string[] = [];
+  let fenced = false;
+  for (const l of body.split("\n")) {
+    if (/^```/.test(l)) fenced = !fenced;
+    else if (!fenced) {
+      const m = /^##\s+(.*)$/.exec(l);
+      if (m) outline.push(m[1].trim());
+    }
+  }
+  return { lead, body, outline };
+}
+
 export function renderMarkdown(
   markdown: string,
   onHelpLink?: (slug: string) => void,
@@ -17,6 +55,7 @@ export function renderMarkdown(
   const blocks: ReactNode[] = [];
   let i = 0;
   let key = 0;
+  let section = 0;
   const k = () => `md-${key++}`;
 
   while (i < lines.length) {
@@ -54,7 +93,8 @@ export function renderMarkdown(
       blocks.push(
         <Tag
           key={k()}
-          className={`m-0 font-semibold ${level <= 1 ? "text-xl" : "text-lg"}`}
+          id={level === 2 ? sectionID(section++) : undefined}
+          className={`m-0 scroll-mt-4 font-semibold ${level <= 1 ? "text-xl" : "text-lg"}`}
         >
           {inline(text, onHelpLink)}
         </Tag>,
@@ -126,6 +166,14 @@ export function renderMarkdown(
 
 // Tokenize a single text run into inline elements. Order matters: links first
 // (they may contain other inline markers in their text), then code, bold, italic.
+// renderInline formats one run of inline Markdown (code, bold, links).
+export function renderInline(
+  text: string,
+  onHelpLink?: (slug: string) => void,
+): ReactNode[] {
+  return inline(text, onHelpLink);
+}
+
 function inline(
   text: string,
   onHelpLink?: (slug: string) => void,

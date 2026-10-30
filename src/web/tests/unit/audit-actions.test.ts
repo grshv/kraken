@@ -25,12 +25,27 @@ describe("audit categories", () => {
     expect(actionCategory("create_revision")).toBe("apply");
   });
   it("login family is in the login group", () => {
-    for (const a of ["login", "login_failed", "logout", "csrf_failed", "rate_limited", "session_capacity_reached"]) {
+    for (const a of [
+      "login",
+      "login_failed",
+      "logout",
+      "csrf_failed",
+      "rate_limited",
+      "session_capacity_reached",
+    ]) {
       expect(actionCategory(a), a).toBe("login");
     }
   });
   it("account actions map to the account group", () => {
-    for (const a of ["create_user", "update_user", "update_scope", "create_proxy_account", "update_proxy_account", "reset_proxy_password", "password_reset"]) {
+    for (const a of [
+      "create_user",
+      "update_user",
+      "update_scope",
+      "create_proxy_account",
+      "update_proxy_account",
+      "reset_proxy_password",
+      "password_reset",
+    ]) {
       expect(actionCategory(a), a).toBe("account");
     }
   });

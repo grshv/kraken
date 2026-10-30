@@ -25,6 +25,7 @@ import { KeyValue } from "../components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import type { Preview, RevisionSummary } from "../model";
+import { localTime } from "../model";
 import type { NavId } from "../shell/nav";
 import type { SectionProps } from "../sections/sectionProps";
 import {
@@ -165,11 +166,7 @@ export function AuditSection(props: SectionProps) {
             className="flex-wrap gap-1.5"
           >
             {AUDIT_FILTERS.map((f) => (
-              <ToggleGroupItem
-                key={f.id}
-                value={f.id}
-                aria-label={f.label}
-              >
+              <ToggleGroupItem key={f.id} value={f.id} aria-label={f.label}>
                 {f.label}
               </ToggleGroupItem>
             ))}
@@ -200,7 +197,7 @@ export function AuditSection(props: SectionProps) {
                       selected={selectedID === a.id}
                       leading={<Icon aria-hidden />}
                       title={actionLabel(a.action)}
-                      meta={a.timestamp.slice(11, 16)}
+                      meta={localTime(a.timestamp, false)}
                       subtitle={a.actor}
                       onClick={() => setSelectedID(a.id)}
                     />
@@ -366,7 +363,7 @@ function AuditDetail({
         }
         meta={
           <>
-            {dayLabel(event.timestamp)}, {event.timestamp.slice(11, 19)} ·{" "}
+            {dayLabel(event.timestamp)}, {localTime(event.timestamp)} ·{" "}
             {event.actor}
           </>
         }
@@ -380,7 +377,7 @@ function AuditDetail({
                 [
                   "Когда",
                   <span className="tabular-nums">
-                    {event.timestamp.replace("T", " ").slice(0, 19)}
+                    {new Date(event.timestamp).toLocaleString("ru-RU")}
                   </span>,
                 ],
                 [

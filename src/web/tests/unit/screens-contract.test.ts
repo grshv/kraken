@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { networksOverlap, networkWithin, parseNetwork } from "../../src/clients/networks";
-import { mergeDestinations, parseDomainInput } from "../../src/policies/domains";
+import {
+  networksOverlap,
+  networkWithin,
+  parseNetwork,
+} from "../../src/clients/networks";
+import {
+  mergeDestinations,
+  parseDomainInput,
+} from "../../src/policies/domains";
 import { entityMarks } from "../../src/draft/marks";
 
 describe("parseNetwork", () => {
@@ -11,7 +18,16 @@ describe("parseNetwork", () => {
     expect(parseNetwork("2001:db8::/32")).toBe("2001:db8::/32");
   });
   it("rejects garbage, host bits and bad lengths", () => {
-    for (const v of ["", "10.0.0", "10.0.0.256", "10.1.2.3/8", "10.0.0.0/33", "2001:db8::/129", "host.example", "10.0.0.0/-1"]) {
+    for (const v of [
+      "",
+      "10.0.0",
+      "10.0.0.256",
+      "10.1.2.3/8",
+      "10.0.0.0/33",
+      "2001:db8::/129",
+      "host.example",
+      "10.0.0.0/-1",
+    ]) {
       expect(parseNetwork(v), v).toBeNull();
     }
   });
@@ -35,16 +51,39 @@ describe("network relations", () => {
 
 describe("parseDomainInput", () => {
   it("strips scheme, path, port and case", () => {
-    expect(parseDomainInput("https://PyPI.org/simple/x")).toEqual({ domain: "pypi.org", include_subdomains: false });
-    expect(parseDomainInput("files.pythonhosted.org:443")).toEqual({ domain: "files.pythonhosted.org", include_subdomains: false });
-    expect(parseDomainInput("example.com.")).toEqual({ domain: "example.com", include_subdomains: false });
+    expect(parseDomainInput("https://PyPI.org/simple/x")).toEqual({
+      domain: "pypi.org",
+      include_subdomains: false,
+    });
+    expect(parseDomainInput("files.pythonhosted.org:443")).toEqual({
+      domain: "files.pythonhosted.org",
+      include_subdomains: false,
+    });
+    expect(parseDomainInput("example.com.")).toEqual({
+      domain: "example.com",
+      include_subdomains: false,
+    });
   });
   it("wildcard prefixes mean subdomains", () => {
-    expect(parseDomainInput("*.github.com")).toEqual({ domain: "github.com", include_subdomains: true });
-    expect(parseDomainInput(".github.com")).toEqual({ domain: "github.com", include_subdomains: true });
+    expect(parseDomainInput("*.github.com")).toEqual({
+      domain: "github.com",
+      include_subdomains: true,
+    });
+    expect(parseDomainInput(".github.com")).toEqual({
+      domain: "github.com",
+      include_subdomains: true,
+    });
   });
   it("rejects IPs and invalid names", () => {
-    for (const v of ["", "10.0.0.1", "[2001:db8::1]", "bad domain.com", "a..b", "*.", "exa_mple.com"]) {
+    for (const v of [
+      "",
+      "10.0.0.1",
+      "[2001:db8::1]",
+      "bad domain.com",
+      "a..b",
+      "*.",
+      "exa_mple.com",
+    ]) {
       expect(parseDomainInput(v), v).toBeNull();
     }
   });
@@ -53,19 +92,37 @@ describe("parseDomainInput", () => {
 describe("mergeDestinations", () => {
   it("dedupes by domain and widens subdomains", () => {
     const list = [{ domain: "a.com", include_subdomains: false }];
-    expect(mergeDestinations(list, [{ domain: "a.com", include_subdomains: true }])).toEqual([{ domain: "a.com", include_subdomains: true }]);
-    expect(mergeDestinations(list, [{ domain: "b.com", include_subdomains: false }])).toHaveLength(2);
+    expect(
+      mergeDestinations(list, [{ domain: "a.com", include_subdomains: true }]),
+    ).toEqual([{ domain: "a.com", include_subdomains: true }]);
+    expect(
+      mergeDestinations(list, [{ domain: "b.com", include_subdomains: false }]),
+    ).toHaveLength(2);
     expect(list).toEqual([{ domain: "a.com", include_subdomains: false }]);
   });
 });
 
 describe("entityMarks", () => {
   it("marks new, changed and deleted, skips unchanged", () => {
-    const active = [{ id: "a", n: 1 }, { id: "b", n: 1 }, { id: "c", n: 1 }];
-    const draft = [{ id: "a", n: 1 }, { id: "b", n: 2 }, { id: "d", n: 1 }];
-    expect(entityMarks(active, draft)).toEqual({ b: "changed", c: "deleted", d: "new" });
+    const active = [
+      { id: "a", n: 1 },
+      { id: "b", n: 1 },
+      { id: "c", n: 1 },
+    ];
+    const draft = [
+      { id: "a", n: 1 },
+      { id: "b", n: 2 },
+      { id: "d", n: 1 },
+    ];
+    expect(entityMarks(active, draft)).toEqual({
+      b: "changed",
+      c: "deleted",
+      d: "new",
+    });
   });
   it("ignores key order inside objects", () => {
-    expect(entityMarks([{ id: "a", x: 1, y: 2 }], [{ y: 2, id: "a", x: 1 }])).toEqual({});
+    expect(
+      entityMarks([{ id: "a", x: 1, y: 2 }], [{ y: 2, id: "a", x: 1 }]),
+    ).toEqual({});
   });
 });

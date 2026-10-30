@@ -26,12 +26,23 @@ export type SectionProps = {
   onToast: (message: string) => void;
   onNavigate: (id: NavId) => void;
   onConfirm: (options: ConfirmOptions) => void;
-  // One-shot hint delivered by the command palette ("new-client",
-  // "new-proxy-login", "blocked-domains"). The section consumes it in an
-  // effect and calls onIntentHandled so the shell clears it for the next use.
-  intent?: "new-client" | "new-proxy-login" | "blocked-domains";
+  // One-shot hint from the command palette or another section: "new-client",
+  // "new-proxy-login", "blocked-domains", "client:<id>" / "policy:<id>" to
+  // select an entity, or "source:<ip>" to describe an unknown source. The section consumes it in an effect and calls
+  // onIntentHandled so the shell clears it for the next use.
+  intent?: SectionIntent;
   onIntentHandled?: () => void;
+  // Opens another section with an intent, e.g. a client from a policy.
+  onOpen?: (nav: NavId, intent: SectionIntent) => void;
 };
+
+export type SectionIntent =
+  | "new-client"
+  | "new-proxy-login"
+  | "blocked-domains"
+  | `client:${string}`
+  | `source:${string}`
+  | `policy:${string}`;
 
 // Manager scope extracted from the session for source-network checks.
 export function managerScope(session: Session): {

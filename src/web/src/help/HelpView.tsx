@@ -12,7 +12,13 @@ import {
   InspectorBody,
 } from "@/components/kraken/layout";
 import { EmptyState } from "../shell/EmptyState";
-import { renderMarkdown } from "./markdown";
+import {
+  renderInline,
+  renderMarkdown,
+  sectionID,
+  splitArticle,
+} from "./markdown";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { HelpEntry, HelpArticle } from "../model";
 import type { Request } from "../api";
 
@@ -126,21 +132,71 @@ export function HelpView({ request }: { request: Request }) {
         ) : !article ? (
           <EmptyState icon={<BookOpen />} title="Загрузка…" />
         ) : (
-          <article className="flex min-h-0 min-w-0 flex-1 flex-col">
-            <InspectorHeader
-              crumbs={
-                <span className="text-sm text-muted-foreground">
-                  {article.section}
-                </span>
-              }
-              title={article.title}
-            />
-            <InspectorBody>
-              {renderMarkdown(article.markdown, (s) => setSlug(s))}
-            </InspectorBody>
-          </article>
+          <ArticleView article={article} onHelpLink={setSlug} />
         )}
       </InspectorPane>
     </div>
+  );
+}
+
+// ArticleView: section crumb, title and lead in the header, a numbered table
+// of contents when the article has several sections, then the body in a
+// readable column.
+function ArticleView({
+  article,
+  onHelpLink,
+}: {
+  article: { section: string; title: string; markdown: string };
+  onHelpLink: (slug: string) => void;
+}) {
+  const { lead, body, outline } = splitArticle(article.markdown);
+  return (
+    <article className="flex min-h-0 min-w-0 flex-1 flex-col">
+      <div className="border-b">
+        <InspectorHeader
+          crumbs={
+            <span className="text-sm text-muted-foreground">
+              {article.section}
+            </span>
+          }
+          title={article.title}
+          meta={lead ? renderInline(lead, onHelpLink) : undefined}
+        />
+      </div>
+      <InspectorBody>
+        {outline.length > 1 && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Содержание</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <ol className="m-0 flex list-none flex-col gap-1 p-0">
+                {outline.map((h, i) => (
+                  <li key={h} className="grid grid-cols-[24px_minmax(0,1fr)]">
+                    <span className="text-muted-foreground tabular-nums">
+                      {i + 1}
+                    </span>
+                    <button
+                      type="button"
+                      className="cursor-pointer text-left hover:underline"
+                      onClick={() =>
+                        document
+                          .getElementById(sectionID(i))
+                          ?.scrollIntoView({ behavior: "smooth" })
+                      }
+                    >
+                      {h}
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+        )}
+        <div className="max-w-[720px] leading-[1.6] [&>h2]:mt-5 [&>h2]:mb-2 [&>h3]:mt-5 [&>h3]:mb-2 [&>h4]:mt-4 [&>h4]:mb-1.5">
+          {renderMarkdown(body, onHelpLink)}
+        </div>
+      </InspectorBody>
+    </article>
   );
 }

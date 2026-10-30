@@ -104,9 +104,7 @@ describe("parseNameservers", () => {
   });
   it("accepts and canonicalizes IPv6", () => {
     expect(parseNameservers("2001:DB8::53")).toEqual(["2001:db8::53"]);
-    expect(parseNameservers("2001:db8:0:0:0:0:0:53")).toEqual([
-      "2001:db8::53",
-    ]);
+    expect(parseNameservers("2001:db8:0:0:0:0:0:53")).toEqual(["2001:db8::53"]);
   });
   it("accepts mixed IPv4/IPv6", () => {
     expect(parseNameservers("10.0.0.53, 2001:db8::53")).toEqual([

@@ -55,7 +55,10 @@ describe("effectiveSettings", () => {
 describe("patchSettings", () => {
   it("merges only patched fields, preserves the rest", () => {
     const s = base();
-    const next = patchSettings(s, { cache_memory_mb: 128, hide_client_address: true });
+    const next = patchSettings(s, {
+      cache_memory_mb: 128,
+      hide_client_address: true,
+    });
     expect(next.settings?.cache_memory_mb).toBe(128);
     expect(next.settings?.hide_client_address).toBe(true);
     expect(next.settings?.safe_ports).toEqual([80, 443]);
@@ -83,13 +86,21 @@ describe("setBlockedDomains", () => {
 describe("setUpstream", () => {
   it("stores the upstream proxy", () => {
     const s = base();
-    const up: UpstreamProxy = { address: "10.0.0.10", port: 3128, exclusive: true };
+    const up: UpstreamProxy = {
+      address: "10.0.0.10",
+      port: 3128,
+      exclusive: true,
+    };
     const next = setUpstream(s, up);
     expect(next.settings?.upstream_proxy).toEqual(up);
   });
   it("null clears the upstream proxy", () => {
     const s = base();
-    s.settings!.upstream_proxy = { address: "10.0.0.10", port: 3128, exclusive: false };
+    s.settings!.upstream_proxy = {
+      address: "10.0.0.10",
+      port: 3128,
+      exclusive: false,
+    };
     const next = setUpstream(s, null);
     expect(next.settings?.upstream_proxy).toBeNull();
   });

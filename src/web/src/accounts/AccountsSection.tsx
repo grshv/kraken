@@ -9,6 +9,7 @@ import {
   Card,
   CardAction,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -30,7 +31,15 @@ import {
   ListGroupLabel,
   ListRow,
 } from "@/components/kraken/layout";
-import { Callout, Chip } from "@/components/kraken/blocks";
+import { Callout, Chip, KeyValue } from "@/components/kraken/blocks";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import {
@@ -234,9 +243,7 @@ export function AccountsSection(props: SectionProps) {
                   title={
                     <span className="truncate font-medium">{u.username}</span>
                   }
-                  subtitle={
-                    u.role === "admin" ? "Администратор" : "Менеджер"
-                  }
+                  subtitle={u.role === "admin" ? "Администратор" : "Менеджер"}
                   aside={
                     u.enabled ? undefined : (
                       <Badge variant="outline">заблокирован</Badge>
@@ -262,9 +269,7 @@ export function AccountsSection(props: SectionProps) {
                 key={a.username}
                 selected={selected === a.username}
                 onClick={() => setSelected(a.username)}
-                title={
-                  <span className="truncate font-mono">{a.username}</span>
-                }
+                title={<span className="truncate font-mono">{a.username}</span>}
                 subtitle={
                   usedBy.length
                     ? usedBy.map((c) => c.name).join(", ")
@@ -413,9 +418,7 @@ function RoleOption({
       onClick={onClick}
       className={cn(
         "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 rounded-lg border p-3 text-left disabled:cursor-not-allowed disabled:opacity-60",
-        selected
-          ? "border-foreground shadow-[0_0_0_1px_var(--foreground)]"
-          : "border-border",
+        selected ? "border-muted-foreground/45 bg-hover" : "border-border",
       )}
     >
       <span
@@ -426,9 +429,7 @@ function RoleOption({
       </span>
       <span>
         <div className="font-medium">{label}</div>
-        {hint && (
-          <div className="text-sm text-muted-foreground">{hint}</div>
-        )}
+        {hint && <div className="text-sm text-muted-foreground">{hint}</div>}
       </span>
     </button>
   );
@@ -457,7 +458,8 @@ function PanelUserDetail({
 }) {
   const self = session.username === user.username;
   const [pwd, setPwd] = useState("");
-  const pwdRef = useRef<HTMLInputElement>(null);
+  const [pwdOpen, setPwdOpen] = useState(false);
+  const logins = useLoginStats(request, user.username);
   const [scope, setScope] = useState<ScopeBody | null>(null);
   const [scopeErr, setScopeErr] = useState<string | null>(null);
   const [scopeDraft, setScopeDraft] = useState<{
@@ -513,6 +515,7 @@ function PanelUserDetail({
     }
     await patch({ password: pwd }, "Пароль изменён, сессии отозваны");
     setPwd("");
+    setPwdOpen(false);
   }
 
   async function saveScope() {
@@ -558,15 +561,78 @@ function PanelUserDetail({
           </>
         }
         actions={
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => pwdRef.current?.focus()}
-          >
-            <KeyRound aria-hidden /> Сменить пароль
-          </Button>
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPwdOpen(true)}
+            >
+              <KeyRound aria-hidden /> Сменить пароль
+            </Button>
+            {!self && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={!disable}
+                title={
+                  !disable
+                    ? "Нельзя заблокировать последнего активного администратора"
+                    : undefined
+                }
+                onClick={() =>
+                  patch(
+                    { enabled: !user.enabled },
+                    user.enabled
+                      ? "Пользователь заблокирован"
+                      : "Пользователь разблокирован",
+                  )
+                }
+              >
+                {user.enabled ? "Заблокировать" : "Разблокировать"}
+              </Button>
+            )}
+          </>
         }
+        meta="Пароль хранится только как Argon2id; смена сразу завершает все сессии."
       />
+      <Dialog open={pwdOpen} onOpenChange={setPwdOpen}>
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Новый пароль для {user.username}</DialogTitle>
+            <DialogDescription>
+              Все сессии пользователя завершатся сразу после смены.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void savePassword();
+            }}
+          >
+            <Input
+              type="password"
+              aria-label="Новый пароль"
+              autoComplete="new-password"
+              autoFocus
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+            />
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setPwdOpen(false)}
+              >
+                Отмена
+              </Button>
+              <Button type="submit" disabled={!pwd}>
+                Сменить пароль
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <InspectorBody>
         {error && (
           <Callout tone="bad" icon={<Ban aria-hidden />}>
@@ -575,7 +641,14 @@ function PanelUserDetail({
         )}
         <Card>
           <CardHeader>
-            <CardTitle>Роль</CardTitle>
+            <div>
+              <CardTitle>Роль</CardTitle>
+              {user.role === "admin" && !demote && (
+                <CardDescription>
+                  Последнего администратора нельзя понизить или заблокировать
+                </CardDescription>
+              )}
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 gap-2 max-[1180px]:grid-cols-1">
@@ -650,68 +723,99 @@ function PanelUserDetail({
           />
         )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Смена пароля</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Label>
-              Новый пароль
-              <Input
-                ref={pwdRef}
-                type="password"
-                value={pwd}
-                autoComplete="new-password"
-                onChange={(e) => setPwd(e.target.value)}
+        <div className="grid grid-cols-1 items-start gap-3.5 @[700px]:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <CardTitle>Входы</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <KeyValue
+                items={[
+                  [
+                    "Последний",
+                    logins.last
+                      ? new Date(logins.last).toLocaleString("ru-RU", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—",
+                  ],
+                  [
+                    "Неудачных за 24 ч",
+                    <span className={cn(logins.failed24h > 0 && "text-bad")}>
+                      {logins.failed24h}
+                    </span>,
+                  ],
+                  [
+                    "Защита",
+                    "больше 5 попыток в минуту с адреса или 20 для имени — вход закрыт на минуту",
+                  ],
+                ]}
               />
-            </Label>
-            <div className="mt-2 flex items-center gap-2">
-              <Button size="sm" onClick={savePassword} disabled={!pwd}>
-                <KeyRound aria-hidden /> Сменить пароль
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                Хранится только как Argon2id; смена отзывает все сессии.
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Блокировка</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Button
-              variant={user.enabled ? "outline" : "default"}
-              size="sm"
-              disabled={!disable}
-              title={
-                !disable
-                  ? "Нельзя заблокировать последнего активного администратора"
-                  : undefined
-              }
-              onClick={() =>
-                patch(
-                  { enabled: !user.enabled },
-                  user.enabled
-                    ? "Пользователь заблокирован"
-                    : "Пользователь разблокирован",
-                )
-              }
-            >
-              {user.enabled ? (
-                <>
-                  <Ban aria-hidden /> Заблокировать
-                </>
-              ) : (
-                "Разблокировать"
-              )}
-            </Button>
-          </CardContent>
-        </Card>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Сессии</CardTitle>
+                <CardDescription>12 ч или 30 мин бездействия</CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              {self && session.expires_at ? (
+                <div className="flex items-center gap-2 text-base text-foreground">
+                  Эта сессия
+                  <Badge variant="secondary">эта</Badge>
+                  <span className="text-sm text-muted-foreground">
+                    до{" "}
+                    {new Date(session.expires_at).toLocaleTimeString("ru-RU", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })}
+                  </span>
+                </div>
+              ) : null}
+              <div className="mt-1.5">
+                Завершить все сессии: смените пароль или заблокируйте
+                пользователя.
+              </div>
+            </CardContent>
+          </Card>
+        </div>
       </InspectorBody>
     </>
   );
+}
+
+// useLoginStats reads the panel user's last successful login and failed
+// logins over 24 h from the audit (login / login_failed rows by actor).
+function useLoginStats(request: SectionProps["request"], username: string) {
+  const [stats, setStats] = useState<{
+    last: string | null;
+    failed24h: number;
+  }>({ last: null, failed24h: 0 });
+  useEffect(() => {
+    let live = true;
+    const q = (action: string) =>
+      request<{ items: { timestamp: string }[] }>(
+        `/audit?actor=${encodeURIComponent(username)}&action=${action}&limit=200`,
+      ).catch(() => ({ items: [] as { timestamp: string }[] }));
+    Promise.all([q("login"), q("login_failed")]).then(([ok, bad]) => {
+      if (!live) return;
+      const since = Date.now() - 24 * 3600 * 1000;
+      setStats({
+        last: ok.items[0]?.timestamp ?? null,
+        failed24h: bad.items.filter((x) => Date.parse(x.timestamp) >= since)
+          .length,
+      });
+    });
+    return () => {
+      live = false;
+    };
+  }, [request, username]);
+  return stats;
 }
 
 function ManagerScopeEditor({
@@ -877,11 +981,7 @@ function ManagerScopeEditor({
         )}
 
         {error && (
-          <Callout
-            tone="bad"
-            icon={<Ban aria-hidden />}
-            className="mt-2"
-          >
+          <Callout tone="bad" icon={<Ban aria-hidden />} className="mt-2">
             <span className="text-sm">{error}</span>
           </Callout>
         )}
@@ -941,9 +1041,7 @@ function ProxyAccountDetail({
         status={
           <>
             <Badge variant="secondary">логин прокси</Badge>
-            {ownerIsSelf && (
-              <Badge variant="secondary">создан вами</Badge>
-            )}
+            {ownerIsSelf && <Badge variant="secondary">создан вами</Badge>}
             {account.enabled ? (
               <Badge variant="ok">активен</Badge>
             ) : (

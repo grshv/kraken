@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Ban,
+  Check,
   Info,
   Pause,
   Play,
   Plus,
   Search,
   TriangleAlert,
+  X,
 } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
@@ -27,9 +29,11 @@ import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import { PaneResizer } from "../shell/PaneResizer";
 import { usePaneWidth } from "../shell/usePaneWidth";
+import { explainSteps, type Explain } from "./explain";
 import { mergeDestinations, parseDomainInput } from "../policies/domains";
 import { addDomainToClientPolicy } from "../draft/edits";
 import type { Destination, Event, Session, Snapshot } from "../model";
+import { localTime } from "../model";
 import type { NavId } from "../shell/nav";
 import type { SectionProps } from "../sections/sectionProps";
 import {
@@ -64,24 +68,6 @@ type EventPage = {
   };
 };
 
-type Explain = {
-  decision: "allowed" | "denied";
-  reason: string;
-  client_id: string | null;
-  policy_id: string | null;
-};
-
-const EXPLAIN_REASON: Record<string, string> = {
-  unknown_source: "Источник не входит ни в одного клиента",
-  protected_destination: "Внутренний адрес, встроенная защита",
-  blocked_for_all: "Домен запрещён для всех",
-  client_disabled: "Клиент выключен",
-  auth_failed: "Не пройдена аутентификация прокси",
-  not_in_allowlist: "Домена нет в политике клиента",
-  allowed_by_policy: "Разрешён политикой клиента",
-  allowed_all_web: "Разрешён: доступен весь веб",
-};
-
 // hostOf strips the port and path from a Squid destination as the prototype
 // did (split(':')[0].split('/')[0]) so "example.com:443/p" -> "example.com".
 function hostOf(destination: string): string {
@@ -101,8 +87,16 @@ function resultCode(e: Event): string {
 // LogSection: live proxy event stream with search tokens, facets, a per-minute
 // histogram and a detail pane that explains denials and edits the draft.
 export function LogSection(props: SectionProps) {
-  const { request, draft, active, session, onCommit, onToast, onNavigate } =
-    props;
+  const {
+    request,
+    draft,
+    active,
+    session,
+    onCommit,
+    onToast,
+    onNavigate,
+    onOpen,
+  } = props;
   const snap = useMemo<Snapshot | null>(
     () => draft?.snapshot ?? active ?? null,
     [draft, active],
@@ -136,12 +130,19 @@ export function LogSection(props: SectionProps) {
   const [selectedID, setSelectedID] = useState<string | null>(null);
   const detail = usePaneWidth("detail");
 
+  // The list starts where the facet window starts, fixed when the window or
+  // the query changes so polling does not refetch on every tick.
+  const from = useMemo(
+    () => new Date(Date.now() - window.minutes * 60000).toISOString(),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [window, parsed],
+  );
   const query = useMemo(
     () =>
       toEventsQuery(
-        buildEventsParams(parsed, resolveClient, { limit: PAGE_LIMIT }),
+        buildEventsParams(parsed, resolveClient, { limit: PAGE_LIMIT, from }),
       ),
-    [parsed, resolveClient],
+    [parsed, resolveClient, from],
   );
 
   // Server clock: the events response carries observed_at; the facets window
@@ -240,6 +241,7 @@ export function LogSection(props: SectionProps) {
     const p: EventsParams = buildEventsParams(parsed, resolveClient, {
       cursor,
       limit: PAGE_LIMIT,
+      from,
     });
     try {
       const r = await request<EventPage>(`/events?${toEventsQuery(p)}`);
@@ -249,7 +251,7 @@ export function LogSection(props: SectionProps) {
     } catch {
       onToast("Не удалось подгрузить события");
     }
-  }, [request, cursor, parsed, resolveClient, onToast]);
+  }, [request, cursor, parsed, resolveClient, from, onToast]);
 
   // Client id -> display name. The facets response carries name per id from
   // the active snapshot; fall back to the draft/active snapshot the screen
@@ -524,8 +526,8 @@ export function LogSection(props: SectionProps) {
             ) : events.length === 0 ? (
               <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
                 <EmptyState icon={<Search />} title="Запросов нет">
-                  По текущему фильтру нет событий. Как только машины обратятся к
-                  прокси, записи появятся здесь.
+                  За {window.label} по текущему фильтру событий нет. Расширьте
+                  окно справа от поиска или дождитесь новых запросов.
                 </EmptyState>
               </div>
             ) : (
@@ -559,7 +561,7 @@ export function LogSection(props: SectionProps) {
                         onClick={() => setSelectedID(e.id)}
                       >
                         <TableCell className="px-3 py-2 tabular-nums text-sm text-muted-foreground">
-                          {e.timestamp.slice(11, 19)}
+                          {localTime(e.timestamp)}
                         </TableCell>
                         <TableCell className="px-3 py-2">
                           <div className="font-medium">
@@ -621,6 +623,7 @@ export function LogSection(props: SectionProps) {
               onCommit={onCommit}
               onToast={onToast}
               onNavigate={onNavigate}
+              onOpen={onOpen}
             />
           ) : (
             <div className="text-sm text-muted-foreground">
@@ -699,6 +702,7 @@ function LogDetail({
   onCommit,
   onToast,
   onNavigate,
+  onOpen,
 }: {
   event: Event;
   snap: Snapshot | null;
@@ -709,6 +713,7 @@ function LogDetail({
   ) => Promise<{ ok: boolean; code?: string; message?: string }>;
   onToast: (m: string) => void;
   onNavigate: (id: NavId) => void;
+  onOpen?: SectionProps["onOpen"];
 }) {
   const denied = isDenied(event);
   const [explain, setExplain] = useState<Explain | null>(null);
@@ -802,7 +807,13 @@ function LogDetail({
     [
       "Время",
       <span className="tabular-nums">
-        {event.timestamp.replace("T", " ").slice(0, 19)}
+        {new Date(event.timestamp).toLocaleString("ru-RU", {
+          day: "2-digit",
+          month: "2-digit",
+          hour: "2-digit",
+          minute: "2-digit",
+          second: "2-digit",
+        })}
       </span>,
     ],
     [
@@ -855,57 +866,85 @@ function LogDetail({
       <KeyValue items={kvItems} />
 
       {denied ? (
-        <Callout tone="bad">
-          <div className="flex w-full items-center justify-between">
-            <span className="font-medium">Почему отказано</span>
-            <span className="text-sm text-muted-foreground">
-              по текущим правилам
-            </span>
+        <>
+          <div className="rounded-lg border bg-card px-3.5 py-3">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="font-medium">Почему отказано</span>
+              <span className="text-sm text-muted-foreground">
+                по текущим правилам
+              </span>
+            </div>
+            {explainFailed ? (
+              <div className="text-sm text-muted-foreground">
+                Не удалось получить объяснение. Возможно, событие уже устарело.
+              </div>
+            ) : explain ? (
+              <>
+                <ul className="flex flex-col gap-1.5">
+                  {explainSteps(explain, event, snap).map((st, i) => (
+                    <li
+                      key={i}
+                      className="grid grid-cols-[16px_minmax(0,1fr)] items-start gap-2"
+                    >
+                      {st.ok ? (
+                        <Check
+                          aria-label="пройдено"
+                          className="mt-0.5 size-3.5 text-ok"
+                        />
+                      ) : (
+                        <X
+                          aria-label="отказ"
+                          className="mt-0.5 size-3.5 text-bad"
+                        />
+                      )}
+                      <span className="[overflow-wrap:anywhere]">
+                        {st.text}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {explain.decision === "allowed" && (
+                  <div className="mt-2.5 text-sm text-muted-foreground">
+                    Сейчас такой запрос разрешён. Отказ был по правилам на
+                    момент запроса или из-за адреса назначения: если DNS вернул
+                    внутренний адрес, его закрывает встроенная защита.
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-sm text-muted-foreground">Загружаем…</div>
+            )}
           </div>
-          {explainFailed ? (
-            <div className="text-sm text-muted-foreground">
-              Не удалось получить объяснение. Возможно, событие уже устарело.
-            </div>
-          ) : explain ? (
-            <div className="text-sm">
-              {EXPLAIN_REASON[explain.reason] ?? explain.reason}
-            </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">Загружаем…</div>
-          )}
-          <div className="mt-1.5 flex gap-2">
-            {allowDomain && (
-              <Button size="xs" onClick={allowHost}>
+          {allowDomain && (
+            <div className="flex flex-col gap-1.5">
+              <Button onClick={allowHost}>
                 <Plus aria-hidden /> Разрешить домен
               </Button>
-            )}
-            {describeSource && (
-              <Button
-                size="xs"
-                onClick={() => {
-                  onNavigate("clients");
-                  onToast(
-                    `Выберите ${event.source_ip} в списке неописанных источников`,
-                  );
-                }}
-              >
-                <Plus aria-hidden /> Описать IP как клиента
-              </Button>
-            )}
-            {!allowDomain &&
-              !describeSource &&
-              explain?.reason !== "blocked_for_all" && (
-                <span className="text-sm text-muted-foreground">
-                  Это встроенный запрет, разрешить нельзя
-                </span>
-              )}
-            {explain?.reason === "blocked_for_all" && (
               <span className="text-sm text-muted-foreground">
-                Домен уже запрещён для всех
+                Добавится в политику «
+                {snap?.policies.find((p) => p.id === explain?.policy_id)
+                  ?.name ?? "клиента"}
+                »
               </span>
-            )}
-          </div>
-        </Callout>
+            </div>
+          )}
+          {describeSource && (
+            <Button
+              onClick={() =>
+                onOpen
+                  ? onOpen("clients", `source:${event.source_ip}`)
+                  : onNavigate("clients")
+              }
+            >
+              <Plus aria-hidden /> Описать IP как клиента
+            </Button>
+          )}
+          {explain?.reason === "blocked_for_all" && (
+            <span className="text-sm text-muted-foreground">
+              Домен запрещён для всех, это меняется в «Настройках»
+            </span>
+          )}
+        </>
       ) : (
         <Callout
           tone="info"

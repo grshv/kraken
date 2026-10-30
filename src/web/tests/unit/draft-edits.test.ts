@@ -115,9 +115,9 @@ describe("addDomainToClientPolicy", () => {
   it("does not mutate the input snapshot", () => {
     const s = snapshot();
     addDomainToClientPolicy(s, "c-a", "added.example");
-    expect(
-      s.policies.find((p) => p.id === "p-own")!.destinations,
-    ).toHaveLength(1);
+    expect(s.policies.find((p) => p.id === "p-own")!.destinations).toHaveLength(
+      1,
+    );
   });
 });
 

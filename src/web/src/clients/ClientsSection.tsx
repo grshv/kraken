@@ -94,8 +94,10 @@ import { entityMarks, type Mark } from "../draft/marks";
 import { parseNetwork, networksOverlap, networkWithin } from "./networks";
 import { Sparkline, TrafficChart, type Bucket } from "./TrafficChart";
 import { clientChanges } from "./history";
+import { missingDomains } from "./missing";
 import {
   addDomainToClientPolicy,
+  addDomainsToPolicy,
   changeClientPolicy,
   createClientFromIP,
   deleteClient,
@@ -176,12 +178,29 @@ export function ClientsSection(props: SectionProps) {
   );
   const clients = snap?.clients ?? [];
 
-  // Command palette "new-client": open the blank creation form once.
+  // Command palette "new-client" opens the blank creation form once;
+  // "client:<id>" (from another section) selects that client.
   useEffect(() => {
-    if (intent !== "new-client") return;
-    setCreating({ name: "", src: "", domains: [] });
-    onIntentHandled?.();
-  }, [intent, onIntentHandled]);
+    if (intent === "new-client") {
+      setCreating({ name: "", src: "", domains: [] });
+      onIntentHandled?.();
+    } else if (intent?.startsWith("source:")) {
+      const ip = intent.slice("source:".length);
+      const u = unknown?.find((x) => x.source_ip === ip);
+      setCreating({
+        from: ip,
+        name: "",
+        src: ip,
+        domains: u?.top_destinations.map((d) => d.host) ?? [],
+      });
+      onIntentHandled?.();
+    } else if (intent?.startsWith("client:")) {
+      setCreating(null);
+      setSelected(intent.slice("client:".length));
+      setTab("overview");
+      onIntentHandled?.();
+    }
+  }, [intent, onIntentHandled, unknown]);
 
   // Unknown sources for the list group + "create from IP".
   useEffect(() => {
@@ -595,7 +614,7 @@ function RadioCard({
       className={cn(
         "rounded-lg border px-3 py-2.5",
         active
-          ? "border-foreground shadow-[0_0_0_1px_var(--foreground)]"
+          ? "border-muted-foreground/45 bg-hover"
           : "border-border",
         disabled && "opacity-60",
       )}
@@ -687,7 +706,7 @@ function ClientDetail({
     };
   }, [request, client.id]);
   const lastSeen = recent?.[0]?.timestamp;
-  const missing = missingDomains(stats, policy).length;
+  const missing = missingDomains(stats?.top_destinations, policy).length;
   const tabs: [Tab, string][] = [
     ["overview", "Обзор"],
     ["access", "Доступ"],
@@ -873,22 +892,6 @@ function ClientDetail({
   );
 }
 
-// missingDomains: denied destinations the client's allowlist does not cover —
-// the ones "Разрешить" can fix. Denials of covered hosts come from protection
-// or the global blocklist and are not offered.
-function missingDomains(stats: ClientStats | undefined, policy: Policy | null) {
-  if (!policy || policy.mode !== "allowlist") return [];
-  return (stats?.top_destinations ?? []).filter(
-    (d) =>
-      d.denied > 0 &&
-      !policy.destinations.some(
-        (x) =>
-          d.host === x.domain ||
-          (x.include_subdomains && d.host.endsWith("." + x.domain)),
-      ),
-  );
-}
-
 // ago renders a past timestamp as "сейчас", "N мин", "N ч" or "N д".
 function ago(iso: string | null | undefined): string {
   if (!iso) return "—";
@@ -965,9 +968,9 @@ function OverviewTab({
   onTab: (t: Tab) => void;
 }) {
   const top = stats?.top_destinations ?? [];
-  const deniedTop = missingDomains(stats, policy);
+  const deniedTop = missingDomains(stats?.top_destinations, policy);
   const isMissing = (host: string) => deniedTop.some((d) => d.host === host);
-  const shown = deniedTop.slice(0, 3);
+  const shown = deniedTop.slice(0, 5);
   const rest = deniedTop.length - shown.length;
   const policyName = policy ? policy.name : "";
   const shared = policy
@@ -981,35 +984,81 @@ function OverviewTab({
   const max = Math.max(1, ...top.map((d) => d.requests));
   return (
     <>
-      {shown.map((d) => (
+      {deniedTop.length > 0 && (
         <Callout
-          key={d.host}
           tone="bad"
           icon={<Ban aria-hidden />}
           actions={
-            <Button size="xs" onClick={() => allow(d.host)}>
-              <Plus aria-hidden /> Разрешить
-            </Button>
+            deniedTop.length > 1 ? (
+              <Button
+                size="xs"
+                onClick={async () => {
+                  const res = await onCommit(
+                    addDomainsToPolicy(
+                      snap,
+                      policy!.id,
+                      deniedTop.map((d) => d.host),
+                    ),
+                  );
+                  if (res.ok)
+                    onToast(
+                      `${pluralRu(deniedTop.length, "домен добавлен", "домена добавлены", "доменов добавлены")} в политику`,
+                    );
+                }}
+              >
+                <Plus aria-hidden /> Разрешить все
+              </Button>
+            ) : undefined
           }
         >
           <div className="font-medium">
-            {pluralRu(d.denied, "отказ", "отказа", "отказов")} к{" "}
-            <span className="font-mono text-sm">{d.host}</span> за 24 ч
+            {deniedTop.length === 1
+              ? "Домена нет"
+              : `${pluralRu(deniedTop.length, "домена", "доменов", "доменов")} нет`}{" "}
+            в политике «{policyName}» ·{" "}
+            {pluralRu(
+              deniedTop.reduce((n, d) => n + d.denied, 0),
+              "отказ",
+              "отказа",
+              "отказов",
+            )}{" "}
+            за 24 ч
           </div>
-          <div className="text-sm text-muted-foreground">
-            Домена нет в политике «{policyName}»
+          <div className="mt-1.5 flex flex-col">
+            {shown.map((d) => (
+              <div
+                key={d.host}
+                className="flex items-center gap-2.5 border-t border-bad/15 py-1"
+              >
+                <span className="grow truncate font-mono text-sm">
+                  {d.host}
+                </span>
+                <span className="text-sm text-bad tabular-nums">
+                  {pluralRu(d.denied, "отказ", "отказа", "отказов")}
+                </span>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  className="h-6"
+                  onClick={() => allow(d.host)}
+                >
+                  <Plus aria-hidden /> Разрешить
+                </Button>
+              </div>
+            ))}
+            {rest > 0 && (
+              <Button
+                size="xs"
+                variant="link"
+                className="h-6 self-start px-0 text-muted-foreground"
+                onClick={() => onTab("access")}
+              >
+                ещё {pluralRu(rest, "домен", "домена", "доменов")} во вкладке
+                «Доступ»
+              </Button>
+            )}
           </div>
         </Callout>
-      ))}
-      {rest > 0 && (
-        <Button
-          size="xs"
-          variant="ghost"
-          className="self-start"
-          onClick={() => onTab("access")}
-        >
-          Ещё {pluralRu(rest, "домен", "домена", "доменов")} с отказами
-        </Button>
       )}
       <KpiGroup>
         <Kpi
@@ -1288,7 +1337,7 @@ function AccessTab({
       live = false;
     };
   }, [policy?.id]);
-  const deniedTop = missingDomains(stats, policy);
+  const deniedTop = missingDomains(stats?.top_destinations, policy);
   // Policies another client could share: allowlists not owned by this client.
   const sharable = snap.policies.filter(
     (p) => p.mode === "allowlist" && p.id !== policy?.id,

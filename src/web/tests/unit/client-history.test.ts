@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import type { Snapshot } from "../../src/model";
 import { clientChanges } from "../../src/clients/history";
+import { missingDomains } from "../../src/clients/missing";
 
 function snap(over: {
   networks?: string[];
@@ -87,5 +88,29 @@ describe("clientChanges", () => {
     ]);
     const gone = { ...snap({}), clients: [] };
     expect(clientChanges(snap({}), gone, "c-1")).toEqual(["Клиент удалён"]);
+  });
+});
+
+describe("missingDomains", () => {
+  const policy = snap({
+    domains: [
+      ["example.com", false],
+      ["debian.org", true],
+    ],
+  }).policies[0];
+  const top = [
+    { host: "example.com", requests: 5, denied: 5 },
+    { host: "deb.debian.org", requests: 3, denied: 3 },
+    { host: "www.example.com", requests: 2, denied: 2 },
+    { host: "pypi.org", requests: 4, denied: 0 },
+  ];
+  it("keeps only denied hosts the allowlist does not cover", () => {
+    expect(missingDomains(top, policy).map((d) => d.host)).toEqual([
+      "www.example.com",
+    ]);
+  });
+  it("offers nothing for all-web or missing policies", () => {
+    expect(missingDomains(top, { ...policy, mode: "all_web" })).toEqual([]);
+    expect(missingDomains(top, null)).toEqual([]);
   });
 });

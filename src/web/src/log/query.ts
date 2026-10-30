@@ -76,6 +76,8 @@ export type EventsParams = {
   destination?: string;
   method?: string;
   source_ip?: string;
+  // Lower time bound: the list shows the same window as the facets.
+  from?: string;
   cursor?: string;
   limit?: number;
 };
@@ -87,7 +89,7 @@ export type EventsParams = {
 export function buildEventsParams(
   q: LogQuery,
   resolveClient: (name: string) => string | undefined,
-  opts: { cursor?: string; limit?: number } = {},
+  opts: { cursor?: string; limit?: number; from?: string } = {},
 ): EventsParams {
   const p: EventsParams = {};
   if (q.client) {
@@ -104,6 +106,7 @@ export function buildEventsParams(
     .join(" ");
   const dest = q.host ?? (freeStr || undefined);
   if (dest) p.destination = dest;
+  if (opts.from) p.from = opts.from;
   if (opts.cursor) p.cursor = opts.cursor;
   if (opts.limit != null) p.limit = opts.limit;
   return p;

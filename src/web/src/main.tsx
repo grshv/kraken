@@ -31,7 +31,7 @@ import { LogSection } from "./log/LogSection";
 import { AuditSection } from "./audit/AuditSection";
 import { AccountsSection } from "./accounts/AccountsSection";
 import { SettingsSection } from "./settings/SettingsSection";
-import type { CommitResult } from "./sections/sectionProps";
+import type { CommitResult, SectionIntent } from "./sections/sectionProps";
 import { ErrorState } from "./shell/ErrorState";
 import "./theme.css";
 import "./style.css";
@@ -72,9 +72,13 @@ function App() {
   const [history, setHistory] = useState<RevisionSummary[]>([]);
   const [connectionError, setConnectionError] = useState(false);
   const [navId, setNavId] = useState<NavId>("clients");
-  const [sectionIntent, setSectionIntent] = useState<
-    "new-client" | "new-proxy-login" | "blocked-domains" | undefined
-  >(undefined);
+  const [sectionIntent, setSectionIntent] = useState<SectionIntent | undefined>(
+    undefined,
+  );
+  const openWithIntent = useCallback((nav: NavId, intent: SectionIntent) => {
+    setNavId(nav);
+    setSectionIntent(intent);
+  }, []);
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState<ConfirmOptions | null>(null);
   const [pendingAction, setPendingAction] = useState<string | null>(null);
@@ -489,6 +493,7 @@ function App() {
           }}
           onToast={showToast}
           onNavigate={setNavId}
+          onOpen={openWithIntent}
           onConfirm={(o) => setConfirm(o)}
           intent={sectionIntent}
           onIntentHandled={handleIntentHandled}
@@ -497,6 +502,8 @@ function App() {
     if (navId === "policies")
       return (
         <PoliciesSection
+          intent={sectionIntent}
+          onIntentHandled={handleIntentHandled}
           request={request}
           draft={draft}
           active={active}
@@ -508,6 +515,7 @@ function App() {
           }}
           onToast={showToast}
           onNavigate={setNavId}
+          onOpen={openWithIntent}
           onConfirm={(o) => setConfirm(o)}
         />
       );
@@ -525,6 +533,7 @@ function App() {
           }}
           onToast={showToast}
           onNavigate={setNavId}
+          onOpen={openWithIntent}
           onConfirm={(o) => setConfirm(o)}
         />
       );
@@ -542,6 +551,7 @@ function App() {
           }}
           onToast={showToast}
           onNavigate={setNavId}
+          onOpen={openWithIntent}
           onConfirm={(o) => setConfirm(o)}
         />
       );
@@ -559,6 +569,7 @@ function App() {
           }}
           onToast={showToast}
           onNavigate={setNavId}
+          onOpen={openWithIntent}
           onConfirm={(o) => setConfirm(o)}
           intent={sectionIntent}
           onIntentHandled={handleIntentHandled}
@@ -578,6 +589,7 @@ function App() {
           }}
           onToast={showToast}
           onNavigate={setNavId}
+          onOpen={openWithIntent}
           onConfirm={(o) => setConfirm(o)}
           intent={sectionIntent}
           onIntentHandled={handleIntentHandled}

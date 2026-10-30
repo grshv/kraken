@@ -1,5 +1,12 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import {
+  Copy,
+  Globe,
+  Pencil,
+  Plus,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -8,6 +15,7 @@ import {
   Card,
   CardAction,
   CardContent,
+  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -25,6 +33,7 @@ import { Callout, Field } from "@/components/kraken/blocks";
 import { cn } from "cn";
 import { EmptyState } from "../shell/EmptyState";
 import { DomainEditor, type DomainHits } from "./DomainEditor";
+import { missingDomains, type HostCount } from "../clients/missing";
 import {
   managerScope,
   type CommitResult,
@@ -46,11 +55,23 @@ import { pluralRu } from "../model";
 // when no client references the policy; a manager cannot change a shared policy
 // used by foreign clients.
 export function PoliciesSection(props: SectionProps) {
-  const { request, draft, active, session, onCommit, onToast } = props;
+  const {
+    request,
+    draft,
+    active,
+    session,
+    onCommit,
+    onToast,
+    onOpen,
+    intent,
+    onIntentHandled,
+  } = props;
   const [selected, setSelected] = useState<string | null>(null);
   const [hits, setHits] = useState<DomainHits>({});
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
+  // 24h request totals per policy for the list.
+  const [totals, setTotals] = useState<Record<string, number>>({});
 
   const snap = draft?.snapshot;
   const policies = snap?.policies ?? [];
@@ -86,6 +107,39 @@ export function PoliciesSection(props: SectionProps) {
       live = false;
     };
   }, [request, selectedPolicy?.id]);
+
+  // "policy:<id>" from another section selects that policy.
+  useEffect(() => {
+    if (!intent?.startsWith("policy:")) return;
+    setCreating(false);
+    setSelected(intent.slice("policy:".length));
+    onIntentHandled?.();
+  }, [intent, onIntentHandled]);
+
+  useEffect(() => {
+    let live = true;
+    const ids = policies
+      .filter((p) => p.mode === "allowlist")
+      .map((p) => p.id)
+      .slice(0, 50);
+    Promise.all(
+      ids.map((id) =>
+        request<{ domains: { hits_24h: number }[] }>(
+          `/inspector/policies/${id}/hits`,
+        )
+          .then(
+            (r) => [id, r.domains.reduce((n, d) => n + d.hits_24h, 0)] as const,
+          )
+          .catch(() => [id, 0] as const),
+      ),
+    ).then((rows) => {
+      if (live) setTotals(Object.fromEntries(rows));
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, policies.map((p) => p.id).join(",")]);
 
   // Select the first policy when the section opens with no selection.
   useEffect(() => {
@@ -124,42 +178,40 @@ export function PoliciesSection(props: SectionProps) {
     );
   }
 
-  if (creating) {
-    return (
-      <NewPolicyForm
-        snap={snap!}
-        newName={newName}
-        onName={setNewName}
-        onCancel={() => setCreating(false)}
-        onSubmit={async () => {
-          const name = newName.trim();
-          if (!name) {
-            onToast("Укажите имя политики");
-            return;
-          }
-          const id = newEntityID(snap!, "p-");
-          const tlsID = snap!.tls_profiles[0]?.id ?? "";
-          const p: Policy = {
-            id,
-            name,
-            mode: "allowlist",
-            destinations: [],
-            tls_profile_id: tlsID,
-          };
-          const res = await onCommit({
-            ...snap!,
-            policies: [...snap!.policies, p],
-          });
-          if (res.ok) {
-            setSelected(id);
-            setCreating(false);
-            setNewName("");
-            onToast("Политика создана в черновике");
-          }
-        }}
-      />
-    );
-  }
+  const createForm = creating && snap && (
+    <NewPolicyForm
+      snap={snap!}
+      newName={newName}
+      onName={setNewName}
+      onCancel={() => setCreating(false)}
+      onSubmit={async () => {
+        const name = newName.trim();
+        if (!name) {
+          onToast("Укажите имя политики");
+          return;
+        }
+        const id = newEntityID(snap!, "p-");
+        const tlsID = snap!.tls_profiles[0]?.id ?? "";
+        const p: Policy = {
+          id,
+          name,
+          mode: "allowlist",
+          destinations: [],
+          tls_profile_id: tlsID,
+        };
+        const res = await onCommit({
+          ...snap!,
+          policies: [...snap!.policies, p],
+        });
+        if (res.ok) {
+          setSelected(id);
+          setCreating(false);
+          setNewName("");
+          onToast("Политика создана в черновике");
+        }
+      }}
+    />
+  );
 
   const shared = policies.filter((p) => clientsOf(p.id).length !== 1);
   const own = policies.filter((p) => clientsOf(p.id).length === 1);
@@ -184,9 +236,13 @@ export function PoliciesSection(props: SectionProps) {
               policy={p}
               clients={clientsOf(p.id).length}
               domains={p.destinations.length}
+              total={totals[p.id]}
               mark={marks[p.id]}
-              active={selected === p.id}
-              onClick={() => setSelected(p.id)}
+              active={!creating && selected === p.id}
+              onClick={() => {
+                setCreating(false);
+                setSelected(p.id);
+              }}
             />
           ))}
           {own.length > 0 && <ListGroupLabel>Свои у клиентов</ListGroupLabel>}
@@ -196,9 +252,13 @@ export function PoliciesSection(props: SectionProps) {
               policy={p}
               clients={clientsOf(p.id).length}
               domains={p.destinations.length}
+              own
               mark={marks[p.id]}
-              active={selected === p.id}
-              onClick={() => setSelected(p.id)}
+              active={!creating && selected === p.id}
+              onClick={() => {
+                setCreating(false);
+                setSelected(p.id);
+              }}
             />
           ))}
           {policies.length === 0 && (
@@ -208,60 +268,63 @@ export function PoliciesSection(props: SectionProps) {
           )}
         </ListPaneBody>
       </ListPane>
-      <InspectorPane>
-        {selectedPolicy ? (
-          <PolicyDetail
-            policy={selectedPolicy}
-            snap={snap!}
-            clients={clientsOf(selectedPolicy.id)}
-            hits={hits}
-            mark={marks[selectedPolicy.id]}
-            session={session}
-            request={request}
-            onCommit={onCommit}
-            onToast={onToast}
-            onDelete={async () => {
-              if (clientsOf(selectedPolicy.id).length > 0) {
-                onToast("Сначала переназначьте клиентов");
-                return;
-              }
-              const res = await onCommit(
-                deletePolicy(snap!, selectedPolicy.id),
-              );
-              if (res.ok) {
-                setSelected(null);
-                onToast("Политика удалена");
-              }
-            }}
-            onDuplicate={async () => {
-              const id = newEntityID(snap!, "p-");
-              const copy: Policy = {
-                id,
-                name: selectedPolicy.name + "-копия",
-                mode: selectedPolicy.mode,
-                destinations: selectedPolicy.destinations.map((d) => ({
-                  ...d,
-                })),
-                tls_profile_id: selectedPolicy.tls_profile_id,
-              };
-              const res = await onCommit({
-                ...snap!,
-                policies: [...snap!.policies, copy],
-              });
-              if (res.ok) {
-                setSelected(id);
-                onToast("Политика дублирована");
-              }
-            }}
-          />
-        ) : (
-          <InspectorBody>
-            <EmptyState icon={<ShieldCheck />} title="Выберите политику">
-              Выберите политику слева или создайте новую.
-            </EmptyState>
-          </InspectorBody>
-        )}
-      </InspectorPane>
+      {createForm || (
+        <InspectorPane>
+          {selectedPolicy ? (
+            <PolicyDetail
+              policy={selectedPolicy}
+              snap={snap!}
+              clients={clientsOf(selectedPolicy.id)}
+              hits={hits}
+              mark={marks[selectedPolicy.id]}
+              session={session}
+              request={request}
+              onOpen={onOpen}
+              onCommit={onCommit}
+              onToast={onToast}
+              onDelete={async () => {
+                if (clientsOf(selectedPolicy.id).length > 0) {
+                  onToast("Сначала переназначьте клиентов");
+                  return;
+                }
+                const res = await onCommit(
+                  deletePolicy(snap!, selectedPolicy.id),
+                );
+                if (res.ok) {
+                  setSelected(null);
+                  onToast("Политика удалена");
+                }
+              }}
+              onDuplicate={async () => {
+                const id = newEntityID(snap!, "p-");
+                const copy: Policy = {
+                  id,
+                  name: selectedPolicy.name + "-копия",
+                  mode: selectedPolicy.mode,
+                  destinations: selectedPolicy.destinations.map((d) => ({
+                    ...d,
+                  })),
+                  tls_profile_id: selectedPolicy.tls_profile_id,
+                };
+                const res = await onCommit({
+                  ...snap!,
+                  policies: [...snap!.policies, copy],
+                });
+                if (res.ok) {
+                  setSelected(id);
+                  onToast("Политика дублирована");
+                }
+              }}
+            />
+          ) : (
+            <InspectorBody>
+              <EmptyState icon={<ShieldCheck />} title="Выберите политику">
+                Выберите политику слева или создайте новую.
+              </EmptyState>
+            </InspectorBody>
+          )}
+        </InspectorPane>
+      )}
     </div>
   );
 }
@@ -270,6 +333,8 @@ function PolicyRow({
   policy,
   clients,
   domains,
+  total,
+  own,
   mark,
   active,
   onClick,
@@ -277,6 +342,8 @@ function PolicyRow({
   policy: Policy;
   clients: number;
   domains: number;
+  total?: number;
+  own?: boolean;
   mark?: Mark;
   active: boolean;
   onClick: () => void;
@@ -292,11 +359,22 @@ function PolicyRow({
           {mark === "changed" && <Badge variant="mod">изменена</Badge>}
         </span>
       }
-      meta={pluralRu(clients, "клиент", "клиента", "клиентов")}
+      meta={
+        <span className="text-muted-foreground">
+          {own ? "своя" : pluralRu(clients, "клиент", "клиента", "клиентов")}
+        </span>
+      }
       subtitle={
         policy.mode === "all_web"
           ? "весь веб"
           : pluralRu(domains, "домен", "домена", "доменов")
+      }
+      aside={
+        !own && total ? (
+          <span className="text-muted-foreground">
+            {total.toLocaleString("ru-RU")}
+          </span>
+        ) : undefined
       }
     />
   );
@@ -310,6 +388,7 @@ function PolicyDetail({
   mark,
   session,
   request,
+  onOpen,
   onCommit,
   onToast,
   onDelete,
@@ -322,6 +401,7 @@ function PolicyDetail({
   mark?: Mark;
   session: Session;
   request: SectionProps["request"];
+  onOpen?: SectionProps["onOpen"];
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
   onDelete: () => Promise<void>;
@@ -412,7 +492,7 @@ function PolicyDetail({
                     : undefined
               }
             >
-              <Trash2 aria-hidden /> Удалить
+              Удалить
             </Button>
           </>
         }
@@ -421,9 +501,14 @@ function PolicyDetail({
             <span>Используют:</span>
             {hasClients ? (
               clients.map((c) => (
-                <Badge key={c.id} variant="outline">
+                <Button
+                  key={c.id}
+                  size="xs"
+                  variant="outline"
+                  onClick={() => onOpen?.("clients", `client:${c.id}`)}
+                >
                   {c.name}
-                </Badge>
+                </Button>
               ))
             ) : (
               <span>никто</span>
@@ -433,9 +518,10 @@ function PolicyDetail({
       />
       <InspectorBody>
         {clients.length > 1 && (
-          <Callout tone="warn" icon={<ShieldCheck aria-hidden />}>
+          <Callout tone="warn" icon={<TriangleAlert aria-hidden />}>
             <div className="text-sm">
-              Изменения затронут {pluralRu(clients.length, "клиента", "клиентов", "клиентов")}:{" "}
+              Изменения затронут{" "}
+              {pluralRu(clients.length, "клиента", "клиентов", "клиентов")}:{" "}
               {clients.map((c) => c.name).join(", ")}.
             </div>
           </Callout>
@@ -477,7 +563,12 @@ function PolicyDetail({
         {policy.mode === "allowlist" && (
           <Card>
             <CardHeader>
-              <CardTitle className="flex-1 min-w-0">Домены</CardTitle>
+              <div>
+                <CardTitle>Домены</CardTitle>
+                <CardDescription>
+                  «Не используется»: ни одного запроса за 7 дней
+                </CardDescription>
+              </div>
             </CardHeader>
             <CardContent>
               <DomainEditor
@@ -510,8 +601,119 @@ function PolicyDetail({
             </CardContent>
           </Card>
         )}
+        {policy.mode === "allowlist" && (
+          <MissingCard
+            policy={policy}
+            clients={clients}
+            snap={snap}
+            request={request}
+            editable={editable}
+            onCommit={onCommit}
+            onToast={onToast}
+          />
+        )}
+        {policy.mode === "all_web" && (
+          <Callout tone="info" icon={<Globe aria-hidden />}>
+            <div className="text-sm">
+              Разрешены любые внешние сайты. Действуют запреты для всех и
+              встроенная защита, они описаны в «Настройках».
+            </div>
+          </Callout>
+        )}
       </InspectorBody>
     </>
+  );
+}
+
+// MissingCard: denied domains of this policy's clients over 24 h that the
+// policy does not cover, each with "Добавить".
+function MissingCard({
+  policy,
+  clients,
+  snap,
+  request,
+  editable,
+  onCommit,
+  onToast,
+}: {
+  policy: Policy;
+  clients: { id: string; name: string }[];
+  snap: Snapshot;
+  request: SectionProps["request"];
+  editable: boolean;
+  onCommit: (next: Snapshot) => Promise<CommitResult>;
+  onToast: (m: string) => void;
+}) {
+  const [rows, setRows] = useState<
+    { host: string; denied: number; client: string }[] | null
+  >(null);
+  const ids = clients.map((c) => c.id).join(",");
+  useEffect(() => {
+    let live = true;
+    Promise.all(
+      clients.slice(0, 20).map((c) =>
+        request<{ top_destinations: HostCount[] }>(
+          `/inspector/clients/${c.id}/stats`,
+        )
+          .then((st) =>
+            missingDomains(st.top_destinations, policy).map((d) => ({
+              host: d.host,
+              denied: d.denied,
+              client: c.name,
+            })),
+          )
+          .catch(() => []),
+      ),
+    ).then((all) => {
+      if (live) setRows(all.flat().sort((a, b) => b.denied - a.denied));
+    });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request, ids, policy.destinations]);
+  return (
+    <Card>
+      <CardHeader>
+        <div>
+          <CardTitle>Чего не хватает</CardTitle>
+          <CardDescription>
+            Отказанные домены клиентов этой политики за 24 ч
+          </CardDescription>
+        </div>
+      </CardHeader>
+      <CardContent>
+        {rows === null ? null : rows.length === 0 ? (
+          <div className="text-sm text-muted-foreground">Отказов нет</div>
+        ) : (
+          rows.slice(0, 10).map((r) => (
+            <div
+              key={r.host + r.client}
+              className="flex items-center gap-2.5 border-b py-1.5 last:border-b-0"
+            >
+              <span className="grow truncate font-mono text-sm">{r.host}</span>
+              <span className="text-sm text-muted-foreground">{r.client}</span>
+              <span className="w-[76px] text-right text-sm text-bad tabular-nums">
+                {pluralRu(r.denied, "отказ", "отказа", "отказов")}
+              </span>
+              <Button
+                size="xs"
+                variant="outline"
+                disabled={!editable}
+                onClick={async () => {
+                  const res = await onCommit(
+                    addDomainsToPolicy(snap, policy.id, [r.host]),
+                  );
+                  if (res.ok) onToast(`Домен ${r.host} добавлен в политику`);
+                }}
+              >
+                <Plus aria-hidden /> Добавить
+              </Button>
+            </div>
+          ))
+        )}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -536,7 +738,7 @@ function ModeCard({
       className={cn(
         "grid grid-cols-[18px_minmax(0,1fr)] gap-2.5 rounded-lg border px-3 py-2.5 items-start",
         active
-          ? "border-foreground shadow-[0_0_0_1px_var(--foreground)]"
+          ? "border-muted-foreground/45 bg-hover"
           : "border-border",
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
       )}
