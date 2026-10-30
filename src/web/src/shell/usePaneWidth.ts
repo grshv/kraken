@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { clampPane, type PaneKind } from "./layout";
 
-const storageKey = (kind: PaneKind) => `kraken-pane-${kind}`;
+// v2: widths saved before the resizer measured the right pane are dropped.
+const storageKey = (kind: PaneKind) => `kraken-pane-v2-${kind}`;
 
 // Persisted pane width with try/catch around localStorage so private mode,
 // quota errors and disabled storage never break the resizer. Defaults are

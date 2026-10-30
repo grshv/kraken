@@ -67,6 +67,7 @@ function App() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [active, setActive] = useState<Snapshot | null>(null);
   const [status, setStatus] = useState<Status | null>(null);
+  const [unknownSources, setUnknownSources] = useState(0);
   const [preview, setPreview] = useState<Preview | null>(null);
   const [history, setHistory] = useState<RevisionSummary[]>([]);
   const [connectionError, setConnectionError] = useState(false);
@@ -223,6 +224,15 @@ function App() {
         if (active) setStatus(s);
       } catch {
         // surfaced by the connection banner; no need to spam toasts
+      }
+      // Rail badge on Клиенты: sources seen in the log but not described.
+      try {
+        const u = await api<{ sources: unknown[] }>(
+          "/inspector/unknown-sources",
+        );
+        if (active) setUnknownSources(u.sources?.length ?? 0);
+      } catch {
+        // the badge is optional; keep the last value
       }
     }
     void tick();
@@ -585,6 +595,9 @@ function App() {
       operation={applyRun.operation}
       applyRun={applyRun}
       navId={visibleNav.includes(navId) ? navId : "help"}
+      badges={{ clients: unknownSources }}
+      request={request}
+      settings={active?.settings}
       onNavigate={setNavId}
       handlers={handlers}
       toast={toast}

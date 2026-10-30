@@ -2,6 +2,17 @@ import { useCallback, useEffect, useRef } from "react";
 import type { PaneKind } from "./layout";
 import { PANE_LIMITS } from "./layout";
 
+// paneOf finds the element whose width the handle controls: the list pane
+// next to the handle in the section frame, or the detail pane that contains it.
+function paneOf(handle: HTMLElement, kind: PaneKind): HTMLElement | null {
+  if (kind === "detail") return handle.parentElement;
+  return (
+    handle.parentElement?.querySelector<HTMLElement>(
+      "[data-slot=list-pane]",
+    ) ?? null
+  );
+}
+
 // Vertical splitter between the list and inspector panes. Drag persists to
 // localStorage via onCommit; arrow keys nudge by 16px; double-click resets.
 // Direction is "list" (width grows to the right) or "detail" (grows to the
@@ -29,7 +40,7 @@ export function PaneResizer({
     (e: React.MouseEvent) => {
       e.preventDefault();
       const handle = e.currentTarget as HTMLDivElement;
-      const pane = handle.parentElement;
+      const pane = paneOf(handle, kind);
       if (!pane) return;
       const rect = pane.getBoundingClientRect();
       const startWidth = Math.round(rect.width);
@@ -49,10 +60,7 @@ export function PaneResizer({
         handle.classList.remove("drag");
         document.body.classList.remove("resizing");
         if (start.current) {
-          const rawDelta =
-            (direction === "right" ? 1 : -1) * (start.current.w === 0 ? 0 : 0);
-          void rawDelta;
-          // commit the latest width from the parent rect
+          // commit the width the pane ended up with
           const finalRect = pane.getBoundingClientRect();
           onCommitRef.current(Math.round(finalRect.width));
         }
@@ -61,13 +69,13 @@ export function PaneResizer({
       document.addEventListener("mousemove", move);
       document.addEventListener("mouseup", up);
     },
-    [direction],
+    [direction, kind],
   );
 
   const onKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       const P = PANE_LIMITS[kind];
-      const pane = (e.currentTarget as HTMLDivElement).parentElement;
+      const pane = paneOf(e.currentTarget as HTMLDivElement, kind);
       if (!pane) return;
       const cur = Math.round(pane.getBoundingClientRect().width);
       const step = 16;

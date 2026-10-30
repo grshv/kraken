@@ -72,6 +72,7 @@ export type Status = {
   // fields land at compile time rather than runtime.
   observed_config_hash: string | null;
   capabilities: string[];
+  ingestion?: { state: string; observed_at: string };
   // instance reports KRAKEN_INSTANCE_NAME and data-volume/journal freshness.
   instance: {
     name: string;

@@ -1,6 +1,7 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import {
   Ban,
+  Check,
   Copy,
   Eye,
   Globe,
@@ -27,6 +28,7 @@ import {
 import {
   Card,
   CardAction,
+  CardDescription,
   CardContent,
   CardHeader,
   CardTitle,
@@ -78,6 +80,7 @@ import { cn } from "cn";
 import { EmptyState } from "../shell/EmptyState";
 import { ConfirmDialog, type ConfirmOptions } from "../shell/ConfirmDialog";
 import { DomainEditor, type DomainHits } from "../policies/DomainEditor";
+import { TemplateButtons } from "../policies/PoliciesSection";
 import {
   managerScope,
   type CommitResult,
@@ -85,6 +88,7 @@ import {
 } from "../sections/sectionProps";
 import { entityMarks, type Mark } from "../draft/marks";
 import { parseNetwork, networksOverlap, networkWithin } from "./networks";
+import { Sparkline, TrafficChart, type Bucket } from "./TrafficChart";
 import {
   addDomainToClientPolicy,
   createClientFromIP,
@@ -109,7 +113,7 @@ type ClientStats = {
   requests: number;
   denied: number;
   bytes: number;
-  series: { start: string; requests: number; denied: number; bytes: number }[];
+  series: Bucket[];
   open_connections: number | null;
   top_destinations: { host: string; requests: number; denied: number }[];
 };
@@ -292,39 +296,52 @@ export function ClientsSection(props: SectionProps) {
     );
   }
 
-  if (creating) {
-    return (
+  const createForm = creating && snap && (
       <NewClientForm
+        key={creating.from ?? creating.name}
         draft={snap!}
+        request={request}
         from={creating.from}
+        fromSource={unknown?.find((u) => u.source_ip === creating.from)}
         initialName={creating.name}
         initialSrc={creating.src}
         initialDomains={creating.domains}
         onCancel={() => setCreating(null)}
-        onSubmit={async (name, src, domains, mode) => {
+        onSubmit={async (input) => {
           const r = createClientFromIP(
             snap!,
-            src || creating.from || "",
-            name,
-            domains,
+            input.networks[0],
+            input.name,
+            input.domains,
           );
           if (!r) {
             onToast("Проверьте адрес источника и имя");
             return;
           }
           let next = r.snapshot;
-          if (mode === "all") {
-            next = {
-              ...next,
-              policies: next.policies.map((p) =>
-                p.id === r.policyID
-                  ? { ...p, mode: "all_web", destinations: [] }
+          const usePolicy =
+            input.mode === "shared" ? input.sharedPolicyID : r.policyID;
+          next = {
+            ...next,
+            clients: next.clients.map((c) =>
+              c.id === r.clientID
+                ? {
+                    ...c,
+                    kind: input.kind,
+                    source_networks: input.networks,
+                    policy_id: usePolicy,
+                    proxy_username: input.proxyUsername || undefined,
+                  }
+                : c,
+            ),
+            policies: next.policies
+              .filter((p) => input.mode !== "shared" || p.id !== r.policyID)
+              .map((p) =>
+                p.id === r.policyID && input.mode === "all"
+                  ? { ...p, mode: "all_web" as const, destinations: [] }
                   : p,
               ),
-            };
-          } else if (mode === "shared") {
-            // caller picks a shared policy via the access tab later; keep own.
-          }
+          };
           const res = await onCommit(next);
           if (res.ok) {
             setSelected(r.clientID);
@@ -336,8 +353,7 @@ export function ClientsSection(props: SectionProps) {
           }
         }}
       />
-    );
-  }
+  );
 
   const commit = async (next: Snapshot): Promise<CommitResult> => {
     const res = await onCommit(next);
@@ -386,7 +402,9 @@ export function ClientsSection(props: SectionProps) {
             className="gap-1.5"
           >
             <ToggleGroupItem value="all">все {clients.length}</ToggleGroupItem>
-            <ToggleGroupItem value="denied">с отказами</ToggleGroupItem>
+            <ToggleGroupItem value="denied">
+              с отказами {clients.filter((c) => stats[c.id]?.denied > 0).length}
+            </ToggleGroupItem>
             <ToggleGroupItem value="draft">
               в черновике {clients.filter((c) => clientMarks[c.id]).length}
             </ToggleGroupItem>
@@ -398,8 +416,9 @@ export function ClientsSection(props: SectionProps) {
             return (
               <ListRow
                 key={c.id}
-                selected={selected === c.id}
+                selected={!creating && selected === c.id}
                 onClick={() => {
+                  setCreating(null);
                   setSelected(c.id);
                   setTab("overview");
                 }}
@@ -430,12 +449,17 @@ export function ClientsSection(props: SectionProps) {
               {unknown.map((u) => (
                 <ListRow
                   key={u.source_ip}
-                  title={
-                    <span className="font-mono text-sm">{u.source_ip}</span>
-                  }
+                  selected={creating?.from === u.source_ip}
+                  title={<span className="font-mono">{u.source_ip}</span>}
                   meta={
                     <span className="text-bad">
                       {pluralRu(u.denied, "отказ", "отказа", "отказов")}
+                    </span>
+                  }
+                  subtitle={u.top_destinations.map((d) => d.host).join(", ")}
+                  aside={
+                    <span className="text-muted-foreground">
+                      {ago(u.last_seen)}
                     </span>
                   }
                   onClick={() =>
@@ -457,6 +481,7 @@ export function ClientsSection(props: SectionProps) {
           )}
         </ListPaneBody>
       </ListPane>
+      {createForm || (
       <InspectorPane>
         {selectedClient ? (
           <ClientDetail
@@ -510,6 +535,7 @@ export function ClientsSection(props: SectionProps) {
           </InspectorBody>
         )}
       </InspectorPane>
+      )}
       <ConfirmDialog
         options={confirm}
         onConfirm={() => {
@@ -534,32 +560,6 @@ function SpanMark({ mark, name }: { mark?: Mark; name: string }) {
       {mark === "changed" && <Badge variant="mod">изменён</Badge>}
       {mark === "deleted" && <Badge variant="del">удалён</Badge>}
     </span>
-  );
-}
-
-function Sparkline({
-  series,
-}: {
-  series?: { requests: number; denied: number }[];
-}) {
-  if (!series || series.length === 0)
-    return <svg className="block" width={52} height={16} />;
-  const max = Math.max(1, ...series.map((s) => s.requests));
-  const w = 52;
-  const h = 16;
-  const step = w / (series.length - 1 || 1);
-  const pts = series
-    .map((s, i) => `${i * step},${h - (s.requests / max) * h}`)
-    .join(" ");
-  return (
-    <svg className="block" width={w} height={h} aria-hidden>
-      <polyline
-        points={pts}
-        fill="none"
-        stroke="currentColor"
-        strokeWidth={1}
-      />
-    </svg>
   );
 }
 
@@ -647,6 +647,26 @@ function ClientDetail({
   // Manager may not edit a policy referenced by a foreign client.
   const policyEditable =
     !scope || sharedWith.every((c) => scope.clientIDs.includes(c.id));
+  const [recent, setRecent] = useState<Event[] | null>(null);
+  useEffect(() => {
+    let live = true;
+    setRecent(null);
+    request<{ items: Event[] }>(
+      `/events?client_id=${encodeURIComponent(client.id)}&limit=5`,
+    )
+      .then((r) => {
+        if (live) setRecent(r.items ?? []);
+      })
+      .catch(() => {
+        if (live) setRecent([]);
+      });
+    return () => {
+      live = false;
+    };
+  }, [request, client.id]);
+  const lastSeen = recent?.[0]?.timestamp;
+  const missing = (stats?.top_destinations ?? []).filter((d) => d.denied > 0)
+    .length;
   const tabs: [Tab, string][] = [
     ["overview", "Обзор"],
     ["access", "Доступ"],
@@ -679,6 +699,16 @@ function ClientDetail({
         title={client.name}
         status={
           <>
+            {!client.enabled ? (
+              <Badge variant="secondary">отключён</Badge>
+            ) : lastSeen ? (
+              <Badge variant="ok">
+                <span className="size-1.5 rounded-full bg-current" />
+                последний запрос {ago(lastSeen)}
+              </Badge>
+            ) : recent ? (
+              <Badge variant="secondary">запросов не было</Badge>
+            ) : null}
             {marks[client.id] === "new" && (
               <Badge variant="add">новый, в черновике</Badge>
             )}
@@ -756,6 +786,11 @@ function ClientDetail({
               className="flex-none px-0 py-[9px] text-base after:bg-accent group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
             >
               {l}
+              {k === "access" && missing > 0 && (
+                <Badge variant="bad" className="px-1.5">
+                  {missing}
+                </Badge>
+              )}
             </TabsTrigger>
           ))}
         </TabsList>
@@ -766,10 +801,10 @@ function ClientDetail({
             client={client}
             policy={policy}
             stats={stats}
+            recent={recent}
             snap={snap}
             onCommit={onCommit}
             onToast={onToast}
-            onNavigate={onNavigate}
             onTab={onTab}
           />
         )}
@@ -808,6 +843,16 @@ function ClientDetail({
       </InspectorBody>
     </>
   );
+}
+
+// ago renders a past timestamp as "сейчас", "N мин", "N ч" or "N д".
+function ago(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (min < 1) return "сейчас";
+  if (min < 60) return `${min} мин`;
+  if (min < 48 * 60) return `${Math.round(min / 60)} ч`;
+  return `${Math.round(min / 1440)} д`;
 }
 
 function kindLabel(kind?: string): string {
@@ -853,46 +898,54 @@ function PolicyBadge({
   );
 }
 
+// OverviewTab follows the prototype: a callout per denied domain missing from
+// the policy, KPIs, then traffic and top destinations on the left and rules
+// and recent requests on the right.
 function OverviewTab({
   client,
   policy,
   stats,
+  recent,
   snap,
   onCommit,
   onToast,
-  onNavigate,
   onTab,
 }: {
   client: Client;
   policy: Policy | null;
   stats?: ClientStats;
+  recent: Event[] | null;
   snap: Snapshot;
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
-  onNavigate: (id: NavId) => void;
   onTab: (t: Tab) => void;
 }) {
-  const deniedTop = (stats?.top_destinations ?? []).filter((d) => d.denied > 0);
-  const top3 = deniedTop.slice(0, 3);
-  const rest = deniedTop.length - top3.length;
+  const top = stats?.top_destinations ?? [];
+  const deniedTop = top.filter((d) => d.denied > 0);
+  const shown = deniedTop.slice(0, 3);
+  const rest = deniedTop.length - shown.length;
+  const policyName = policy
+    ? policy.name
+    : "";
+  const shared = policy
+    ? snap.clients.filter((c) => c.policy_id === policy.id).length
+    : 0;
+  const blocked = snap.settings?.blocked_domains?.length ?? 0;
+  const allow = async (host: string) => {
+    const res = await onCommit(addDomainToClientPolicy(snap, client.id, host));
+    if (res.ok) onToast(`Домен ${host} добавлен в политику`);
+  };
+  const max = Math.max(1, ...top.map((d) => d.requests));
   return (
     <>
-      {top3.map((d) => (
+      {shown.map((d) => (
         <Callout
           key={d.host}
           tone="bad"
           icon={<Ban aria-hidden />}
           actions={
-            <Button
-              size="xs"
-              onClick={async () => {
-                const res = await onCommit(
-                  addDomainToClientPolicy(snap, client.id, d.host),
-                );
-                if (res.ok) onToast(`Домен ${d.host} добавлен в политику`);
-              }}
-            >
-              <Plus aria-hidden /> Разрешить {d.host}
+            <Button size="xs" onClick={() => allow(d.host)}>
+              <Plus aria-hidden /> Разрешить
             </Button>
           }
         >
@@ -901,25 +954,35 @@ function OverviewTab({
             <span className="font-mono text-sm">{d.host}</span> за 24 ч
           </div>
           <div className="text-sm text-muted-foreground">
-            Домена нет в политике клиента.
+            Домена нет в политике «{policyName}»
           </div>
         </Callout>
       ))}
       {rest > 0 && (
-        <div className="flex justify-end">
-          <Button size="xs" variant="link" onClick={() => onTab("requests")}>
-            ещё {rest}
-          </Button>
-        </div>
+        <Button
+          size="xs"
+          variant="ghost"
+          className="self-start"
+          onClick={() => onTab("access")}
+        >
+          Ещё {pluralRu(rest, "домен", "домена", "доменов")} с отказами
+        </Button>
       )}
       <KpiGroup>
         <Kpi
           label="Запросы, 24 ч"
-          value={stats ? String(stats.requests) : "—"}
+          value={stats?.requests ? stats.requests.toLocaleString("ru-RU") : "—"}
         />
         <Kpi
           label="Отказы, 24 ч"
-          value={stats ? String(stats.denied) : "—"}
+          value={stats?.denied ? stats.denied.toLocaleString("ru-RU") : "—"}
+          hint={
+            stats?.denied
+              ? deniedTop.length
+                ? "нет в политике клиента"
+                : "запрещено правилами"
+              : "нет"
+          }
           tone={stats?.denied ? "bad" : undefined}
         />
         <Kpi
@@ -935,77 +998,196 @@ function OverviewTab({
           }
         />
       </KpiGroup>
-      <div className="grid grid-cols-1 gap-3 @[960px]:grid-cols-[minmax(0,1.65fr)_minmax(300px,1fr)]">
-        <div className="flex flex-col gap-3">
+      <div className="grid grid-cols-1 items-start gap-3.5 @[900px]:grid-cols-[minmax(0,1.65fr)_minmax(280px,1fr)]">
+        <div className="flex min-w-0 flex-col gap-3.5">
           <Card>
             <CardHeader>
-              <CardTitle>Куда обращается</CardTitle>
+              <CardTitle>Трафик за 24 часа</CardTitle>
             </CardHeader>
             <CardContent>
-              <Table>
-                <TableBody>
-                  {(stats?.top_destinations ?? []).slice(0, 7).map((d) => (
-                    <TableRow key={d.host}>
-                      <TableCell className="font-mono text-sm">
-                        {d.host}
-                      </TableCell>
-                      <TableCell className="tabular-nums">
-                        {d.requests}
-                      </TableCell>
-                      {d.denied > 0 && (
-                        <TableCell>
-                          <Button
-                            size="xs"
-                            variant="outline"
-                            onClick={async () => {
-                              const res = await onCommit(
-                                addDomainToClientPolicy(
-                                  snap,
-                                  client.id,
-                                  d.host,
-                                ),
-                              );
-                              if (res.ok) onToast(`Домен ${d.host} добавлен`);
-                            }}
-                          >
-                            Разрешить
-                          </Button>
+              <TrafficChart series={stats?.series ?? []} />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Куда обращается</CardTitle>
+                <CardDescription>
+                  Топ назначений за 24 ч, включая отказы
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {top.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  Запросов за 24 ч не было
+                </div>
+              ) : (
+                <Table className="table-fixed">
+                  <colgroup>
+                    <col />
+                    <col className="w-[28%]" />
+                    <col className="w-[92px]" />
+                    <col className="w-[96px]" />
+                  </colgroup>
+                  <TableBody>
+                    {top.slice(0, 7).map((d) => (
+                      <TableRow key={d.host}>
+                        <TableCell className="pl-0">
+                          <div className="truncate font-mono text-sm">
+                            {d.host}
+                          </div>
+                          {d.denied > 0 && (
+                            <div className="truncate text-sm text-muted-foreground">
+                              нет в политике
+                            </div>
+                          )}
                         </TableCell>
-                      )}
-                    </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                        <TableCell>
+                          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
+                            <div
+                              className={cn(
+                                "h-full rounded-full",
+                                d.denied > 0 ? "bg-s-deny" : "bg-s-allow",
+                              )}
+                              style={{
+                                width: `${Math.max(2, (d.requests / max) * 100)}%`,
+                              }}
+                            />
+                          </div>
+                        </TableCell>
+                        <TableCell
+                          className={cn(
+                            "text-right tabular-nums",
+                            d.denied > 0 && "font-medium text-bad",
+                          )}
+                        >
+                          {d.denied > 0
+                            ? pluralRu(d.denied, "отказ", "отказа", "отказов")
+                            : d.requests.toLocaleString("ru-RU")}
+                        </TableCell>
+                        <TableCell className="pr-0 text-right">
+                          {d.denied > 0 && (
+                            <Button
+                              size="xs"
+                              variant="outline"
+                              onClick={() => allow(d.host)}
+                            >
+                              Разрешить
+                            </Button>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              )}
             </CardContent>
           </Card>
         </div>
-        <div className="flex flex-col gap-3">
+        <div className="flex min-w-0 flex-col gap-3.5">
           <Card>
             <CardHeader>
-              <CardTitle className="flex-1 min-w-0">Правила</CardTitle>
+              <div>
+                <CardTitle>Правила</CardTitle>
+                <CardDescription>
+                  {!policy
+                    ? "Нет доступа"
+                    : policy.mode === "all_web"
+                      ? "Любые внешние сайты, кроме запрещённых для всех"
+                      : "Только домены политики"}
+                </CardDescription>
+              </div>
               <CardAction>
                 <Button
                   size="xs"
-                  variant="ghost"
-                  onClick={() => onNavigate("clients")}
+                  variant="outline"
+                  onClick={() => onTab("access")}
                 >
                   Изменить
                 </Button>
               </CardAction>
             </CardHeader>
-            <CardContent>
-              <div className="flex flex-wrap items-center gap-1.5">
-                {(policy?.destinations ?? []).slice(0, 8).map((d) => (
-                  <Chip key={d.domain}>
-                    {d.include_subdomains ? "*." : ""}
-                    {d.domain}
-                  </Chip>
-                ))}
-              </div>
+            <CardContent className="flex flex-col gap-2.5">
+              {policy?.mode === "allowlist" &&
+                policy.destinations.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {policy.destinations.slice(0, 8).map((d) => (
+                      <Chip key={d.domain}>
+                        {d.include_subdomains ? "*." : ""}
+                        {d.domain}
+                      </Chip>
+                    ))}
+                    {policy.destinations.length > 8 && (
+                      <Chip className="text-muted-foreground">
+                        +{policy.destinations.length - 8}
+                      </Chip>
+                    )}
+                  </div>
+                )}
               <KeyValue
-                className="mt-2.5"
-                items={[["Политика", policy ? policy.name : "—"]]}
+                items={[
+                  [
+                    "Политика",
+                    !policy
+                      ? "—"
+                      : shared > 1
+                        ? `${policy.name}, общая: ${pluralRu(shared, "клиент", "клиента", "клиентов")}`
+                        : "своя у клиента",
+                  ],
+                  [
+                    "Поверх неё",
+                    `${blocked ? pluralRu(blocked, "запрещённый домен", "запрещённых домена", "запрещённых доменов") + ", " : ""}встроенная защита`,
+                  ],
+                  ["Подключение", connectionLabel(client)],
+                ]}
               />
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>Последние запросы</CardTitle>
+              <CardAction>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => onTab("requests")}
+                >
+                  Все
+                </Button>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              {recent === null ? null : recent.length === 0 ? (
+                <div className="text-sm text-muted-foreground">
+                  Запросов не было
+                </div>
+              ) : (
+                <div className="flex flex-col">
+                  {recent.map((e) => {
+                    const denied = e.proxy_result.includes("DENIED");
+                    return (
+                      <div
+                        key={e.id}
+                        className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b py-1.5 last:border-b-0"
+                      >
+                        <span className="text-sm text-muted-foreground tabular-nums">
+                          {new Date(e.timestamp).toLocaleTimeString("ru-RU")}
+                        </span>
+                        <span
+                          className="truncate font-mono text-sm"
+                          title={e.destination}
+                        >
+                          {e.destination}
+                        </span>
+                        <Badge variant={denied ? "bad" : "ok"}>
+                          {e.proxy_http_status ?? (denied ? 403 : 200)}
+                        </Badge>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
@@ -1554,9 +1736,33 @@ function actionLabel(action: string): string {
   return action;
 }
 
+export type NewClientInput = {
+  name: string;
+  kind: "host" | "network" | "group";
+  networks: string[];
+  domains: string[];
+  mode: "own" | "shared" | "all" | "none";
+  sharedPolicyID: string;
+  proxyUsername: string;
+};
+
+// Numbered step marker on the creation form cards.
+function Step({ n }: { n: number }) {
+  return (
+    <span className="grid size-5 place-items-center rounded-md bg-add-bg text-sm font-semibold text-add-fg">
+      {n}
+    </span>
+  );
+}
+
+// NewClientForm follows the prototype's three steps: who (name, type,
+// source addresses), where to (own list, shared policy, all web or nothing
+// yet) and how it connects (no login or a proxy login).
 function NewClientForm({
   draft,
+  request,
   from,
+  fromSource,
   initialName,
   initialSrc,
   initialDomains,
@@ -1564,23 +1770,56 @@ function NewClientForm({
   onSubmit,
 }: {
   draft: Snapshot;
+  request: SectionProps["request"];
   from?: string;
+  fromSource?: UnknownSource;
   initialName: string;
   initialSrc: string;
   initialDomains: string[];
   onCancel: () => void;
-  onSubmit: (
-    name: string,
-    src: string,
-    domains: string[],
-    mode: "own" | "shared" | "all" | "none",
-  ) => Promise<void>;
+  onSubmit: (input: NewClientInput) => Promise<void>;
 }) {
   const [name, setName] = useState(initialName);
+  const [kind, setKind] = useState<NewClientInput["kind"]>("host");
   const [src, setSrc] = useState(initialSrc);
   const [domains, setDomains] = useState(initialDomains.join("\n"));
-  const [mode, setMode] = useState<"own" | "shared" | "all" | "none">("own");
+  const [mode, setMode] = useState<NewClientInput["mode"]>("own");
   const [err, setErr] = useState("");
+  const [login, setLogin] = useState("");
+  const [accounts, setAccounts] = useState<ProxyAccount[]>([]);
+  // Shared policies: allowlists already used by at least one client.
+  const shared = draft.policies.filter(
+    (p) =>
+      p.mode === "allowlist" && draft.clients.some((c) => c.policy_id === p.id),
+  );
+  const [sharedID, setSharedID] = useState(shared[0]?.id ?? "");
+  useEffect(() => {
+    let live = true;
+    request<{ items: ProxyAccount[] }>("/proxy-accounts")
+      .then((r) => {
+        if (live) setAccounts(r.items ?? []);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [request]);
+  const lines = src
+    .split(/[\s,]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const bad = lines.filter((l) => !parseNetwork(l));
+  const overlap = draft.clients.find((c) =>
+    lines.some((l) => {
+      const n = parseNetwork(l);
+      return n && c.source_networks.some((x) => networksOverlap(x, n));
+    }),
+  );
+  const srcError = bad.length
+    ? `Не адрес и не сеть: ${bad.join(", ")}`
+    : overlap && !login
+      ? `Пересекается с клиентом «${overlap.name}». Для пересечения нужен свой логин прокси.`
+      : "";
   return (
     <InspectorPane>
       <InspectorHeader
@@ -1592,18 +1831,19 @@ function NewClientForm({
         }
         actions={
           <Button size="xs" variant="ghost" onClick={onCancel}>
-            <X aria-hidden /> Отмена
+            Отмена
           </Button>
         }
         meta="Клиент попадёт в черновик. Трафик не изменится, пока вы не примените изменения."
       />
-      <InspectorBody>
+      <InspectorBody className="border-t">
         <Card>
-          <CardHeader>
+          <CardHeader className="flex items-center gap-2">
+            <Step n={1} />
             <CardTitle>Кто</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 gap-3.5 min-[1180px]:grid-cols-2">
+            <div className="grid grid-cols-1 gap-3.5 @[700px]:grid-cols-2">
               <Field label="Имя" htmlFor="f-nc-name">
                 <Input
                   id="f-nc-name"
@@ -1612,22 +1852,46 @@ function NewClientForm({
                   placeholder="например, build-02"
                 />
               </Field>
-              <Field label="Тип" htmlFor="f-nc-kind">
-                <Select defaultValue="host">
-                  <SelectTrigger id="f-nc-kind">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="host">Устройство</SelectItem>
-                    <SelectItem value="network">Сеть</SelectItem>
-                    <SelectItem value="group">Группа сетей</SelectItem>
-                  </SelectContent>
-                </Select>
+              <Field label="Тип">
+                <ToggleGroup
+                  type="single"
+                  variant="seg"
+                  size="sm"
+                  spacing={0.5}
+                  className="w-full rounded-lg bg-muted p-[3px]"
+                  value={kind}
+                  aria-label="Тип клиента"
+                  onValueChange={(v) => {
+                    if (v) setKind(v as NewClientInput["kind"]);
+                  }}
+                >
+                  <ToggleGroupItem value="host">Устройство</ToggleGroupItem>
+                  <ToggleGroupItem value="network">Сеть</ToggleGroupItem>
+                  <ToggleGroupItem value="group">Группа сетей</ToggleGroupItem>
+                </ToggleGroup>
               </Field>
               <Field
                 label="Адреса источника"
                 htmlFor="f-nc-src"
                 className="col-span-full"
+                error={src ? srcError : ""}
+                help={
+                  fromSource ? (
+                    <span className="flex items-center gap-1.5 text-foreground">
+                      <Check aria-hidden className="size-3.5" />
+                      За 24 ч с {from}:{" "}
+                      {pluralRu(
+                        fromSource.requests,
+                        "запрос",
+                        "запроса",
+                        "запросов",
+                      )}
+                      , отказано {fromSource.denied} (источник не описан).
+                    </span>
+                  ) : (
+                    "Пересечение с другим клиентом допустимо только при разных логинах прокси. Проверяется при вводе"
+                  )
+                }
               >
                 <Textarea
                   id="f-nc-src"
@@ -1638,32 +1902,36 @@ function NewClientForm({
                   placeholder="10.20.0.77 или 10.20.0.0/24, по одному в строке"
                 />
               </Field>
-              {from && (
-                <div className="col-span-full text-sm text-muted-foreground">
-                  За 24 ч с {from} были запросы, все отказаны (источник не
-                  описан).
-                </div>
-              )}
             </div>
           </CardContent>
         </Card>
         <Card>
-          <CardHeader>
+          <CardHeader className="flex items-center gap-2">
+            <Step n={2} />
             <CardTitle>Куда можно</CardTitle>
           </CardHeader>
-          <CardContent>
+          <CardContent className="flex flex-col gap-3">
             <RadioGroup
               value={mode}
-              onValueChange={(v) =>
-                setMode(v as "own" | "shared" | "all" | "none")
-              }
-              className="grid grid-cols-1 gap-2 min-[1180px]:grid-cols-2"
+              onValueChange={(v) => setMode(v as NewClientInput["mode"])}
+              className="grid grid-cols-1 gap-2 @[700px]:grid-cols-2"
             >
               <RadioCard
                 value="own"
                 active={mode === "own"}
                 title="Свой список доменов"
                 hint="Только перечисленные сайты"
+              />
+              <RadioCard
+                value="shared"
+                active={mode === "shared"}
+                title="Общая политика"
+                hint={
+                  shared.length
+                    ? "Как у похожих клиентов"
+                    : "Общих политик пока нет"
+                }
+                disabled={!shared.length}
               />
               <RadioCard
                 value="all"
@@ -1679,7 +1947,29 @@ function NewClientForm({
               />
             </RadioGroup>
             {mode === "own" && (
-              <Field label="Домены" htmlFor="f-nc-domains" className="mt-2.5">
+              <Field
+                label="Домены"
+                htmlFor="f-nc-domains"
+                help={
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    {from && "Подставлены домены из отказанных запросов этого IP. "}
+                    Шаблоны:
+                    <TemplateButtons
+                      request={request}
+                      onAdd={(add) =>
+                        setDomains((cur) =>
+                          [
+                            ...new Set([
+                              ...cur.split(/\s+/).filter(Boolean),
+                              ...add,
+                            ]),
+                          ].join("\n"),
+                        )
+                      }
+                    />
+                  </span>
+                }
+              >
                 <Textarea
                   id="f-nc-domains"
                   className="font-mono text-sm"
@@ -1689,11 +1979,90 @@ function NewClientForm({
                 />
               </Field>
             )}
+            {mode === "shared" && (
+              <Field label="Политика" htmlFor="f-nc-policy">
+                <Select value={sharedID} onValueChange={setSharedID}>
+                  <SelectTrigger id="f-nc-policy" className="max-w-[320px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {shared.map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}:{" "}
+                        {pluralRu(
+                          p.destinations.length,
+                          "домен",
+                          "домена",
+                          "доменов",
+                        )}
+                        ,{" "}
+                        {pluralRu(
+                          draft.clients.filter((c) => c.policy_id === p.id)
+                            .length,
+                          "клиент",
+                          "клиента",
+                          "клиентов",
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
           </CardContent>
         </Card>
-        <div className="flex justify-end gap-2">
+        <Card>
+          <CardHeader className="flex items-center gap-2">
+            <Step n={3} />
+            <CardTitle>Подключение</CardTitle>
+          </CardHeader>
+          <CardContent className="flex flex-col gap-3">
+            <RadioGroup
+              value={login ? "login" : "plain"}
+              onValueChange={(v) =>
+                setLogin(v === "login" ? (accounts[0]?.username ?? "") : "")
+              }
+              className="grid grid-cols-1 gap-2 @[700px]:grid-cols-2"
+            >
+              <RadioCard
+                value="plain"
+                active={!login}
+                title="Без логина"
+                hint="Клиент узнаётся по адресу источника"
+              />
+              <RadioCard
+                value="login"
+                active={!!login}
+                title="С логином прокси"
+                hint={
+                  accounts.length
+                    ? "Можно требовать логин и пароль"
+                    : "Логины прокси создаются в разделе «Аккаунты»"
+                }
+                disabled={!accounts.length}
+              />
+            </RadioGroup>
+            {login && (
+              <Field label="Логин прокси" htmlFor="f-nc-login">
+                <Select value={login} onValueChange={setLogin}>
+                  <SelectTrigger id="f-nc-login" className="max-w-[320px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((a) => (
+                      <SelectItem key={a.username} value={a.username}>
+                        {a.username}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            )}
+          </CardContent>
+        </Card>
+        <div className="flex items-center justify-end gap-2">
           {err && <span className="text-sm text-bad">{err}</span>}
-          <Button variant="ghost" onClick={onCancel}>
+          <Button variant="outline" onClick={onCancel}>
             Отмена
           </Button>
           <Button
@@ -1702,11 +2071,23 @@ function NewClientForm({
                 setErr("Укажите имя клиента.");
                 return;
               }
-              const dom = domains
-                .split(/[\s,]+/)
-                .map((s) => s.trim())
-                .filter(Boolean);
-              await onSubmit(name.trim(), src, dom, mode);
+              if (!lines.length || srcError) {
+                setErr(srcError || "Укажите адрес источника.");
+                return;
+              }
+              setErr("");
+              await onSubmit({
+                name: name.trim(),
+                kind,
+                networks: lines.map((l) => parseNetwork(l)!),
+                domains:
+                  mode === "own"
+                    ? domains.split(/[\s,]+/).filter(Boolean)
+                    : [],
+                mode,
+                sharedPolicyID: sharedID,
+                proxyUsername: login,
+              });
             }}
           >
             <Plus aria-hidden /> Добавить в черновик

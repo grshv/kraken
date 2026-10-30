@@ -555,7 +555,7 @@ function ModeCard({
   );
 }
 
-function TemplateButtons({
+export function TemplateButtons({
   request,
   onAdd,
 }: {

@@ -27,7 +27,15 @@ import { ReviewSheet } from "../draft/ReviewSheet";
 import { ConfirmDialog, type ConfirmOptions } from "./ConfirmDialog";
 import { Toast } from "./Toast";
 import { useTheme } from "../ThemeProvider";
-import type { Draft, Operation, Preview, Session, Status } from "../model";
+import type {
+  Draft,
+  Operation,
+  Preview,
+  Session,
+  Settings,
+  Status,
+} from "../model";
+import type { Request } from "../api";
 import type { ApplyRun } from "../draft/useApplyFlow";
 
 const railIcons: Record<NavId, typeof Users> = {
@@ -60,6 +68,9 @@ export function InspectorShell({
   operation,
   applyRun,
   navId,
+  badges,
+  request,
+  settings,
   onNavigate,
   handlers,
   toast,
@@ -76,6 +87,11 @@ export function InspectorShell({
   operation: Operation | null;
   applyRun: ApplyRun;
   navId: NavId;
+  // Counters on rail items, e.g. undescribed sources on Клиенты.
+  badges?: Partial<Record<NavId, number>>;
+  request: Request;
+  // Applied settings: ports for the status popover.
+  settings?: Settings;
   onNavigate: (id: NavId) => void;
   handlers: ShellHandlers;
   toast: string;
@@ -160,7 +176,17 @@ export function InspectorShell({
           </kbd>
         </button>
         <div className="col-start-5 flex justify-end max-[820px]:col-start-4">
-          <StatusIndicator status={status} onOpenAudit={handlers.onOpenAudit} />
+          <StatusIndicator
+            status={status}
+            settings={settings}
+            request={request}
+            onOpenAudit={handlers.onOpenAudit}
+            onOpenSettings={
+              items.some((n) => n.id === "settings")
+                ? () => onNavigate("settings")
+                : undefined
+            }
+          />
         </div>
       </header>
       {status?.squid.state === "down" && (
@@ -187,6 +213,7 @@ export function InspectorShell({
                   id={n.id}
                   label={n.label}
                   active={navId === n.id}
+                  badge={badges?.[n.id]}
                   onClick={() => onNavigate(n.id)}
                 >
                   <Icon aria-hidden />
@@ -204,6 +231,7 @@ export function InspectorShell({
                   id={n.id}
                   label={n.label}
                   active={navId === n.id}
+                  badge={badges?.[n.id]}
                   onClick={() => onNavigate(n.id)}
                 >
                   <Icon aria-hidden />
@@ -290,12 +318,14 @@ function RailItem({
   id,
   label,
   active,
+  badge,
   onClick,
   children,
 }: {
   id: NavId;
   label: string;
   active: boolean;
+  badge?: number;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -303,7 +333,7 @@ function RailItem({
     <button
       type="button"
       className={cn(
-        "flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-4",
+        "relative flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-4",
         active && "bg-[var(--accent-soft)] text-accent",
       )}
       aria-current={active ? "page" : undefined}
@@ -312,6 +342,14 @@ function RailItem({
     >
       {children}
       <span>{label}</span>
+      {!!badge && (
+        <span
+          className="absolute top-[3px] right-[9px] grid h-[15px] min-w-[15px] place-items-center rounded-lg bg-mod-bg px-[3px] text-xs text-mod-fg"
+          aria-label={`${badge} новых`}
+        >
+          {badge}
+        </span>
+      )}
     </button>
   );
 }

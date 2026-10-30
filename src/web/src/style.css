@@ -91,6 +91,10 @@
     background: transparent;
     padding: 0;
   }
+  /* Sections without a list pane (the log) have nothing to resize here. */
+  .pane-frame:not(:has([data-slot="list-pane"])) > .pane-resizer {
+    display: none;
+  }
   .pane-resizer::before {
     content: "";
     width: 1px;
