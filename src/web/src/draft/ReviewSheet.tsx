@@ -16,6 +16,7 @@ import { cn } from "cn";
 import type { Draft, Operation, Preview, Status } from "../model";
 import { revisionLabel } from "../model";
 import type { Request } from "../api";
+import { ChangeList } from "./ChangeList";
 import type { ApplyRun } from "./useApplyFlow";
 
 export type DraftImpact = {
@@ -24,14 +25,6 @@ export type DraftImpact = {
   newly_denied: number;
   clients: { client_id: string; newly_allowed: number; newly_denied: number }[];
 };
-
-// changeKind picks the change marker from a summary line of semanticDiff
-// ("Добавлен клиент: x", "Удалён клиент: x"; anything else is a modification).
-export function changeKind(line: string): "add" | "del" | "mod" {
-  if (/(^|\s)добавлен[аоы]?(\s|$|:)/iu.test(line)) return "add";
-  if (/(^|\s)удал[её]н[аоы]?(\s|$|:)/iu.test(line)) return "del";
-  return "mod";
-}
 
 // diffHunks keeps only changed squid.conf lines with `context` unchanged lines
 // around them; a gap between hunks becomes null (rendered as "…").
@@ -195,22 +188,7 @@ export function ReviewSheet({
           )}
           <Card className="gap-0 py-0">
             <CardContent className="py-0.5">
-              <ul className="m-0 flex list-none flex-col p-0">
-                {summary.map((s, i) => (
-                  <li
-                    key={i}
-                    className="grid grid-cols-[22px_minmax(0,1fr)] items-start gap-2.5 border-b py-2.5 last:border-b-0"
-                  >
-                    <Badge
-                      variant={changeKind(s)}
-                      className="grid size-5 place-items-center px-0 font-mono font-semibold"
-                    >
-                      {{ add: "+", del: "−", mod: "~" }[changeKind(s)]}
-                    </Badge>
-                    <span>{s}</span>
-                  </li>
-                ))}
-              </ul>
+              <ChangeList items={summary} />
             </CardContent>
           </Card>
           <section className="flex flex-col gap-2">

@@ -1,5 +1,7 @@
 import * as React from "react";
 import { cn } from "cn";
+import { PaneResizer } from "../../shell/PaneResizer";
+import { usePaneWidth } from "../../shell/usePaneWidth";
 
 // Section layout from the prototype: a list pane (left, resizable through
 // --list-w set by InspectorShell) and an inspector pane (rest). Sections compose
@@ -13,7 +15,7 @@ export function ListPane({
     <aside
       data-slot="list-pane"
       className={cn(
-        "flex min-h-0 w-[var(--list-w,300px)] min-w-0 shrink-0 flex-col border-r",
+        "flex min-h-0 w-[var(--list-w,300px)] min-w-0 shrink-0 flex-col overflow-hidden border-r",
         className,
       )}
       {...props}
@@ -53,7 +55,10 @@ export function ListPaneBody({
   ...props
 }: React.ComponentProps<"div">) {
   return (
-    <div className={cn("min-h-0 flex-1 overflow-y-auto", className)} {...props} />
+    <div
+      className={cn("min-h-0 flex-1 overflow-y-auto", className)}
+      {...props}
+    />
   );
 }
 
@@ -184,5 +189,36 @@ export function InspectorBody({
       )}
       {...props}
     />
+  );
+}
+
+// Right-hand detail pane (e.g. the selected log record). Its width is shared
+// across sections through usePaneWidth("detail") and resized by the splitter
+// on its left edge, like the list pane on the left.
+export function DetailPane({
+  className,
+  children,
+  ...props
+}: React.ComponentProps<"aside">) {
+  const detail = usePaneWidth("detail");
+  return (
+    <aside
+      data-slot="detail-pane"
+      className={cn(
+        "relative flex min-h-0 shrink-0 flex-col gap-3 overflow-y-auto border-l bg-card p-4",
+        className,
+      )}
+      style={{ width: detail.width }}
+      {...props}
+    >
+      <PaneResizer
+        kind="detail"
+        direction="left"
+        onDrag={detail.onDrag}
+        onCommit={detail.onCommit}
+        onReset={detail.reset}
+      />
+      {children}
+    </aside>
   );
 }

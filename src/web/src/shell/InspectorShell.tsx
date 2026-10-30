@@ -61,6 +61,7 @@ export function InspectorShell({
   confirm,
   onConfirm,
   onConfirmCancel,
+  banner,
   children,
 }: {
   session: Session;
@@ -84,6 +85,8 @@ export function InspectorShell({
   confirm: ConfirmOptions | null;
   onConfirm: () => void;
   onConfirmCancel: () => void;
+  // Connection/error strip above the panes; never a pane itself.
+  banner?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const role: Role = session.role === "manager" ? "manager" : "admin";
@@ -253,6 +256,7 @@ export function InspectorShell({
             } as React.CSSProperties
           }
         >
+          {banner}
           <div className="pane-frame">
             {children}
             <PaneResizer

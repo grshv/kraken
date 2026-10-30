@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { changeKind, diffHunks } from "../../src/draft/ReviewSheet";
+import { changeKind } from "../../src/draft/ChangeList";
+import { diffHunks } from "../../src/draft/ReviewSheet";
 
 describe("changeKind", () => {
   it("reads the marker from semanticDiff lines", () => {
@@ -36,5 +37,15 @@ describe("diffHunks", () => {
   });
   it("returns nothing when only context lines remain", () => {
     expect(diffHunks([c("a"), c("b")])).toEqual([]);
+  });
+});
+
+describe("detailLines", () => {
+  it("splits an audit summary into change lines", async () => {
+    const { detailLines } = await import("../../src/audit/AuditSection");
+    expect(detailLines("Добавлен клиент: a; Изменены настройки Squid")).toEqual(
+      ["Добавлен клиент: a", "Изменены настройки Squid"],
+    );
+    expect(detailLines("")).toEqual([]);
   });
 });

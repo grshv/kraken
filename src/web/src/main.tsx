@@ -653,30 +653,34 @@ function App() {
         setConfirm(null);
         setPendingAction(null);
       }}
+      banner={
+        <>
+          {connectionError && (
+            <Alert
+              variant="destructive"
+              className="mx-3 mt-2 flex w-auto flex-none items-center justify-between gap-4 py-2"
+              role="alert"
+            >
+              <AlertDescription>
+                Нет связи с панелью. Повторяем подключение…
+              </AlertDescription>
+            </Alert>
+          )}
+          {error && !busy && (
+            <Alert
+              variant="destructive"
+              className="mx-3 mt-2 flex w-auto flex-none items-center justify-between gap-4 py-2"
+              role="alert"
+            >
+              <AlertDescription>{error}</AlertDescription>
+              <Button variant="ghost" size="sm" onClick={() => setError("")}>
+                Закрыть
+              </Button>
+            </Alert>
+          )}
+        </>
+      }
     >
-      {connectionError && (
-        <Alert
-          variant="destructive"
-          className="mx-5 my-4 flex items-center justify-between gap-4"
-          role="alert"
-        >
-          <AlertDescription>
-            Нет связи с панелью. Повторяем подключение…
-          </AlertDescription>
-        </Alert>
-      )}
-      {error && !busy && (
-        <Alert
-          variant="destructive"
-          className="mx-5 my-4 flex items-center justify-between gap-4"
-          role="alert"
-        >
-          <AlertDescription>{error}</AlertDescription>
-          <Button variant="ghost" size="sm" onClick={() => setError("")}>
-            Закрыть
-          </Button>
-        </Alert>
-      )}
       {renderNav()}
     </InspectorShell>
   );

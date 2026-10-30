@@ -27,8 +27,13 @@ import {
 import { Callout, KeyValue } from "../components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
-import { PaneResizer } from "../shell/PaneResizer";
-import { usePaneWidth } from "../shell/usePaneWidth";
+import {
+  DetailPane,
+  InspectorPane,
+  ListPane,
+  ListPaneBody,
+  ListPaneHeader,
+} from "../components/kraken/layout";
 import { explainSteps, type Explain } from "./explain";
 import { mergeDestinations, parseDomainInput } from "../policies/domains";
 import { addDomainToClientPolicy } from "../draft/edits";
@@ -131,7 +136,6 @@ export function LogSection(props: SectionProps) {
   const [loadError, setLoadError] = useState(false);
   const [paused, setPaused] = useState(false);
   const [selectedID, setSelectedID] = useState<string | null>(null);
-  const detail = usePaneWidth("detail");
 
   // The list starts where the facet window starts, fixed when the window or
   // the query changes so polling does not refetch on every tick.
@@ -359,74 +363,20 @@ export function LogSection(props: SectionProps) {
   }, [events, selectedID, detailClosed]);
 
   return (
-    <section className="flex min-h-0 w-full flex-1 flex-col">
-      <div className="flex h-[52px] flex-none items-center gap-2 border-b px-3.5">
-        <span className="font-semibold">Журнал</span>
-        {!paused && (
-          <Badge variant="ok">
-            <span className="size-1.5 rounded-full bg-current" /> обновляется
-          </Badge>
-        )}
-        <div className="relative flex min-w-0 max-w-[520px] flex-1 items-center">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
-          />
-          <Input
-            aria-label="Поиск по журналу"
-            className="h-8 pl-[30px]"
-            placeholder="client:ci-01 host:example.com результат:отказ"
-            value={queryText}
-            onChange={(e) => setQueryText(e.target.value)}
-          />
-        </div>
-        <ToggleGroup
-          type="single"
-          variant="seg"
-          size="sm"
-          spacing={0.5}
-          className="rounded-lg bg-muted p-[3px]"
-          value={window.label}
-          aria-label="Окно журнала"
-          onValueChange={(v) => {
-            const w = FACET_WINDOWS.find((x) => x.label === v);
-            if (w) setWindow(w);
-          }}
-        >
-          {FACET_WINDOWS.map((w) => (
-            <ToggleGroupItem key={w.label} value={w.label}>
-              {w.label}
-            </ToggleGroupItem>
-          ))}
-        </ToggleGroup>
-        <span className="grow" />
-        {paused ? (
-          <Button variant="outline" size="sm" onClick={() => setPaused(false)}>
-            <Play aria-hidden /> Продолжить
-          </Button>
-        ) : (
-          <Button variant="outline" size="sm" onClick={() => setPaused(true)}>
-            <Pause aria-hidden /> Пауза
-          </Button>
-        )}
-        {stale && (
-          <Badge variant="secondary">
-            <TriangleAlert aria-hidden /> журнал не свежий
-          </Badge>
-        )}
-        {gap && (
-          <Badge variant="secondary">
-            <TriangleAlert aria-hidden /> есть пропуски
-          </Badge>
-        )}
-      </div>
-      <div
-        className="grid min-h-0 w-full flex-1 [grid-template-columns:190px_minmax(0,1fr)_var(--detail-w,400px)] max-[1180px]:[grid-template-columns:minmax(0,1fr)_min(var(--detail-w,400px),320px)] max-[820px]:grid-cols-[1fr] max-[820px]:grid-rows-[auto_auto_auto]"
-        style={{
-          ["--detail-w" as string]: `${detailClosed ? 0 : detail.width}px`,
-        }}
-      >
-        <aside className="flex w-[190px] min-h-0 flex-col gap-3.5 overflow-y-auto border-r bg-card p-3 max-[1180px]:hidden">
+    <div className="flex w-full min-h-0">
+      <ListPane>
+        <ListPaneHeader
+          title="Журнал"
+          action={
+            !paused && (
+              <Badge variant="ok">
+                <span className="size-1.5 rounded-full bg-current" />{" "}
+                обновляется
+              </Badge>
+            )
+          }
+        />
+        <ListPaneBody className="flex flex-col gap-3.5 p-3">
           <FacetGroup title="Результат">
             <FacetRow
               label="Разрешено"
@@ -515,7 +465,67 @@ export function LogSection(props: SectionProps) {
               <div className="text-sm text-muted-foreground">—</div>
             )}
           </FacetGroup>
-        </aside>
+        </ListPaneBody>
+      </ListPane>
+      <InspectorPane>
+        <div className="flex h-[52px] flex-none items-center gap-2 border-b px-3.5">
+          <div className="relative flex min-w-0 max-w-[520px] flex-1 items-center">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
+            />
+            <Input
+              aria-label="Поиск по журналу"
+              className="h-8 pl-[30px]"
+              placeholder="client:ci-01 host:example.com результат:отказ"
+              value={queryText}
+              onChange={(e) => setQueryText(e.target.value)}
+            />
+          </div>
+          <ToggleGroup
+            type="single"
+            variant="seg"
+            size="sm"
+            spacing={0.5}
+            className="rounded-lg bg-muted p-[3px]"
+            value={window.label}
+            aria-label="Окно журнала"
+            onValueChange={(v) => {
+              const w = FACET_WINDOWS.find((x) => x.label === v);
+              if (w) setWindow(w);
+            }}
+          >
+            {FACET_WINDOWS.map((w) => (
+              <ToggleGroupItem key={w.label} value={w.label}>
+                {w.label}
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+          <span className="grow" />
+          {paused ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPaused(false)}
+            >
+              <Play aria-hidden /> Продолжить
+            </Button>
+          ) : (
+            <Button variant="outline" size="sm" onClick={() => setPaused(true)}>
+              <Pause aria-hidden /> Пауза
+            </Button>
+          )}
+          {stale && (
+            <Badge variant="secondary">
+              <TriangleAlert aria-hidden /> журнал не свежий
+            </Badge>
+          )}
+          {gap && (
+            <Badge variant="secondary">
+              <TriangleAlert aria-hidden /> есть пропуски
+            </Badge>
+          )}
+        </div>
 
         <div className="flex min-h-0 min-w-0 flex-col">
           <div className="flex-none border-b p-2.5">
@@ -666,38 +676,30 @@ export function LogSection(props: SectionProps) {
             )}
           </div>
         </div>
-
-        <aside className={cn("log-detail-pane", detailClosed && "hidden")}>
-          <PaneResizer
-            kind="detail"
-            direction="left"
-            onDrag={detail.onDrag}
-            onCommit={detail.onCommit}
-            onReset={detail.reset}
+      </InspectorPane>
+      <DetailPane hidden={detailClosed}>
+        {selected ? (
+          <LogDetail
+            event={selected}
+            snap={snap}
+            session={session}
+            request={request}
+            onCommit={onCommit}
+            onToast={onToast}
+            onNavigate={onNavigate}
+            onOpen={onOpen}
+            onClose={() => {
+              setDetailClosed(true);
+              setSelectedID(null);
+            }}
           />
-          {selected ? (
-            <LogDetail
-              event={selected}
-              snap={snap}
-              session={session}
-              request={request}
-              onCommit={onCommit}
-              onToast={onToast}
-              onNavigate={onNavigate}
-              onOpen={onOpen}
-              onClose={() => {
-                setDetailClosed(true);
-                setSelectedID(null);
-              }}
-            />
-          ) : (
-            <div className="text-sm text-muted-foreground">
-              Выберите запрос, чтобы увидеть детали и действия.
-            </div>
-          )}
-        </aside>
-      </div>
-    </section>
+        ) : (
+          <div className="text-sm text-muted-foreground">
+            Выберите запрос, чтобы увидеть детали и действия.
+          </div>
+        )}
+      </DetailPane>
+    </div>
   );
 }
 

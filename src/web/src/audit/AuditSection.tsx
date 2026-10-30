@@ -26,8 +26,8 @@ import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import type { Preview, RevisionSummary } from "../model";
 import { revisionLabel } from "../model";
+import { ChangeList } from "../draft/ChangeList";
 import { localTime } from "../model";
-import type { NavId } from "../shell/nav";
 import type { SectionProps } from "../sections/sectionProps";
 import {
   AUDIT_FILTERS,
@@ -59,7 +59,7 @@ const PAGE_LIMIT = 100;
 // AuditSection: chronological audit trail filtered by actor and category. The
 // detail pane reads the revision (admin only) for changes and operation status.
 export function AuditSection(props: SectionProps) {
-  const { request, session, onToast, onNavigate } = props;
+  const { request, session, onToast } = props;
   const canConfigure = session.permissions?.includes("configure") ?? false;
   const [actor, setActor] = useState("");
   const [category, setCategory] = useState<AuditCategory | "all">("all");
@@ -234,7 +234,6 @@ export function AuditSection(props: SectionProps) {
             event={selected}
             request={request}
             canConfigure={canConfigure}
-            onNavigate={onNavigate}
           />
         ) : (
           <InspectorBody>
@@ -301,12 +300,10 @@ function AuditDetail({
   event,
   request,
   canConfigure,
-  onNavigate,
 }: {
   event: AuditEvent;
   request: SectionProps["request"];
   canConfigure: boolean;
-  onNavigate: (id: NavId) => void;
 }) {
   const isRevision = event.action === "create_revision";
   const [revision, setRevision] = useState<RevisionSummary | null>(null);
@@ -348,6 +345,9 @@ function AuditDetail({
     };
   }, [event.id, event.entity_id, isRevision, canConfigure, request]);
 
+  const isDraftChange =
+    event.action === "update_draft" || event.action === "discard_draft";
+  const showChanges = isRevision || isDraftChange;
   const cat = actionCategory(event.action);
   const catLabel =
     cat === "apply"
@@ -381,7 +381,7 @@ function AuditDetail({
           <CardContent>
             <KeyValue
               items={[
-                ...(event.detail
+                ...(event.detail && !showChanges
                   ? ([["Что", event.detail]] as [string, string][])
                   : []),
                 ["Кто", event.actor],
@@ -393,7 +393,15 @@ function AuditDetail({
                 ],
                 [
                   "Объект",
-                  <span className="font-mono">{event.entity_id || "—"}</span>,
+                  isRevision ? (
+                    <span className="font-mono">
+                      {revisionLabel(event.entity_id, revision?.number)}
+                    </span>
+                  ) : event.entity_id === "draft" ? (
+                    "черновик"
+                  ) : (
+                    <span className="font-mono">{event.entity_id || "—"}</span>
+                  ),
                 ],
               ]}
             />
@@ -418,11 +426,7 @@ function AuditDetail({
                   </div>
                 ) : preview ? (
                   preview.summary.length > 0 ? (
-                    <ul className="my-0 list-disc pl-[22px] leading-relaxed">
-                      {preview.summary.map((s, i) => (
-                        <li key={i}>{s}</li>
-                      ))}
-                    </ul>
+                    <ChangeList items={preview.summary} />
                   ) : (
                     <span className="text-sm text-muted-foreground">
                       Без пользовательских изменений
@@ -433,6 +437,8 @@ function AuditDetail({
                     Загружаем…
                   </span>
                 )
+              ) : event.detail ? (
+                <ChangeList items={detailLines(event.detail)} />
               ) : (
                 <div className="text-sm text-muted-foreground">
                   Просмотр изменений ревизии доступен администратору.
@@ -455,18 +461,35 @@ function AuditDetail({
           </Card>
         )}
 
-        <div className="text-sm text-muted-foreground">
-          Аудит хранит 90 дней или 5 000 событий. Пароли и содержимое запросов
-          не записываются.
-        </div>
-        <div className="flex items-center gap-2">
-          <Button size="xs" variant="ghost" onClick={() => onNavigate("audit")}>
-            К списку
-          </Button>
-        </div>
+        {isDraftChange && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Что изменилось</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {event.detail ? (
+                <ChangeList items={detailLines(event.detail)} />
+              ) : (
+                <div className="text-sm text-muted-foreground">
+                  Подробности не записаны: событие старше записи сути изменений
+                  в аудите.
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
       </InspectorBody>
     </>
   );
+}
+
+// detailLines splits an audit summary ("a; b; c", see auditSummary in httpapi)
+// into change lines.
+export function detailLines(detail: string): string[] {
+  return detail
+    .split("; ")
+    .map((l) => l.trim())
+    .filter(Boolean);
 }
 
 function statusLabel(s: string): string {
