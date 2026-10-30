@@ -3,6 +3,7 @@ slug: scenario-rollback
 title: Откат
 section: Сценарии
 order: 50
+screen: audit
 ---
 
 Откат возвращает прежнюю ревизию. Это отдельная операция с собственным

@@ -3,6 +3,7 @@ slug: connect-k8s
 title: Kubernetes
 section: Подключение машин
 order: 70
+screen: clients
 ---
 
 Узлы Kubernetes и поды настраиваются отдельно: containerd и kubelet на

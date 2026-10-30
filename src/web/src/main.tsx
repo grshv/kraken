@@ -486,7 +486,14 @@ function App() {
     });
 
   function renderNav(): React.ReactNode {
-    if (navId === "help") return <HelpView request={request} />;
+    if (navId === "help")
+      return (
+        <HelpView
+          request={request}
+          screens={visibleNav}
+          onNavigate={setNavId}
+        />
+      );
     if (navId === "clients")
       return (
         <ClientsSection

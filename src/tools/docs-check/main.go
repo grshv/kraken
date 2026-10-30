@@ -127,6 +127,7 @@ var (
 	helpFrontMatter = regexp.MustCompile(`(?s)\A---\n(.*?\n)---\n`)
 	helpLink        = regexp.MustCompile(`\[([^\]]*)\]\(help:([^\s)]+)\)`)
 	helpKeys        = []string{"slug", "title", "section", "order"}
+	helpOptional    = []string{"screen"}
 )
 
 const (
@@ -639,7 +640,7 @@ func checkHelpArticles(root string, files []string, errs *[]string) {
 		}
 		for key := range fields {
 			known := false
-			for _, k := range helpKeys {
+			for _, k := range append(helpKeys, helpOptional...) {
 				if k == key {
 					known = true
 					break

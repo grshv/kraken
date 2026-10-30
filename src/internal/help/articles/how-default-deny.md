@@ -3,6 +3,7 @@ slug: how-default-deny
 title: Закрыто по умолчанию и защитные запреты
 section: Как это работает
 order: 10
+screen: settings
 ---
 
 Доступ закрыт по умолчанию. Squid применяет защитные запреты до

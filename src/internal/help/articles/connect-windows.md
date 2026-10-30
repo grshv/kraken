@@ -3,6 +3,7 @@ slug: connect-windows
 title: Windows
 section: Подключение машин
 order: 50
+screen: clients
 ---
 
 На Windows системный прокси, WinHTTP и PowerShell настраиваются отдельно.

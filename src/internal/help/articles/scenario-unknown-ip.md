@@ -3,6 +3,7 @@ slug: scenario-unknown-ip
 title: Клиент из неописанного IP
 section: Сценарии
 order: 20
+screen: clients
 ---
 
 Запрос из адреса, не описанного как клиент, получает отказ: доступ закрыт

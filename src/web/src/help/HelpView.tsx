@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { BookOpen, Search } from "lucide-react";
+import { ArrowUpRight, BookOpen, Search } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   ListPane,
@@ -21,6 +22,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { HelpEntry, HelpArticle } from "../model";
 import type { Request } from "../api";
+import { navItems, type NavId } from "../shell/nav";
 
 const SECTION_ORDER = [
   "Начало работы",
@@ -31,8 +33,17 @@ const SECTION_ORDER = [
 
 // Help section: TOC on the left, article on the right. The index comes from
 // GET /api/v1/help, one article from GET /api/v1/help/{slug}. help:slug links
-// inside the markdown navigate without leaving the section.
-export function HelpView({ request }: { request: Request }) {
+// inside the markdown navigate without leaving the section. An article with a
+// screen the viewer can open gets "Открыть в интерфейсе".
+export function HelpView({
+  request,
+  screens,
+  onNavigate,
+}: {
+  request: Request;
+  screens: NavId[];
+  onNavigate: (id: NavId) => void;
+}) {
   const [index, setIndex] = useState<HelpEntry[] | null>(null);
   const [article, setArticle] = useState<HelpArticle | null>(null);
   const [slug, setSlug] = useState<string | null>(null);
@@ -132,7 +143,15 @@ export function HelpView({ request }: { request: Request }) {
         ) : !article ? (
           <EmptyState icon={<BookOpen />} title="Загрузка…" />
         ) : (
-          <ArticleView article={article} onHelpLink={setSlug} />
+          <ArticleView
+            article={article}
+            onHelpLink={setSlug}
+            onOpen={
+              article.screen && screens.includes(article.screen)
+                ? () => onNavigate(article.screen!)
+                : undefined
+            }
+          />
         )}
       </InspectorPane>
     </div>
@@ -145,10 +164,13 @@ export function HelpView({ request }: { request: Request }) {
 function ArticleView({
   article,
   onHelpLink,
+  onOpen,
 }: {
-  article: { section: string; title: string; markdown: string };
+  article: HelpArticle;
   onHelpLink: (slug: string) => void;
+  onOpen?: () => void;
 }) {
+  const screen = navItems("admin").find((n) => n.id === article.screen);
   const { lead, body, outline } = splitArticle(article.markdown);
   return (
     <article className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -160,6 +182,13 @@ function ArticleView({
             </span>
           }
           title={article.title}
+          actions={
+            onOpen && (
+              <Button size="sm" variant="outline" onClick={onOpen}>
+                <ArrowUpRight aria-hidden /> Открыть «{screen?.label}»
+              </Button>
+            )
+          }
           meta={lead ? renderInline(lead, onHelpLink) : undefined}
         />
       </div>

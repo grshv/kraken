@@ -3,6 +3,7 @@ slug: connect-macos
 title: macOS
 section: Подключение машин
 order: 60
+screen: clients
 ---
 
 Системные настройки сети и терминал настраиваются отдельно. Адрес и порт

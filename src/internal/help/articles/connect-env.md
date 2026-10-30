@@ -3,6 +3,7 @@ slug: connect-env
 title: Переменные окружения
 section: Подключение машин
 order: 20
+screen: clients
 ---
 
 Большинство утилит Linux (curl, wget, git, apt через конфиг) читают

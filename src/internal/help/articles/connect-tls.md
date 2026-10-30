@@ -3,6 +3,7 @@ slug: connect-tls
 title: TLS-прокси с логином
 section: Подключение машин
 order: 80
+screen: accounts
 ---
 
 Если клиенту нужен логин и пароль, подключение к прокси идёт по TLS на

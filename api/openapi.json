@@ -4882,6 +4882,18 @@
           },
           "order": {
             "type": "integer"
+          },
+          "screen": {
+            "type": "string",
+            "enum": [
+              "clients",
+              "policies",
+              "log",
+              "audit",
+              "accounts",
+              "settings"
+            ],
+            "description": "UI section the article describes (\"Открыть в интерфейсе\"); absent for conceptual articles."
           }
         }
       },

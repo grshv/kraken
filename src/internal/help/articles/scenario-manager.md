@@ -3,6 +3,7 @@ slug: scenario-manager
 title: Менеджер и его клиенты
 section: Сценарии
 order: 40
+screen: settings
 ---
 
 Менеджер отвечает за свою часть клиентов. Администратор назначает ему

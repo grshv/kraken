@@ -1,3 +1,4 @@
+import type { NavId } from "./shell/nav";
 export type PanelRole = "admin" | "manager";
 export type ApiRequest = <T>(
   path: string,
@@ -198,6 +199,8 @@ export type HelpEntry = {
   title: string;
   section: string;
   order: number;
+  // screen is the UI section the article describes ("Открыть в интерфейсе").
+  screen?: NavId;
 };
 export type HelpArticle = HelpEntry & { markdown: string };
 export const defaultSettings: Settings = {

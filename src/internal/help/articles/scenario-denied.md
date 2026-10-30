@@ -3,6 +3,7 @@ slug: scenario-denied
 title: Разбор отказа в журнале
 section: Сценарии
 order: 30
+screen: log
 ---
 
 Журнал показывает source IP, destination, результат Squid и время. Для

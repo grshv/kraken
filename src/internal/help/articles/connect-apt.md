@@ -3,6 +3,7 @@ slug: connect-apt
 title: APT (Ubuntu и Debian)
 section: Подключение машин
 order: 10
+screen: clients
 ---
 
 Чтобы `apt-get` ходил через прокси, достаточно одного файла настроек. Адрес

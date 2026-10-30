@@ -1,7 +1,7 @@
 // Package help exposes the in-binary help articles embedded from articles/*.md.
 //
 // The article set is fixed at build time: each Markdown file under articles/
-// carries front matter (slug, title, section, order) and a body. Parsing happens
+// carries front matter (slug, title, section, order, optional screen) and a body. Parsing happens
 // once at init; a malformed article is a build-time defect and panics rather
 // than degrading into a half-empty help index.
 package help
@@ -28,12 +28,20 @@ var sectionOrder = []string{
 	"Как это работает",
 }
 
-// Entry is one row in the help index.
+// screens are the UI sections an article may link to with "Открыть в
+// интерфейсе"; they mirror the web NavId values (help itself excluded).
+var screens = map[string]bool{
+	"clients": true, "policies": true, "log": true, "audit": true, "accounts": true, "settings": true,
+}
+
+// Entry is one row in the help index. Screen is the UI section the article
+// describes, empty when it is conceptual.
 type Entry struct {
 	Slug    string `json:"slug"`
 	Title   string `json:"title"`
 	Section string `json:"section"`
 	Order   int    `json:"order"`
+	Screen  string `json:"screen,omitempty"`
 }
 
 // ArticleBody is an entry plus its markdown body. The type name differs from
@@ -118,8 +126,9 @@ func Article(slug string) (ArticleBody, bool) {
 
 // parse reads front matter and body. Front matter is a YAML-like block delimited
 // by lines containing exactly "---"; the four keys slug, title, section and
-// order are all required, no other keys are accepted, and slug must equal the
-// file stem so a renamed file never silently breaks a help: link.
+// order are required, screen is optional and must name a UI section, no other
+// keys are accepted, and slug must equal the file stem so a renamed file never
+// silently breaks a help: link.
 func parse(filename, raw string) (Entry, string, error) {
 	const sep = "---"
 	lines := strings.Split(raw, "\n")
@@ -138,6 +147,7 @@ func parse(filename, raw string) (Entry, string, error) {
 	}
 	var (
 		slug, title, section string
+		screen               string
 		order                int
 		hasSlug, hasTitle    bool
 		hasSection, hasOrder bool
@@ -169,6 +179,11 @@ func parse(filename, raw string) (Entry, string, error) {
 			}
 			order = n
 			hasOrder = true
+		case "screen":
+			if !screens[val] {
+				return Entry{}, "", fmt.Errorf("unknown screen %q", val)
+			}
+			screen = val
 		default:
 			return Entry{}, "", fmt.Errorf("unknown front matter key %q", key)
 		}
@@ -182,5 +197,5 @@ func parse(filename, raw string) (Entry, string, error) {
 	}
 	body := strings.Join(lines[end+1:], "\n")
 	body = strings.TrimPrefix(body, "\n")
-	return Entry{Slug: slug, Title: title, Section: section, Order: order}, body, nil
+	return Entry{Slug: slug, Title: title, Section: section, Order: order, Screen: screen}, body, nil
 }

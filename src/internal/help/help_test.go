@@ -79,3 +79,23 @@ func TestHelpLinksResolve(t *testing.T) {
 		}
 	}
 }
+
+// screen is optional, must name a UI section, and reaches the index.
+func TestScreenFrontMatter(t *testing.T) {
+	const head = "---\nslug: x\ntitle: X\nsection: Сценарии\norder: 1\n"
+	e, _, err := parse("x.md", head+"screen: log\n---\nbody\n")
+	if err != nil || e.Screen != "log" {
+		t.Fatalf("valid screen: %+v %v", e, err)
+	}
+	if e, _, err = parse("x.md", head+"---\nbody\n"); err != nil || e.Screen != "" {
+		t.Fatalf("no screen: %+v %v", e, err)
+	}
+	for _, bad := range []string{"help", "Log", "../log", ""} {
+		if _, _, err := parse("x.md", head+"screen: "+bad+"\n---\nbody\n"); err == nil {
+			t.Errorf("screen %q accepted", bad)
+		}
+	}
+	if a, ok := Article("scenario-denied"); !ok || a.Screen != "log" {
+		t.Fatalf("scenario-denied screen: %+v", a.Entry)
+	}
+}

@@ -3,6 +3,7 @@ slug: connect-lang
 title: pip, npm, Go, Maven
 section: Подключение машин
 order: 40
+screen: clients
 ---
 
 Некоторые менеджеры пакетов читают переменные окружения по-своему или

@@ -4,7 +4,7 @@
 
 | Команда | Что проверяет | Когда обязательна |
 | --- | --- | --- |
-| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace — реализован на Go (`src/tools/docs-check`) | Любое изменение |
+| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter с необязательным `screen`, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace — реализован на Go (`src/tools/docs-check`) | Любое изменение |
 | `make check` | docs-check, typecheck и сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` | Любое изменение кода |
 | `make integration` | `go test -tags integration` на реальном Squid в образе `kraken:dev`/`kraken:ops` (`smoke_test.go`, `network_test.go`, `apt_test.go`, `ops_test.go`), локальные fixtures; фильтр через `RUN=` | Изменения policy, runtime, deploy, auth |
 | `make integration RUN=TestOps` | `ops_test.go` (`TestOpsBackupRestore`, `TestOpsCertReplace`, `TestOpsImageUpdate`, `TestOpsDiskFull`, `TestOpsForcedKill`): эксплуатационные процедуры runbook на образе `kraken:ops` — копия/восстановление тома `/var/lib/kraken`, замена сертификата, обновление образа, заполненный диск | Изменения deploy, runbook, runtime/recovery |
@@ -29,7 +29,7 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `telemetry` | Ingest→Rollup→Series/TopHosts/UnknownSources/Events/Event/Info; идемпотентность rollup (повтор батча, crash между ingest и rollup); смена месяца; retention по возрасту и бюджету; повреждение rollups.db и месячного файла; конкурентные чтения во время Ingest (`-race`); отмена ctx; scope (пустые списки, IPv4-mapped); `Facets` (фильтры, область включая пустую и IPv4-mapped, границы корзин, события в двух месячных файлах, ошибки окна); бенчмарки Series за год, Ingest батча (2000) и Facets 500k за сутки (< 200 мс) |
 | `proxyauth` | Basic encoding и лимиты, отсутствующая БД, reset/disable, generation guard |
 | `credentials` | Argon2id PHC; отказ для verifier без версии и параметров |
-| `help` | Разбор front matter при init (panic на ошибку формата), индекс непустой и отсортирован, статья по slug, уникальность slug, разрешимость всех `help:` ссылок |
+| `help` | Разбор front matter при init (panic на ошибку формата, неизвестный `screen`), индекс непустой и отсортирован, статья по slug, уникальность slug, разрешимость всех `help:` ссылок |
 
 ## Web unit-тесты
 

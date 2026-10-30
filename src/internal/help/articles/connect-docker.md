@@ -3,6 +3,7 @@ slug: connect-docker
 title: Docker
 section: Подключение машин
 order: 30
+screen: clients
 ---
 
 Скачивание образов (`docker pull`) и прокси внутри контейнеров
