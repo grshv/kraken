@@ -1,9 +1,28 @@
-import { useEffect, useMemo, useState } from "react";
-import { Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { useEffect, useId, useMemo, useState } from "react";
+import { Copy, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  ListPane,
+  ListPaneBody,
+  ListPaneHeader,
+  ListGroupLabel,
+  ListRow,
+  InspectorPane,
+  InspectorHeader,
+  InspectorBody,
+} from "@/components/kraken/layout";
+import { Callout, Field } from "@/components/kraken/blocks";
+import { cn } from "cn";
 import { EmptyState } from "../shell/EmptyState";
 import { DomainEditor, type DomainHits } from "./DomainEditor";
 import {
@@ -20,6 +39,7 @@ import {
   setPolicyMode,
 } from "../draft/edits";
 import type { Policy, Session, Snapshot } from "../model";
+import { pluralRu } from "../model";
 
 // PoliciesSection: list of named allowlists with client/domain counts and a
 // detail editor (mode, domains, 24h/7d hits, clients). Delete is allowed only
@@ -47,7 +67,12 @@ export function PoliciesSection(props: SectionProps) {
     if (!selectedPolicy) return;
     let live = true;
     request<{
-      domains: { domain: string; include_subdomains: boolean; hits_24h: number; hits_7d: number }[];
+      domains: {
+        domain: string;
+        include_subdomains: boolean;
+        hits_24h: number;
+        hits_7d: number;
+      }[];
     }>(`/inspector/policies/${selectedPolicy.id}/hits`)
       .then((r) => {
         if (!live) return;
@@ -62,31 +87,39 @@ export function PoliciesSection(props: SectionProps) {
     };
   }, [request, selectedPolicy?.id]);
 
+  // Select the first policy when the section opens with no selection.
+  useEffect(() => {
+    if (selected === null && policies.length > 0 && !creating) {
+      setSelected(policies[0].id);
+    }
+  }, [selected, policies, creating]);
+
   if (policies.length === 0 && !creating) {
     return (
-      <div className="placeholder-section">
-        <aside className="list-pane">
-          <div className="list-head">
-            <div className="row" style={{ justifyContent: "space-between" }}>
-              <span className="list-title">Политики</span>
+      <div className="flex w-full min-h-0">
+        <ListPane>
+          <ListPaneHeader
+            title="Политики"
+            action={
               <Button size="xs" onClick={() => setCreating(true)}>
                 <Plus aria-hidden /> Новая
               </Button>
-            </div>
-          </div>
-          <div className="list-body">
-            <div className="muted-text small" style={{ padding: "12px 14px" }}>
+            }
+          />
+          <ListPaneBody>
+            <div className="px-3.5 py-3 text-sm text-muted-foreground">
               Политик пока нет.
             </div>
-          </div>
-        </aside>
-        <section className="inspector-pane">
-          <div className="inspector-body">
+          </ListPaneBody>
+        </ListPane>
+        <InspectorPane>
+          <InspectorBody>
             <EmptyState icon={<ShieldCheck />} title="Нет политик">
-              Создайте первую политику с набором доменов, затем назначьте её клиенту.
+              Создайте первую политику с набором доменов, затем назначьте её
+              клиенту.
             </EmptyState>
-          </div>
-        </section>
+          </InspectorBody>
+        </InspectorPane>
       </div>
     );
   }
@@ -128,28 +161,23 @@ export function PoliciesSection(props: SectionProps) {
     );
   }
 
-  const shared = policies.filter((p) => {
-    const n = clientsOf(p.id).length;
-    return n !== 1;
-  });
+  const shared = policies.filter((p) => clientsOf(p.id).length !== 1);
   const own = policies.filter((p) => clientsOf(p.id).length === 1);
 
   return (
-    <div className="placeholder-section">
-      <aside className="list-pane">
-        <div className="list-head">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="list-title">Политики</span>
+    <div className="flex w-full min-h-0">
+      <ListPane>
+        <ListPaneHeader
+          title="Политики"
+          action={
             <Button size="xs" onClick={() => setCreating(true)}>
               <Plus aria-hidden /> Новая
             </Button>
-          </div>
-          <div className="muted-text small">
-            Именованные списки доменов. Клиент ссылается на одну политику.
-          </div>
-        </div>
-        <div className="list-body">
-          <div className="list-group-label">Общие</div>
+          }
+          description="Именованные списки доменов. Клиент ссылается на одну политику."
+        />
+        <ListPaneBody>
+          {shared.length > 0 && <ListGroupLabel>Общие</ListGroupLabel>}
           {shared.map((p) => (
             <PolicyRow
               key={p.id}
@@ -161,7 +189,7 @@ export function PoliciesSection(props: SectionProps) {
               onClick={() => setSelected(p.id)}
             />
           ))}
-          {own.length > 0 && <div className="list-group-label">Свои у клиентов</div>}
+          {own.length > 0 && <ListGroupLabel>Свои у клиентов</ListGroupLabel>}
           {own.map((p) => (
             <PolicyRow
               key={p.id}
@@ -174,13 +202,13 @@ export function PoliciesSection(props: SectionProps) {
             />
           ))}
           {policies.length === 0 && (
-            <div className="muted-text small" style={{ padding: "12px 14px" }}>
+            <div className="px-3.5 py-3 text-sm text-muted-foreground">
               Политик нет
             </div>
           )}
-        </div>
-      </aside>
-      <section className="inspector-pane">
+        </ListPaneBody>
+      </ListPane>
+      <InspectorPane>
         {selectedPolicy ? (
           <PolicyDetail
             policy={selectedPolicy}
@@ -197,21 +225,43 @@ export function PoliciesSection(props: SectionProps) {
                 onToast("Сначала переназначьте клиентов");
                 return;
               }
-              const res = await onCommit(deletePolicy(snap!, selectedPolicy.id));
+              const res = await onCommit(
+                deletePolicy(snap!, selectedPolicy.id),
+              );
               if (res.ok) {
                 setSelected(null);
                 onToast("Политика удалена");
               }
             }}
+            onDuplicate={async () => {
+              const id = newEntityID(snap!, "p-");
+              const copy: Policy = {
+                id,
+                name: selectedPolicy.name + "-копия",
+                mode: selectedPolicy.mode,
+                destinations: selectedPolicy.destinations.map((d) => ({
+                  ...d,
+                })),
+                tls_profile_id: selectedPolicy.tls_profile_id,
+              };
+              const res = await onCommit({
+                ...snap!,
+                policies: [...snap!.policies, copy],
+              });
+              if (res.ok) {
+                setSelected(id);
+                onToast("Политика дублирована");
+              }
+            }}
           />
         ) : (
-          <div className="inspector-body">
+          <InspectorBody>
             <EmptyState icon={<ShieldCheck />} title="Выберите политику">
               Выберите политику слева или создайте новую.
             </EmptyState>
-          </div>
+          </InspectorBody>
         )}
-      </section>
+      </InspectorPane>
     </div>
   );
 }
@@ -232,22 +282,23 @@ function PolicyRow({
   onClick: () => void;
 }) {
   return (
-    <button
-      className={"list-row" + (active ? " selected" : "")}
+    <ListRow
+      selected={active}
       onClick={onClick}
-    >
-      <span className="ellipsis" style={{ fontWeight: 500 }}>
-        {policy.name}
-        {mark === "new" && <Badge>новая</Badge>}
-        {mark === "changed" && <Badge variant="secondary">изменена</Badge>}
-      </span>
-      <span className="muted-text small">
-        {clients} клиент{clients === 1 ? "" : "ов"}
-      </span>
-      <span className="muted-text small">
-        {policy.mode === "all_web" ? "весь веб" : `${domains} домен.`}
-      </span>
-    </button>
+      title={
+        <span className="font-medium">
+          {policy.name}
+          {mark === "new" && <Badge variant="add">новая</Badge>}
+          {mark === "changed" && <Badge variant="mod">изменена</Badge>}
+        </span>
+      }
+      meta={pluralRu(clients, "клиент", "клиента", "клиентов")}
+      subtitle={
+        policy.mode === "all_web"
+          ? "весь веб"
+          : pluralRu(domains, "домен", "домена", "доменов")
+      }
+    />
   );
 }
 
@@ -262,6 +313,7 @@ function PolicyDetail({
   onCommit,
   onToast,
   onDelete,
+  onDuplicate,
 }: {
   policy: Policy;
   snap: Snapshot;
@@ -273,6 +325,7 @@ function PolicyDetail({
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
   onDelete: () => Promise<void>;
+  onDuplicate: () => Promise<void>;
 }) {
   const [editingName, setEditingName] = useState(false);
   const [name, setName] = useState(policy.name);
@@ -281,116 +334,155 @@ function PolicyDetail({
   const editable =
     !scope || clients.every((c) => scope.clientIDs.includes(c.id));
   const hasClients = clients.length > 0;
+  const nameId = useId();
   return (
     <>
-      <header className="inspector-head">
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <h1 className="page-title" style={{ margin: 0 }}>
-            {policy.name}
-          </h1>
+      <InspectorHeader
+        title={policy.name}
+        status={
           <Badge variant="secondary">
-            {policy.mode === "all_web" ? "весь веб" : `${policy.destinations.length} доменов`}
+            {policy.mode === "all_web"
+              ? "весь веб"
+              : pluralRu(
+                  policy.destinations.length,
+                  "домен",
+                  "домена",
+                  "доменов",
+                )}
           </Badge>
-          {mark === "new" && <Badge>новая, в черновике</Badge>}
-          {mark === "changed" && <Badge variant="secondary">изменена</Badge>}
-          <span className="grow" />
-          <Button
-            size="xs"
-            variant="ghost"
-            onClick={onDelete}
-            disabled={hasClients || !editable}
-            title={
-              hasClients
-                ? "Сначала переназначьте клиентов"
-                : !editable
-                  ? "Политика используется чужими клиентами"
-                  : undefined
-            }
-          >
-            <Trash2 aria-hidden /> Удалить
-          </Button>
-        </div>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <span className="muted-text small">Используют:</span>
-          {hasClients ? (
-            clients.map((c) => (
-              <Badge key={c.id} variant="outline">
-                {c.name}
-              </Badge>
-            ))
-          ) : (
-            <span className="muted-text small">никто</span>
-          )}
-        </div>
-      </header>
-      <div className="inspector-body">
+        }
+        actions={
+          <>
+            {mark === "new" && <Badge variant="add">новая, в черновике</Badge>}
+            {mark === "changed" && <Badge variant="mod">изменена</Badge>}
+            <Button size="xs" variant="outline" onClick={onDuplicate}>
+              <Copy aria-hidden /> Дублировать
+            </Button>
+            <Button
+              size="xs"
+              variant="outline"
+              className="text-bad"
+              onClick={onDelete}
+              disabled={hasClients || !editable}
+              title={
+                hasClients
+                  ? "Сначала переназначьте клиентов"
+                  : !editable
+                    ? "Политика используется чужими клиентами"
+                    : undefined
+              }
+            >
+              <Trash2 aria-hidden /> Удалить
+            </Button>
+          </>
+        }
+        meta={
+          <>
+            <span>Используют:</span>
+            {hasClients ? (
+              clients.map((c) => (
+                <Badge key={c.id} variant="outline">
+                  {c.name}
+                </Badge>
+              ))
+            ) : (
+              <span>никто</span>
+            )}
+          </>
+        }
+      />
+      <InspectorBody>
         {clients.length > 1 && (
-          <div className="callout callout-warn">
-            <ShieldCheck aria-hidden />
-            <div className="small">
+          <Callout tone="warn" icon={<ShieldCheck aria-hidden />}>
+            <div className="text-sm">
               Изменения затронут {clients.length} клиентов:{" "}
               {clients.map((c) => c.name).join(", ")}.
             </div>
-          </div>
+          </Callout>
         )}
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Название</span>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex-1 min-w-0">Название</CardTitle>
             {editingName ? (
-              <div className="row">
-                <Input value={name} onChange={(e) => setName(e.target.value)} style={{ width: 240 }} />
+              <CardAction>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id={nameId}
+                    value={name}
+                    onChange={(e) => setName(e.target.value)}
+                    className="w-[240px]"
+                  />
+                  <Button
+                    size="xs"
+                    onClick={async () => {
+                      const res = await onCommit(
+                        renamePolicy(
+                          snap,
+                          policy.id,
+                          name.trim() || policy.name,
+                        ),
+                      );
+                      if (res.ok) setEditingName(false);
+                    }}
+                  >
+                    Сохранить
+                  </Button>
+                </div>
+              </CardAction>
+            ) : (
+              <CardAction>
                 <Button
                   size="xs"
-                  onClick={async () => {
-                    const res = await onCommit(renamePolicy(snap, policy.id, name.trim() || policy.name));
-                    if (res.ok) setEditingName(false);
-                  }}
+                  variant="ghost"
+                  onClick={() => setEditingName(true)}
+                  disabled={!editable}
                 >
-                  Сохранить
+                  Переименовать
                 </Button>
-              </div>
-            ) : (
-              <Button size="xs" variant="ghost" onClick={() => setEditingName(true)} disabled={!editable}>
-                Переименовать
-              </Button>
+              </CardAction>
             )}
-          </div>
-        </div>
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Режим</span>
-          </div>
-          <div className="card-body">
-            <div className="opts">
-              <ModeOption
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex-1 min-w-0">Режим</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RadioGroup
+              value={policy.mode}
+              onValueChange={async (v) => {
+                if (!editable || v === policy.mode) return;
+                const res = await onCommit(
+                  setPolicyMode(snap, policy.id, v as Policy["mode"]),
+                );
+                if (!res.ok && res.code !== "revision_conflict")
+                  onToast(res.message ?? "Ошибка");
+              }}
+              className="grid grid-cols-1 gap-2 min-[1180px]:grid-cols-2"
+            >
+              <ModeCard
+                value="allowlist"
                 active={policy.mode === "allowlist"}
                 title="Список доменов"
                 hint="Только перечисленные сайты"
                 disabled={!editable}
-                onClick={async () => {
-                  const res = await onCommit(setPolicyMode(snap, policy.id, "allowlist"));
-                  if (!res.ok && res.code !== "revision_conflict") onToast(res.message ?? "Ошибка");
-                }}
               />
-              <ModeOption
+              <ModeCard
+                value="all_web"
                 active={policy.mode === "all_web"}
                 title="Весь веб"
                 hint="Кроме запрещённого для всех"
                 disabled={!editable}
-                onClick={async () => {
-                  const res = await onCommit(setPolicyMode(snap, policy.id, "all_web"));
-                  if (!res.ok && res.code !== "revision_conflict") onToast(res.message ?? "Ошибка");
-                }}
               />
-            </div>
-          </div>
-        </div>
+            </RadioGroup>
+          </CardContent>
+        </Card>
         {policy.mode === "allowlist" && (
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title grow">Домены</span>
-            </div>
-            <div className="card-body">
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex-1 min-w-0">Домены</CardTitle>
+            </CardHeader>
+            <CardContent>
               <DomainEditor
                 destinations={policy.destinations}
                 hits={hits}
@@ -403,53 +495,66 @@ function PolicyDetail({
                       p.id === policy.id ? { ...p, destinations: next } : p,
                     ),
                   });
-                  if (!res.ok && res.code !== "revision_conflict") onToast(res.message ?? "Ошибка");
+                  if (!res.ok && res.code !== "revision_conflict")
+                    onToast(res.message ?? "Ошибка");
                 }}
               />
-              <div className="row" style={{ marginTop: 10, gap: 6 }}>
+              <div className="mt-2.5 flex items-center gap-1.5">
                 <TemplateButtons
                   request={request}
                   onAdd={async (doms) => {
-                    const res = await onCommit(addDomainsToPolicy(snap, policy.id, doms));
+                    const res = await onCommit(
+                      addDomainsToPolicy(snap, policy.id, doms),
+                    );
                     if (res.ok) onToast("Шаблон добавлен");
                   }}
                 />
               </div>
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
-      </div>
+      </InspectorBody>
     </>
   );
 }
 
-function ModeOption({
+// Mode option card: RadioGroupItem inside a label styled like .opt.
+function ModeCard({
+  value,
   active,
   title,
   hint,
   disabled,
-  onClick,
 }: {
+  value: string;
   active: boolean;
   title: string;
   hint: string;
   disabled?: boolean;
-  onClick: () => void;
 }) {
+  const id = useId();
   return (
-    <button
-      type="button"
-      className={"opt" + (active ? " selected" : "")}
-      onClick={onClick}
-      disabled={disabled}
-      aria-pressed={active}
+    <label
+      htmlFor={id}
+      className={cn(
+        "grid grid-cols-[18px_minmax(0,1fr)] gap-2.5 rounded-lg border px-3 py-2.5 items-start",
+        active
+          ? "border-foreground shadow-[0_0_0_1px_var(--foreground)]"
+          : "border-border",
+        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+      )}
     >
-      <span className="radio" aria-hidden />
-      <span>
-        <div style={{ fontWeight: 500 }}>{title}</div>
-        <div className="small muted-text">{hint}</div>
+      <RadioGroupItem
+        id={id}
+        value={value}
+        disabled={disabled}
+        className="mt-px"
+      />
+      <span className="min-w-0">
+        <div className="font-medium">{title}</div>
+        <div className="text-sm text-muted-foreground">{hint}</div>
       </span>
-    </button>
+    </label>
   );
 }
 
@@ -466,7 +571,11 @@ function TemplateButtons({
   useEffect(() => {
     let live = true;
     request<{
-      templates: { id: string; name: string; destinations: { domain: string }[] }[];
+      templates: {
+        id: string;
+        name: string;
+        destinations: { domain: string }[];
+      }[];
     }>("/inspector/domain-templates")
       .then((r) => {
         if (live) setTemplates(r.templates ?? []);
@@ -506,18 +615,20 @@ function NewPolicyForm({
   onSubmit: () => Promise<void>;
 }) {
   return (
-    <section className="inspector-pane">
-      <header className="inspector-head">
-        <h1 className="page-title" style={{ margin: 0 }}>Новая политика</h1>
-      </header>
-      <div className="inspector-body">
-        <div className="card">
-          <div className="card-body">
-            <Label>
-              Название
-              <Input value={newName} onChange={(e) => onName(e.target.value)} placeholder="например, build-runners" />
-            </Label>
-            <div className="row" style={{ justifyContent: "flex-end", marginTop: 12 }}>
+    <InspectorPane>
+      <InspectorHeader title="Новая политика" />
+      <InspectorBody>
+        <Card>
+          <CardContent>
+            <Field label="Название" htmlFor="f-np-name">
+              <Input
+                id="f-np-name"
+                value={newName}
+                onChange={(e) => onName(e.target.value)}
+                placeholder="например, build-runners"
+              />
+            </Field>
+            <div className="mt-3 flex justify-end gap-2">
               <Button variant="ghost" onClick={onCancel}>
                 Отмена
               </Button>
@@ -525,9 +636,9 @@ function NewPolicyForm({
                 <Plus aria-hidden /> Добавить в черновик
               </Button>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
+          </CardContent>
+        </Card>
+      </InspectorBody>
+    </InspectorPane>
   );
 }
