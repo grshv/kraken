@@ -319,6 +319,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/events/facets", s.authorized("read", s.eventFacets))
 	mux.HandleFunc("GET /api/v1/events/clients", s.authorized("read", s.eventClients))
 	mux.HandleFunc("GET /api/v1/inspector/clients/{id}/stats", s.authorized("read", s.inspectorClientStats))
+	mux.HandleFunc("GET /api/v1/inspector/clients/{id}/hits", s.authorized("read", s.inspectorClientHits))
 	mux.HandleFunc("GET /api/v1/inspector/policies/{id}/hits", s.authorized("read", s.inspectorPolicyHits))
 	mux.HandleFunc("GET /api/v1/inspector/unknown-sources", s.authorized("read", s.inspectorUnknownSources))
 	mux.HandleFunc("GET /api/v1/inspector/events/{event_id}/explain", s.authorized("read", s.inspectorEventExplain))

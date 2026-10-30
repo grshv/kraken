@@ -2858,6 +2858,69 @@
         }
       }
     },
+    "/inspector/clients/{id}/hits": {
+      "get": {
+        "operationId": "getInspectorClientHits",
+        "summary": "24h and 7d hit counts for the client's own domains (draft, else active); admin/manager read",
+        "description": "Available to admin and manager. Counts only this client's events; attached policies are counted by /inspector/policies/{id}/hits. A manager sees only his clients; otherwise 404.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InspectorPolicyHits"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Client not found, or outside the manager's scope"
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/inspector/policies/{id}/hits": {
       "get": {
         "operationId": "getInspectorPolicyHits",

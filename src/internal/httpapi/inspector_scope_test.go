@@ -445,3 +445,72 @@ func TestEmptyManagerSeesNoStatisticsOrEvents(t *testing.T) {
 		t.Fatalf("empty manager unknown-sources: %d %+v", code, uk)
 	}
 }
+
+// TestInspectorClientHits counts the client's own domains only for that
+// client's traffic, with subdomains and the 7 day window, and keeps manager
+// scope: a foreign client is 404 like /stats.
+func TestInspectorClientHits(t *testing.T) {
+	s, h, admin, csrf, mgr := inspectorScopeFixture(t)
+	snap := policy.Upgrade(inspectorScopeSnapshot())
+	for i := range snap.Clients {
+		if snap.Clients[i].ID == "c-a" {
+			snap.Clients[i].Destinations = []policy.Destination{
+				{Domain: "own.example"},
+				{Domain: "repo.example", IncludeSubdomains: true},
+				{Domain: "idle.example"},
+			}
+		}
+	}
+	applySnapshot(t, h, s, admin, csrf, "scope-own-domains", snap)
+	now := inspectorScopeClock
+	c, n := "c-a", "alpha"
+	b, bn := "c-b", "bravo"
+	ev := func(id string, client, name *string, dst string, ago time.Duration) events.Event {
+		return events.Event{ID: id, Timestamp: ts(now, ago), SourceIP: "10.1.0.5", Destination: dst, Method: "CONNECT", ProxyResult: "TCP_TUNNEL", ProxyHTTPStatus: ptrInt(200), TLSMode: "tunnel", ClientID: client, ClientName: name, ClientMatchBasis: "source_ip"}
+	}
+	rows := []events.Event{
+		ev("ev-a-repo", &c, &n, "deb.repo.example:443", time.Hour),
+		ev("ev-a-repo-old", &c, &n, "repo.example:443", 3*24*time.Hour),
+		// Another client's request to the same domain is not counted.
+		ev("ev-b-repo", &b, &bn, "deb.repo.example:443", time.Hour),
+	}
+	if e := s.Telemetry.Ingest(context.Background(), rows, events.Checkpoint{SourceAvailable: true}); e != nil {
+		t.Fatal(e)
+	}
+	var v struct {
+		Domains []struct {
+			Domain string `json:"domain"`
+			H24    int    `json:"hits_24h"`
+			H7     int    `json:"hits_7d"`
+		} `json:"domains"`
+	}
+	hits := func(domain string) (int, int) {
+		for _, d := range v.Domains {
+			if d.Domain == domain {
+				return d.H24, d.H7
+			}
+		}
+		return -1, -1
+	}
+	if code := getJSON(t, h, admin, "/inspector/clients/c-a/hits", &v); code != 200 || len(v.Domains) != 3 {
+		t.Fatalf("admin c-a: %d %+v", code, v.Domains)
+	}
+	if h24, h7 := hits("own.example"); h24 != 1 || h7 != 1 {
+		t.Fatalf("own.example: %d %d", h24, h7)
+	}
+	if h24, h7 := hits("repo.example"); h24 != 1 || h7 != 2 {
+		t.Fatalf("repo.example (subdomains, 7d): %d %d", h24, h7)
+	}
+	if h24, h7 := hits("idle.example"); h24 != 0 || h7 != 0 {
+		t.Fatalf("idle.example: %d %d", h24, h7)
+	}
+	if code := getJSON(t, h, mgr, "/inspector/clients/c-a/hits", &v); code != 200 {
+		t.Fatalf("manager own client: %d", code)
+	}
+	if code := getJSON(t, h, mgr, "/inspector/clients/c-b/hits", &v); code != 404 {
+		t.Fatalf("manager foreign client: %d", code)
+	}
+	if code := getJSON(t, h, admin, "/inspector/clients/missing/hits", &v); code != 404 {
+		t.Fatalf("missing client: %d", code)
+	}
+}

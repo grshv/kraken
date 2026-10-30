@@ -95,6 +95,7 @@ import { parseNetwork, networksOverlap, networkWithin } from "./networks";
 import { Sparkline, TrafficChart, type Bucket } from "./TrafficChart";
 import { clientChanges } from "./history";
 import { missingDomains } from "./missing";
+import { tlsUnavailable } from "./connection";
 import {
   countNotices,
   useClientNotices,
@@ -1353,6 +1354,27 @@ function AccessTab({
   onOpen?: SectionProps["onOpen"];
 }) {
   const [shareName, setShareName] = useState<string | null>(null);
+  const [ownHits, setOwnHits] = useState<DomainHits>({});
+  const ownKey = client.destinations.map((d) => d.domain).join(",");
+  useEffect(() => {
+    let live = true;
+    request<{
+      domains: { domain: string; hits_24h: number; hits_7d: number }[];
+    }>(`/inspector/clients/${encodeURIComponent(client.id)}/hits`)
+      .then((r) => {
+        if (!live) return;
+        const next: DomainHits = {};
+        for (const d of r.domains ?? [])
+          next[d.domain] = { hits_24h: d.hits_24h, hits_7d: d.hits_7d };
+        setOwnHits(next);
+      })
+      .catch(() => {
+        if (live) setOwnHits({});
+      });
+    return () => {
+      live = false;
+    };
+  }, [request, client.id, ownKey]);
   const attached = client.policy_ids
     .map((id) => snap.policies.find((p) => p.id === id))
     .filter((p): p is NonNullable<typeof p> => !!p);
@@ -1602,6 +1624,7 @@ function AccessTab({
             )}
             <DomainEditor
               destinations={client.destinations}
+              hits={ownHits}
               onChange={async (next) => {
                 await onCommit({
                   ...snap,
@@ -1724,6 +1747,7 @@ function SourceTab({
   const [rows, setRows] = useState<string[]>(client.source_networks);
   const [fieldError, setFieldError] = useState("");
   const [accounts, setAccounts] = useState<ProxyAccount[]>([]);
+  const cert = useProxyCertInstalled(request);
   useEffect(() => {
     setName(client.name);
     setDescription(client.description ?? "");
@@ -1958,11 +1982,12 @@ function SourceTab({
               active={transport === "tls"}
               title={`TLS, порт ${settings?.tls_port ?? 3129}`}
               hint={
-                accounts.length
-                  ? "Шифрование до прокси, вход по логину прокси"
-                  : "Сначала создайте логин прокси в разделе «Аккаунты»"
+                tlsUnavailable(cert, accounts.length) ||
+                "Шифрование до прокси, вход по логину прокси"
               }
-              disabled={!accounts.length && transport !== "tls"}
+              disabled={
+                !!tlsUnavailable(cert, accounts.length) && transport !== "tls"
+              }
             >
               {transport === "tls" && (
                 <Select
@@ -2312,6 +2337,7 @@ function NewClientForm({
   const [err, setErr] = useState("");
   const [login, setLogin] = useState(initialLogin ?? "");
   const [accounts, setAccounts] = useState<ProxyAccount[]>([]);
+  const cert = useProxyCertInstalled(request);
   useEffect(() => {
     let live = true;
     request<{ items: ProxyAccount[] }>("/proxy-accounts")
@@ -2584,11 +2610,10 @@ function NewClientForm({
                 active={!!login}
                 title="TLS с логином прокси"
                 hint={
-                  accounts.length
-                    ? "Можно требовать логин и пароль"
-                    : "Логины прокси создаются в разделе «Аккаунты»"
+                  tlsUnavailable(cert, accounts.length) ||
+                  "Можно требовать логин и пароль"
                 }
-                disabled={!accounts.length}
+                disabled={!!tlsUnavailable(cert, accounts.length)}
               />
             </RadioGroup>
             {login && (
@@ -2657,4 +2682,25 @@ function formatBytes(n: number): string {
     i++;
   }
   return `${v.toFixed(v < 10 ? 1 : 0)} ${units[i]}`;
+}
+
+// useProxyCertInstalled reports whether the TLS listener has its certificate
+// (GET /certificates lists proxy_server); null while loading or unknown.
+// Without it the server rejects a client on the TLS profile.
+function useProxyCertInstalled(
+  request: SectionProps["request"],
+): boolean | null {
+  const [installed, setInstalled] = useState<boolean | null>(null);
+  useEffect(() => {
+    let live = true;
+    request<{ purpose: string }[]>("/certificates")
+      .then((r) => {
+        if (live) setInstalled(r.some((c) => c.purpose === "proxy_server"));
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [request]);
+  return installed;
 }

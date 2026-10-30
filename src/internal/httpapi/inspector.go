@@ -167,22 +167,28 @@ func eventFailed(v events.Event) bool {
 // clientKnown reports whether a client ID exists in the draft or the active
 // revision; the inspector does not fabricate stats for unknown IDs.
 func (s *Server) clientKnown(ctx context.Context, id string) bool {
+	_, ok := s.findClient(ctx, id)
+	return ok
+}
+
+// findClient resolves a client from the draft first, then the active revision.
+func (s *Server) findClient(ctx context.Context, id string) (policy.Client, bool) {
 	var d Draft
 	if s.Store.Get(ctx, "draft", &d) == nil {
 		for _, c := range d.Snapshot.Clients {
 			if c.ID == id {
-				return true
+				return c, true
 			}
 		}
 	}
 	if m, e := s.Runtime.ReadManifest(); e == nil {
 		for _, c := range m.Snapshot.Clients {
 			if c.ID == id {
-				return true
+				return c, true
 			}
 		}
 	}
-	return false
+	return policy.Client{}, false
 }
 
 // policySnapshot resolves a policy from the draft first, then the active
@@ -322,18 +328,54 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 			break
 		}
 	}
+	domains, e := s.destinationHits(ctx, clientIDs, ts, destinations)
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Попадания по политике временно недоступны")
+		return
+	}
+	respond(w, 200, map[string]any{"domains": domains})
+}
+
+// inspectorClientHits counts 24 h / 7 d requests of the client to each of its
+// own domains (attached policies have /inspector/policies/{id}/hits).
+func (s *Server) inspectorClientHits(w http.ResponseWriter, r *http.Request, v session) {
+	id := r.PathValue("id")
+	ts, scope, e := s.inspectorTelemetryScope(r.Context(), v)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	client, ok := s.findClient(ctx, id)
+	if !ok || (ts != nil && !inScope(scope, id)) {
+		fail(w, 404, "not_found", "Клиент не найден")
+		return
+	}
+	domains, e := s.destinationHits(ctx, []string{id}, ts, client.Destinations)
+	if e != nil {
+		fail(w, 503, "storage_unavailable", "Попадания по доменам клиента временно недоступны")
+		return
+	}
+	respond(w, 200, map[string]any{"domains": domains})
+}
+
+// destinationHits sums the requests of clientIDs to hosts matching each
+// destination over the last 24 hours and 7 days (top 500 hosts per window).
+func (s *Server) destinationHits(ctx context.Context, clientIDs []string, ts *telemetry.Scope, destinations []policy.Destination) ([]map[string]any, error) {
 	now := s.now().UTC()
 	from24 := now.Add(-24 * time.Hour)
 	from7 := now.Add(-7 * 24 * time.Hour)
 	h24, e := s.Telemetry.TopHosts(ctx, from24, now, clientIDs, ts, 500)
 	if e != nil {
-		fail(w, 503, "storage_unavailable", "Попадания по политике временно недоступны")
-		return
+		return nil, e
 	}
 	h7, e := s.Telemetry.TopHosts(ctx, from7, now, clientIDs, ts, 500)
 	if e != nil {
-		fail(w, 503, "storage_unavailable", "Попадания по политике временно недоступны")
-		return
+		return nil, e
 	}
 	m24 := map[string]int64{}
 	for _, h := range h24 {
@@ -358,7 +400,7 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 		}
 		domains[i] = map[string]any{"domain": d.Domain, "include_subdomains": d.IncludeSubdomains, "hits_24h": h24hits, "hits_7d": h7hits}
 	}
-	respond(w, 200, map[string]any{"domains": domains})
+	return domains, nil
 }
 
 func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request, v session) {
