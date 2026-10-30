@@ -13,16 +13,34 @@ import {
   Code,
   FileText,
   List,
-  X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Switch } from "@/components/ui/switch";
+import {
+  InspectorBody,
+  InspectorHeader,
+  InspectorPane,
+  ListPane,
+  ListPaneBody,
+  ListPaneHeader,
+  ListRow,
+} from "@/components/kraken/layout";
+import { Callout, KeyValue, SettingRow } from "@/components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
-import { DomainEditor } from "../policies/DomainEditor";
+import { BlockedDomainEditor } from "./BlockedDomainEditor";
 import {
   effectiveSettings,
   patchSettings,
@@ -134,15 +152,15 @@ export function SettingsSection(props: SectionProps) {
 
   if (!snap || !s) {
     return (
-      <section className="inspector-pane">
-        <div className="inspector-body">
+      <InspectorPane>
+        <InspectorBody>
           <ErrorState
             title="Настройки недоступны"
             detail="Черновик не загружен. Вернитесь позже."
             onRetry={() => location.reload()}
           />
-        </div>
-      </section>
+        </InspectorBody>
+      </InspectorPane>
     );
   }
 
@@ -176,44 +194,34 @@ export function SettingsSection(props: SectionProps) {
   const blockedCount = s.blocked_domains?.length ?? 0;
 
   return (
-    <div className="placeholder-section">
-      <aside className="list-pane">
-        <div className="list-head">
-          <span className="list-title">Настройки</span>
-          <div className="muted-text small">
-            Общие для всех клиентов. Изменения тоже идут через черновик.
-          </div>
-        </div>
-        <div className="list-body">
+    <>
+      <ListPane>
+        <ListPaneHeader
+          title="Настройки"
+          description="Общие для всех клиентов. Изменения тоже идут через черновик."
+        />
+        <ListPaneBody>
           {SECTIONS.map((sec) => (
-            <button
+            <ListRow
               key={sec.id}
-              className={
-                "list-row nav-row" + (active_id === sec.id ? " selected" : "")
-              }
+              selected={active_id === sec.id}
               onClick={() => setActiveId(sec.id)}
-            >
-              <sec.icon aria-hidden />
-              <span className="ellipsis">{sec.label}</span>
-              <span className="muted-text small">
-                {sec.id === "blocked" ? blockedCount || "" : ""}
-              </span>
-            </button>
+              leading={<sec.icon aria-hidden />}
+              title={sec.label}
+              meta={
+                sec.id === "blocked" && blockedCount ? blockedCount : undefined
+              }
+            />
           ))}
-        </div>
-      </aside>
-      <section className="inspector-pane">
-        <header className="inspector-head">
-          <h1 className="page-title" style={{ margin: 0 }}>
-            {sectionMeta.label}
-          </h1>
-        </header>
-        <div className="inspector-body">
+        </ListPaneBody>
+      </ListPane>
+      <InspectorPane>
+        <InspectorHeader title={sectionMeta.label} />
+        <InspectorBody>
           {error && (
-            <div className="callout callout-bad">
-              <Ban aria-hidden />
-              <div className="small">{error}</div>
-            </div>
+            <Callout tone="bad" icon={<Ban aria-hidden />}>
+              <span className="text-sm">{error}</span>
+            </Callout>
           )}
           {active_id === "blocked" && (
             <BlockedSection
@@ -306,66 +314,15 @@ export function SettingsSection(props: SectionProps) {
               onCommit={commit}
             />
           )}
-        </div>
-      </section>
-    </div>
-  );
-}
-
-// SetRow pairs a label/help text with a control and an optional "в черновике"
-// marker, matching the prototype's setRow layout.
-function SetRow({
-  label,
-  help,
-  children,
-  dirty,
-}: {
-  label: string;
-  help?: string;
-  children: React.ReactNode;
-  dirty?: boolean;
-}) {
-  return (
-    <div className="setting-row">
-      <div className="grow">
-        <div style={{ fontWeight: 500 }}>{label}</div>
-        {help && <div className="help">{help}</div>}
-        {dirty && <div className="small setting-dirty">в черновике</div>}
-      </div>
-      <div style={{ flex: "none" }}>{children}</div>
-    </div>
-  );
-}
-
-// Toggle switch styled like the prototype's .sw element.
-function Toggle({
-  checked,
-  onChange,
-  ariaLabel,
-}: {
-  checked: boolean;
-  onChange: (v: boolean) => void;
-  ariaLabel: string;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={ariaLabel}
-      className={"sw" + (checked ? " on" : "")}
-      onClick={() => onChange(!checked)}
-    />
+        </InspectorBody>
+      </InspectorPane>
+    </>
   );
 }
 
 // FieldDiffBadge (kept inline) — used to mark a field changed in the draft.
 function DiffBadge({ show }: { show: boolean }) {
-  return show ? (
-    <Badge variant="secondary" className="setting-dirty">
-      в черновике
-    </Badge>
-  ) : null;
+  return show ? <Badge variant="mod">в черновике</Badge> : null;
 }
 
 function BlockedSection({
@@ -385,20 +342,22 @@ function BlockedSection({
   const blocked = s.blocked_domains ?? [];
   return (
     <>
-      <div className="callout callout-info">
-        <Info aria-hidden />
-        <div className="small">
+      <Callout tone="info" icon={<Info aria-hidden />}>
+        <span className="text-sm">
           Эти домены закрыты для всех клиентов, включая «весь веб» и squid.conf
           вручную. Проверяются сразу после встроенной защиты.
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title grow">Запрещено для всех</span>
-          <DiffBadge show={dirty} />
-        </div>
-        <div className="card-body">
-          <DomainEditor
+        </span>
+      </Callout>
+      <Card>
+        {dirty && (
+          <CardHeader>
+            <CardAction>
+              <DiffBadge show />
+            </CardAction>
+          </CardHeader>
+        )}
+        <CardContent>
+          <BlockedDomainEditor
             destinations={blocked}
             onChange={async (next) => {
               await onCommit(
@@ -407,8 +366,8 @@ function BlockedSection({
               );
             }}
           />
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </>
   );
 }
@@ -428,53 +387,54 @@ function ProtectSection({
   ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Встроенная защита</span>
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="Loopback, link-local, metadata 169.254.169.254"
+    <Card>
+      <CardContent>
+        <SettingRow
+          title="Loopback, link-local, metadata 169.254.169.254"
           help="Всегда закрыто. Отключить нельзя"
-        >
-          <Badge variant="secondary">
-            <Lock aria-hidden /> всегда
-          </Badge>
-        </SetRow>
-        <SetRow
-          label="IPv6-туннели к внутренним адресам"
+          control={
+            <Badge variant="secondary">
+              <Lock aria-hidden /> всегда
+            </Badge>
+          }
+        />
+        <SettingRow
+          title="IPv6-туннели к внутренним адресам"
           help="6to4, Teredo, NAT64 local-use"
-        >
-          <Badge variant="secondary">
-            <Lock aria-hidden /> всегда
-          </Badge>
-        </SetRow>
-        <SetRow
-          label="Опасные порты"
+          control={
+            <Badge variant="secondary">
+              <Lock aria-hidden /> всегда
+            </Badge>
+          }
+        />
+        <SettingRow
+          title="Опасные порты"
           help="SSH, Telnet, SMTP/Submission, POP3, IMAP, Tor"
-        >
-          <Badge variant="secondary">
-            <Lock aria-hidden /> всегда
-          </Badge>
-        </SetRow>
-        <SetRow
-          label="Частные сети"
+          control={
+            <Badge variant="secondary">
+              <Lock aria-hidden /> всегда
+            </Badge>
+          }
+        />
+        <SettingRow
+          title="Частные сети"
           help="10/8, 172.16/12, 192.168/16, fc00::/7. Включите, если клиентам нужны внутренние репозитории"
-          dirty={dirty}
-        >
-          <Toggle
-            checked={s.allow_private_destinations}
-            ariaLabel="Частные сети"
-            onChange={(v) =>
-              onCommit(
-                patchSettings(snap, { allow_private_destinations: v }),
-                v ? "Частные сети разрешены" : "Частные сети закрыты",
-              )
-            }
-          />
-        </SetRow>
-      </div>
-    </div>
+          badge={<DiffBadge show={dirty} />}
+          control={
+            <Switch
+              checked={s.allow_private_destinations}
+              aria-label="Частные сети"
+              onCheckedChange={(v) =>
+                onCommit(
+                  patchSettings(snap, { allow_private_destinations: v }),
+                  v ? "Частные сети разрешены" : "Частные сети закрыты",
+                )
+              }
+            />
+          }
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -532,71 +492,76 @@ function UpstreamSection({
   }
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Вышестоящий прокси</span>
-        <DiffBadge show={dirty} />
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="Отправлять трафик через другой прокси"
+    <Card>
+      {dirty && (
+        <CardHeader>
+          <CardAction>
+            <DiffBadge show />
+          </CardAction>
+        </CardHeader>
+      )}
+      <CardContent>
+        <SettingRow
+          title="Отправлять трафик через другой прокси"
           help="Например, корпоративный шлюз"
-        >
-          <Toggle
-            checked={enabled}
-            ariaLabel="Вышестоящий прокси"
-            onChange={(v) => {
-              if (!v)
-                onCommit(
-                  setUpstream(snap, null),
-                  "Вышестоящий прокси выключен",
-                );
-            }}
-          />
-        </SetRow>
+          control={
+            <Switch
+              checked={enabled}
+              aria-label="Вышестоящий прокси"
+              onCheckedChange={(v) => {
+                if (!v)
+                  onCommit(
+                    setUpstream(snap, null),
+                    "Вышестоящий прокси выключен",
+                  );
+              }}
+            />
+          }
+        />
         {enabled && (
           <>
-            <div className="fgrid" style={{ padding: "12px 0" }}>
+            <div className="grid grid-cols-2 gap-3.5 py-3 max-[1180px]:grid-cols-1">
               <Label>
                 Адрес
                 <Input
-                  className="mono"
+                  className="font-mono"
                   value={addr}
                   onChange={(e) => setAddr(e.target.value)}
                   placeholder="10.0.0.10"
                 />
-                <span className="help">Только IP</span>
+                <span className="text-sm text-muted-foreground">Только IP</span>
               </Label>
               <Label>
                 Порт
                 <Input
-                  className="mono"
+                  className="font-mono"
                   value={port}
                   onChange={(e) => setPort(e.target.value)}
                   placeholder="3128"
                 />
               </Label>
             </div>
-            {addrErr && <div className="err">{addrErr}</div>}
-            <SetRow
-              label="Только через вышестоящий"
+            {addrErr && <div className="text-sm text-bad">{addrErr}</div>}
+            <SettingRow
+              title="Только через вышестоящий"
               help="Если он недоступен, клиенты получат отказ, а не выйдут напрямую"
-            >
-              <Toggle
-                checked={exclusive}
-                ariaLabel="Только через вышестоящий"
-                onChange={setExclusive}
-              />
-            </SetRow>
-            <div className="row" style={{ marginTop: 10 }}>
+              control={
+                <Switch
+                  checked={exclusive}
+                  aria-label="Только через вышестоящий"
+                  onCheckedChange={setExclusive}
+                />
+              }
+            />
+            <div className="mt-2.5 flex items-center gap-2">
               <Button size="sm" onClick={save}>
                 Сохранить
               </Button>
             </div>
           </>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -615,30 +580,27 @@ function PrivacySection({
   ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Приватность</span>
-        <DiffBadge show={dirty} />
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="Скрывать адрес клиента"
+    <Card>
+      <CardContent>
+        <SettingRow
+          title="Скрывать адрес клиента"
           help="Сайты и вышестоящий прокси не увидят X-Forwarded-For и Via"
-          dirty={dirty}
-        >
-          <Toggle
-            checked={!!s.hide_client_address}
-            ariaLabel="Скрывать адрес клиента"
-            onChange={(v) =>
-              onCommit(
-                patchSettings(snap, { hide_client_address: v }),
-                v ? "Адрес клиента скрыт" : "Адрес клиента передаётся",
-              )
-            }
-          />
-        </SetRow>
-      </div>
-    </div>
+          badge={<DiffBadge show={dirty} />}
+          control={
+            <Switch
+              checked={!!s.hide_client_address}
+              aria-label="Скрывать адрес клиента"
+              onCheckedChange={(v) =>
+                onCommit(
+                  patchSettings(snap, { hide_client_address: v }),
+                  v ? "Адрес клиента скрыт" : "Адрес клиента передаётся",
+                )
+              }
+            />
+          }
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -697,64 +659,64 @@ function PortsSection({
   }
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Экземпляр и порты</span>
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="Имя экземпляра"
+    <Card>
+      <CardContent>
+        <SettingRow
+          title="Имя экземпляра"
           help="Показывается в панели состояния сервера; помогает различать прокси. Задаётся переменной окружения KRAKEN_INSTANCE_NAME"
-        >
-          <Input value={instanceName} readOnly style={{ width: 200 }} />
-        </SetRow>
-        <SetRow
-          label="Порты сайтов для HTTP"
+          control={<Input value={instanceName} readOnly className="w-[200px]" />}
+        />
+        <SettingRow
+          title="Порты сайтов для HTTP"
           help="Через прокси можно открыть только эти порты"
-          dirty={dirtySafe}
-        >
-          <Input
-            className="mono"
-            value={safePorts}
-            onChange={(e) => setSafePorts(e.target.value)}
-            style={{ width: 200 }}
-          />
-        </SetRow>
-        {safeErr && <div className="err">{safeErr}</div>}
+          badge={<DiffBadge show={dirtySafe} />}
+          control={
+            <Input
+              className="font-mono w-[200px]"
+              value={safePorts}
+              onChange={(e) => setSafePorts(e.target.value)}
+            />
+          }
+        />
+        {safeErr && <div className="text-sm text-bad">{safeErr}</div>}
         {dirtySafe && (
-          <div className="row" style={{ marginTop: 6 }}>
+          <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={saveSafe}>
               Сохранить порты
             </Button>
           </div>
         )}
-        <SetRow
-          label="Порты для HTTPS (CONNECT)"
+        <SettingRow
+          title="Порты для HTTPS (CONNECT)"
           help="Обычно только 443"
-          dirty={dirtyConnect}
-        >
-          <Input
-            className="mono"
-            value={connectPorts}
-            onChange={(e) => setConnectPorts(e.target.value)}
-            style={{ width: 200 }}
-          />
-        </SetRow>
-        {connectErr && <div className="err">{connectErr}</div>}
+          badge={<DiffBadge show={dirtyConnect} />}
+          control={
+            <Input
+              className="font-mono w-[200px]"
+              value={connectPorts}
+              onChange={(e) => setConnectPorts(e.target.value)}
+            />
+          }
+        />
+        {connectErr && <div className="text-sm text-bad">{connectErr}</div>}
         {dirtyConnect && (
-          <div className="row" style={{ marginTop: 6 }}>
+          <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={saveConnect}>
               Сохранить порты
             </Button>
           </div>
         )}
-        <SetRow label="Порты прокси" help="Задаются при установке контейнера">
-          <span className="mono muted-text">
-            {s.http_port} · {s.tls_port} TLS
-          </span>
-        </SetRow>
-      </div>
-    </div>
+        <SettingRow
+          title="Порты прокси"
+          help="Задаются при установке контейнера"
+          control={
+            <span className="font-mono text-sm text-muted-foreground">
+              {s.http_port} · {s.tls_port} TLS
+            </span>
+          }
+        />
+      </CardContent>
+    </Card>
   );
 }
 
@@ -767,9 +729,11 @@ function CertsSection({
 }) {
   if (certs === null) {
     return (
-      <div className="card">
-        <div className="card-body muted-text small">Загрузка сертификатов…</div>
-      </div>
+      <Card>
+        <CardContent className="text-sm text-muted-foreground">
+          Загрузка сертификатов…
+        </CardContent>
+      </Card>
     );
   }
   if (certs.length === 0) {
@@ -787,67 +751,69 @@ function CertsSection({
         const purpose =
           c.purpose === "panel" ? "Панель управления (HTTPS)" : "Прокси по TLS";
         return (
-          <div className="card" key={c.ref}>
-            <div className="card-head">
-              <div className="grow">
-                <div className="card-title">{purpose}</div>
-                <div className="card-desc">
-                  {warn ? (
-                    left !== null && left >= 0 ? (
-                      <span style={{ color: "var(--warn)" }}>
-                        Истекает через {pluralDays(left)}
-                      </span>
-                    ) : (
-                      <span style={{ color: "var(--bad)" }}>
-                        Истёк {pluralDays(-left)} назад
-                      </span>
-                    )
-                  ) : left !== null ? (
-                    `Действует ещё ${pluralDays(left)}`
+          <Card key={c.ref}>
+            <CardHeader>
+              <CardTitle>{purpose}</CardTitle>
+              <CardDescription>
+                {warn ? (
+                  left !== null && left >= 0 ? (
+                    <span className="text-warn">
+                      Истекает через {pluralDays(left)}
+                    </span>
                   ) : (
-                    "Срок действия неизвестен"
-                  )}
-                </div>
-              </div>
-              <Badge className={warn ? "badge-bad" : "badge-ok"}>
-                {warn ? "скоро истечёт" : "в порядке"}
-              </Badge>
-            </div>
-            <div className="card-body">
-              <dl className="kv-row">
-                <div className="kv-row">
-                  <dt>Кому выдан</dt>
-                  <dd className="mono">{c.subject}</dd>
-                </div>
-                <div className="kv-row">
-                  <dt>Имена</dt>
-                  <dd className="mono">
-                    {(c.sans ?? []).join(", ") || c.subject}
-                  </dd>
-                </div>
-                <div className="kv-row">
-                  <dt>Кем выдан</dt>
-                  <dd>{c.issuer}</dd>
-                </div>
-                <div className="kv-row">
-                  <dt>Действует до</dt>
-                  <dd>{formatDate(c.not_after)}</dd>
-                </div>
-              </dl>
-            </div>
-          </div>
+                    <span className="text-bad">
+                      Истёк {pluralDays(-left)} назад
+                    </span>
+                  )
+                ) : left !== null ? (
+                  `Действует ещё ${pluralDays(left)}`
+                ) : (
+                  "Срок действия неизвестен"
+                )}
+              </CardDescription>
+              <CardAction>
+                <Badge variant={warn ? "bad" : "ok"}>
+                  {warn ? "скоро истечёт" : "в порядке"}
+                </Badge>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
+              <KeyValue
+                items={[
+                  [
+                    "Кому выдан",
+                    <span key="s" className="font-mono text-sm">
+                      {c.subject}
+                    </span>,
+                  ],
+                  [
+                    "Имена",
+                    <span key="n" className="font-mono text-sm">
+                      {(c.sans ?? []).join(", ") || c.subject}
+                    </span>,
+                  ],
+                  ["Кем выдан", c.issuer],
+                  ["Действует до", formatDate(c.not_after)],
+                ]}
+              />
+            </CardContent>
+          </Card>
         );
       })}
-      <div className="callout callout-info">
-        <Info aria-hidden />
-        <div className="grow small">
+      <Callout
+        tone="info"
+        icon={<Info aria-hidden />}
+        actions={
+          <Button size="xs" variant="outline" onClick={() => onNavigate("help")}>
+            Как заменить
+          </Button>
+        }
+      >
+        <span className="text-sm">
           Сертификаты заменяются файлами на сервере и перезапуском контейнера.
           Kraken не выпускает сертификаты сам.
-        </div>
-        <Button size="xs" variant="outline" onClick={() => onNavigate("help")}>
-          Как заменить
-        </Button>
-      </div>
+        </span>
+      </Callout>
     </>
   );
 }
@@ -927,60 +893,60 @@ function DnsSection({
   }
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">DNS</span>
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="DNS-серверы"
+    <Card>
+      <CardContent>
+        <SettingRow
+          title="DNS-серверы"
           help="Если пусто, используются DNS контейнера. IPv4 или IPv6 через запятую или пробел"
-          dirty={dirtyDns}
-        >
-          <Input
-            className="mono"
-            placeholder="10.0.0.53, 2001:db8::53"
-            style={{ width: 260 }}
-            value={dns}
-            onChange={(e) => setDns(e.target.value)}
-          />
-        </SetRow>
-        {dnsErr && <div className="err">{dnsErr}</div>}
+          badge={<DiffBadge show={dirtyDns} />}
+          control={
+            <Input
+              className="font-mono w-[260px]"
+              placeholder="10.0.0.53, 2001:db8::53"
+              value={dns}
+              onChange={(e) => setDns(e.target.value)}
+            />
+          }
+        />
+        {dnsErr && <div className="text-sm text-bad">{dnsErr}</div>}
         {dirtyDns && (
-          <div className="row" style={{ marginTop: 6 }}>
+          <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={saveDns}>
               Сохранить
             </Button>
           </div>
         )}
-        <SetRow
-          label="Кеш успешных ответов"
+        <SettingRow
+          title="Кеш успешных ответов"
           help="Чем меньше, тем быстрее видна смена адреса"
-          dirty={dirtyPositive}
-        >
-          <Input
-            className="mono"
-            value={positive}
-            onChange={(e) => setPositive(e.target.value)}
-            style={{ width: 140 }}
-          />
-        </SetRow>
-        <SetRow label="Кеш ошибок" help="" dirty={dirtyNegative}>
-          <Input
-            className="mono"
-            value={negative}
-            onChange={(e) => setNegative(e.target.value)}
-            style={{ width: 140 }}
-          />
-        </SetRow>
-        {err && <div className="err">{err}</div>}
-        <div className="row" style={{ marginTop: 8 }}>
+          badge={<DiffBadge show={dirtyPositive} />}
+          control={
+            <Input
+              className="font-mono w-[140px]"
+              value={positive}
+              onChange={(e) => setPositive(e.target.value)}
+            />
+          }
+        />
+        <SettingRow
+          title="Кеш ошибок"
+          badge={<DiffBadge show={dirtyNegative} />}
+          control={
+            <Input
+              className="font-mono w-[140px]"
+              value={negative}
+              onChange={(e) => setNegative(e.target.value)}
+            />
+          }
+        />
+        {err && <div className="text-sm text-bad">{err}</div>}
+        <div className="mt-2 flex items-center gap-2">
           <Button size="sm" onClick={save}>
             Сохранить
           </Button>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1046,67 +1012,62 @@ function TimeoutsSection({
   }
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Таймауты и лимиты</span>
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="Подключение к сайту"
-          help=""
-          dirty={dirty("connect_timeout_seconds")}
-        >
-          <Input
-            className="mono"
-            value={connect}
-            onChange={(e) => setConnect(e.target.value)}
-            style={{ width: 140 }}
-          />
-        </SetRow>
-        <SetRow
-          label="Чтение ответа"
+    <Card>
+      <CardContent>
+        <SettingRow
+          title="Подключение к сайту"
+          badge={<DiffBadge show={dirty("connect_timeout_seconds")} />}
+          control={
+            <Input
+              className="font-mono w-[140px]"
+              value={connect}
+              onChange={(e) => setConnect(e.target.value)}
+            />
+          }
+        />
+        <SettingRow
+          title="Чтение ответа"
           help="Увеличьте для долгих загрузок образов"
-          dirty={dirty("read_timeout_seconds")}
-        >
-          <Input
-            className="mono"
-            value={read}
-            onChange={(e) => setRead(e.target.value)}
-            style={{ width: 140 }}
-          />
-        </SetRow>
-        <SetRow
-          label="Ожидание запроса"
-          help=""
-          dirty={dirty("request_timeout_seconds")}
-        >
-          <Input
-            className="mono"
-            value={request}
-            onChange={(e) => setRequest(e.target.value)}
-            style={{ width: 140 }}
-          />
-        </SetRow>
-        <SetRow
-          label="Размер тела запроса"
+          badge={<DiffBadge show={dirty("read_timeout_seconds")} />}
+          control={
+            <Input
+              className="font-mono w-[140px]"
+              value={read}
+              onChange={(e) => setRead(e.target.value)}
+            />
+          }
+        />
+        <SettingRow
+          title="Ожидание запроса"
+          badge={<DiffBadge show={dirty("request_timeout_seconds")} />}
+          control={
+            <Input
+              className="font-mono w-[140px]"
+              value={request}
+              onChange={(e) => setRequest(e.target.value)}
+            />
+          }
+        />
+        <SettingRow
+          title="Размер тела запроса"
           help="0 означает без ограничения; МБ"
-          dirty={dirty("max_request_body_mb")}
-        >
-          <Input
-            className="mono"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            style={{ width: 140 }}
-          />
-        </SetRow>
-        {err && <div className="err">{err}</div>}
-        <div className="row" style={{ marginTop: 8 }}>
+          badge={<DiffBadge show={dirty("max_request_body_mb")} />}
+          control={
+            <Input
+              className="font-mono w-[140px]"
+              value={body}
+              onChange={(e) => setBody(e.target.value)}
+            />
+          }
+        />
+        {err && <div className="text-sm text-bad">{err}</div>}
+        <div className="mt-2 flex items-center gap-2">
           <Button size="sm" onClick={save}>
             Сохранить
           </Button>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1144,45 +1105,48 @@ function CacheSection({
   }
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Кеш в памяти</span>
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="Кеш в памяти"
+    <Card>
+      <CardContent>
+        <SettingRow
+          title="Кеш в памяти"
           help="HTTPS не кешируется: туннели проходят насквозь"
-          dirty={dirtyEnabled}
-        >
-          <Toggle
-            checked={s.cache_enabled}
-            ariaLabel="Кеш в памяти"
-            onChange={(v) =>
-              onCommit(
-                patchSettings(snap, { cache_enabled: v }),
-                v ? "Кеш включён" : "Кеш выключен",
-              )
-            }
-          />
-        </SetRow>
-        <SetRow label="Объём" help="" dirty={dirtyMem}>
-          <Input
-            className="mono"
-            value={mem}
-            onChange={(e) => setMem(e.target.value)}
-            style={{ width: 140 }}
-          />
-          <span className="muted-text small">МБ</span>
-        </SetRow>
+          badge={<DiffBadge show={dirtyEnabled} />}
+          control={
+            <Switch
+              checked={s.cache_enabled}
+              aria-label="Кеш в памяти"
+              onCheckedChange={(v) =>
+                onCommit(
+                  patchSettings(snap, { cache_enabled: v }),
+                  v ? "Кеш включён" : "Кеш выключен",
+                )
+              }
+            />
+          }
+        />
+        <SettingRow
+          title="Объём"
+          badge={<DiffBadge show={dirtyMem} />}
+          control={
+            <>
+              <Input
+                className="font-mono w-[140px]"
+                value={mem}
+                onChange={(e) => setMem(e.target.value)}
+              />
+              <span className="text-sm text-muted-foreground">МБ</span>
+            </>
+          }
+        />
         {dirtyMem && (
-          <div className="row" style={{ marginTop: 6 }}>
+          <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={saveMem}>
               Сохранить
             </Button>
           </div>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1214,32 +1178,29 @@ function LogsSection({
     );
   }
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Журналы</span>
-      </div>
-      <div className="card-body">
-        <SetRow
-          label="Хранить ротаций access.log"
+    <Card>
+      <CardContent>
+        <SettingRow
+          title="Хранить ротаций access.log"
           help="История запросов в панели хранится отдельно: 30 дней"
-          dirty={dirty}
-        >
-          <Input
-            className="mono"
-            value={v}
-            onChange={(e) => setV(e.target.value)}
-            style={{ width: 140 }}
-          />
-        </SetRow>
+          badge={<DiffBadge show={dirty} />}
+          control={
+            <Input
+              className="font-mono w-[140px]"
+              value={v}
+              onChange={(e) => setV(e.target.value)}
+            />
+          }
+        />
         {dirty && (
-          <div className="row" style={{ marginTop: 6 }}>
+          <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={save}>
               Сохранить
             </Button>
           </div>
         )}
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -1267,44 +1228,46 @@ function ExpertSection({
 
   return (
     <>
-      <div className="callout callout-warn">
-        <Ban aria-hidden />
-        <div className="small">
+      <Callout tone="warn" icon={<Ban aria-hidden />}>
+        <span className="text-sm">
           <strong>Аварийный режим.</strong> Заменяет клиентов и политики текстом
           squid.conf. Встроенная защита и «запрещено для всех» остаются.
           Разрешены только директивы из списка, без файлов, helpers и портов.
-        </div>
-      </div>
-      <div className="card">
-        <div className="card-head">
-          <span className="card-title grow">squid.conf вручную</span>
-          <DiffBadge show={dirty} />
-        </div>
-        <div className="card-body">
-          <SetRow
-            label="Использовать squid.conf вместо клиентов"
+        </span>
+      </Callout>
+      <Card>
+        {dirty && (
+          <CardHeader>
+            <CardAction>
+              <DiffBadge show />
+            </CardAction>
+          </CardHeader>
+        )}
+        <CardContent>
+          <SettingRow
+            title="Использовать squid.conf вместо клиентов"
             help={`Сейчас: ${enabled ? "включено" : "выключено"}`}
-          >
-            <Toggle
-              checked={enabled}
-              ariaLabel="Использовать squid.conf"
-              onChange={(v) =>
-                onCommit(
-                  setExpertConfig(snap, text, v ? "expert" : "structured"),
-                  v ? "Аварийный режим включён" : "Возврат к клиентам",
-                )
-              }
-            />
-          </SetRow>
+            control={
+              <Switch
+                checked={enabled}
+                aria-label="Использовать squid.conf"
+                onCheckedChange={(v) =>
+                  onCommit(
+                    setExpertConfig(snap, text, v ? "expert" : "structured"),
+                    v ? "Аварийный режим включён" : "Возврат к клиентам",
+                  )
+                }
+              />
+            }
+          />
           <Textarea
-            className="mono"
+            className="mt-3 font-mono"
             rows={8}
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="acl office src 10.8.0.0/16&#10;http_access allow office"
-            style={{ marginTop: 12 }}
           />
-          <div className="row" style={{ marginTop: 8 }}>
+          <div className="mt-2 flex items-center gap-2">
             <Button
               size="sm"
               onClick={() =>
@@ -1337,13 +1300,13 @@ function ExpertSection({
               <Plus aria-hidden /> Вставить шаблон
             </Button>
             <span className="grow" />
-            <span className="help">
+            <span className="text-sm text-muted-foreground">
               Директивы проверяются при вводе, вся конфигурация проверяется
               Squid при применении
             </span>
           </div>
-        </div>
-      </div>
+        </CardContent>
+      </Card>
     </>
   );
 }

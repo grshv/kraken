@@ -1,9 +1,36 @@
-import { useEffect, useState } from "react";
-import { Ban, KeyRound, Plus, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Ban, Check, KeyRound, Plus, X } from "lucide-react";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import {
+  InspectorBody,
+  InspectorHeader,
+  InspectorPane,
+  ListPane,
+  ListPaneBody,
+  ListPaneHeader,
+  ListGroupLabel,
+  ListRow,
+} from "@/components/kraken/layout";
+import { Callout, Chip } from "@/components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import {
@@ -92,20 +119,35 @@ export function AccountsSection(props: SectionProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [request, canManageUsers]);
 
+  // On first load, default to the current user when they're in the visible
+  // list (prototype: S.acc='admin'); managers fall back to the first proxy
+  // login since they don't see panel users.
+  useEffect(() => {
+    if (selected !== null) return;
+    if (canManageUsers && users && users.length) {
+      const me = users.find((u) => u.username === session.username);
+      setSelected(me ? me.username : users[0].username);
+    } else if (accounts && accounts.length) {
+      const me = accounts.find((a) => a.username === session.username);
+      setSelected(me ? me.username : accounts[0].username);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canManageUsers, users, accounts, session.username, selected]);
+
   // Fatal surface only when a required list failed to load.
   const fatal = (canManageUsers && users === null) || accounts === null;
 
   if (fatal && !creating)
     return (
-      <section className="inspector-pane">
-        <div className="inspector-body">
+      <InspectorPane>
+        <InspectorBody>
           <ErrorState
             title="Аккаунты недоступны"
             detail="Нет связи с панелью. Повторите запрос."
             onRetry={() => location.reload()}
           />
-        </div>
-      </section>
+        </InspectorBody>
+      </InspectorPane>
     );
 
   if (creating) {
@@ -159,12 +201,17 @@ export function AccountsSection(props: SectionProps) {
   }));
 
   return (
-    <div className="placeholder-section">
-      <aside className="list-pane">
-        <div className="list-head">
-          <div className="row" style={{ justifyContent: "space-between" }}>
-            <span className="list-title">Аккаунты</span>
-            {canManageUsers ? (
+    <>
+      <ListPane>
+        <ListPaneHeader
+          title="Аккаунты"
+          description={
+            isAdmin
+              ? "Кто входит в панель и какие логины принимает прокси."
+              : "Логины для ваших клиентов, подключённых по TLS."
+          }
+          action={
+            canManageUsers ? (
               <Button size="xs" onClick={() => setCreating("panel")}>
                 <Plus aria-hidden /> Пользователь
               </Button>
@@ -172,81 +219,73 @@ export function AccountsSection(props: SectionProps) {
               <Button size="xs" onClick={() => setCreating("proxy")}>
                 <Plus aria-hidden /> Логин
               </Button>
-            )}
-          </div>
-          <div className="muted-text small">
-            {isAdmin
-              ? "Кто входит в панель и какие логины принимает прокси."
-              : "Логины для ваших клиентов, подключённых по TLS."}
-          </div>
-        </div>
-        <div className="list-body">
+            )
+          }
+        />
+        <ListPaneBody>
           {canManageUsers && (
             <>
-              <div className="list-group-label">Панель управления</div>
+              <ListGroupLabel>Панель управления</ListGroupLabel>
               {panelUsers.map((u) => (
-                <button
+                <ListRow
                   key={u.username}
-                  className={
-                    "list-row" + (selected === u.username ? " selected" : "")
-                  }
-                  style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }}
+                  selected={selected === u.username}
                   onClick={() => setSelected(u.username)}
-                >
-                  <span className="ellipsis" style={{ fontWeight: 500 }}>
-                    {u.username}
-                  </span>
-                  {!u.enabled && (
-                    <Badge variant="secondary">заблокирован</Badge>
-                  )}
-                  <span className="muted-text small">
-                    {u.role === "admin" ? "Администратор" : "Менеджер"}
-                  </span>
-                </button>
+                  title={
+                    <span className="truncate font-medium">{u.username}</span>
+                  }
+                  subtitle={
+                    u.role === "admin" ? "Администратор" : "Менеджер"
+                  }
+                  aside={
+                    u.enabled ? undefined : (
+                      <Badge variant="outline">заблокирован</Badge>
+                    )
+                  }
+                />
               ))}
               {panelUsers.length === 0 && (
-                <div
-                  className="muted-text small"
-                  style={{ padding: "8px 14px" }}
-                >
+                <div className="px-3.5 py-2 text-sm text-muted-foreground">
                   Нет пользователей
                 </div>
               )}
             </>
           )}
-          <div className="list-group-label">Логины прокси</div>
+          <ListGroupLabel>Логины прокси</ListGroupLabel>
           {proxyRows.map((a) => {
             // Where used: draft clients that reference this proxy login.
             const usedBy = draftRows.filter(
               (c) => c.proxy_username === a.username,
             );
             return (
-              <button
+              <ListRow
                 key={a.username}
-                className={
-                  "list-row" + (selected === a.username ? " selected" : "")
-                }
-                style={{ gridTemplateColumns: "minmax(0,1fr) auto auto" }}
+                selected={selected === a.username}
                 onClick={() => setSelected(a.username)}
-              >
-                <span className="mono ellipsis">{a.username}</span>
-                {!a.enabled && <Badge variant="secondary">выкл</Badge>}
-                <span className="muted-text small ellipsis">
-                  {usedBy.length
+                title={
+                  <span className="truncate font-mono">{a.username}</span>
+                }
+                subtitle={
+                  usedBy.length
                     ? usedBy.map((c) => c.name).join(", ")
-                    : "не используется"}
-                </span>
-              </button>
+                    : "не используется"
+                }
+                aside={
+                  a.enabled ? undefined : (
+                    <Badge variant="outline">заблокирован</Badge>
+                  )
+                }
+              />
             );
           })}
           {proxyRows.length === 0 && (
-            <div className="muted-text small" style={{ padding: "8px 14px" }}>
+            <div className="px-3.5 py-2 text-sm text-muted-foreground">
               Нет логинов прокси
             </div>
           )}
-        </div>
-      </aside>
-      <section className="inspector-pane">
+        </ListPaneBody>
+      </ListPane>
+      <InspectorPane>
         {selected ? (
           <AccountDetail
             username={selected}
@@ -272,16 +311,16 @@ export function AccountsSection(props: SectionProps) {
             }}
           />
         ) : (
-          <div className="inspector-body">
+          <InspectorBody>
             <EmptyState icon={<KeyRound />} title="Выберите аккаунт">
               {canManageUsers
                 ? "Выберите пользователя панели или логин прокси слева."
                 : "Выберите логин прокси слева или создайте новый."}
             </EmptyState>
-          </div>
+          </InspectorBody>
         )}
-      </section>
-    </div>
+      </InspectorPane>
+    </>
   );
 }
 
@@ -339,11 +378,59 @@ function AccountDetail({
     );
   }
   return (
-    <div className="inspector-body">
+    <InspectorBody>
       <EmptyState icon={<KeyRound />} title="Не найдено">
         Аккаунт не существует или вне вашей области.
       </EmptyState>
-    </div>
+    </InspectorBody>
+  );
+}
+
+// RoleOption keeps the original button[aria-pressed] a11y pattern from the
+// prototype's .opt, restyled with Tailwind; the radio dot is a plain span so
+// roles and aria-pressed are unchanged.
+function RoleOption({
+  selected,
+  disabled,
+  title,
+  onClick,
+  label,
+  hint,
+}: {
+  selected: boolean;
+  disabled?: boolean;
+  title?: string;
+  onClick: () => void;
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={selected}
+      disabled={disabled}
+      title={title}
+      onClick={onClick}
+      className={cn(
+        "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 rounded-lg border p-3 text-left disabled:cursor-not-allowed disabled:opacity-60",
+        selected
+          ? "border-foreground shadow-[0_0_0_1px_var(--foreground)]"
+          : "border-border",
+      )}
+    >
+      <span
+        aria-hidden
+        className="mt-px grid size-4 place-items-center rounded-full border border-input"
+      >
+        {selected && <span className="size-2 rounded-full bg-foreground" />}
+      </span>
+      <span>
+        <div className="font-medium">{label}</div>
+        {hint && (
+          <div className="text-sm text-muted-foreground">{hint}</div>
+        )}
+      </span>
+    </button>
   );
 }
 
@@ -370,6 +457,7 @@ function PanelUserDetail({
 }) {
   const self = session.username === user.username;
   const [pwd, setPwd] = useState("");
+  const pwdRef = useRef<HTMLInputElement>(null);
   const [scope, setScope] = useState<ScopeBody | null>(null);
   const [scopeErr, setScopeErr] = useState<string | null>(null);
   const [scopeDraft, setScopeDraft] = useState<{
@@ -454,55 +542,52 @@ function PanelUserDetail({
 
   return (
     <>
-      <header className="inspector-head">
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <h1 className="page-title" style={{ margin: 0 }}>
-            {user.username}
-          </h1>
-          {self && <Badge variant="secondary">это вы</Badge>}
-          <Badge variant="secondary">
-            {user.role === "admin" ? "Администратор" : "Менеджер"}
-          </Badge>
-          {user.enabled ? (
-            <Badge className="badge-ok">активен</Badge>
-          ) : (
-            <Badge variant="secondary">заблокирован</Badge>
-          )}
-          <span className="grow" />
-        </div>
-      </header>
-      <div className="inspector-body">
+      <InspectorHeader
+        title={user.username}
+        status={
+          <>
+            {self && <Badge variant="secondary">это вы</Badge>}
+            <Badge variant="secondary">
+              {user.role === "admin" ? "Администратор" : "Менеджер"}
+            </Badge>
+            {user.enabled ? (
+              <Badge variant="ok">активен</Badge>
+            ) : (
+              <Badge variant="secondary">заблокирован</Badge>
+            )}
+          </>
+        }
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => pwdRef.current?.focus()}
+          >
+            <KeyRound aria-hidden /> Сменить пароль
+          </Button>
+        }
+      />
+      <InspectorBody>
         {error && (
-          <div className="callout callout-bad">
-            <Ban aria-hidden />
-            <div className="small">{error}</div>
-          </div>
+          <Callout tone="bad" icon={<Ban aria-hidden />}>
+            <span className="text-sm">{error}</span>
+          </Callout>
         )}
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Роль</span>
-          </div>
-          <div className="card-body">
-            <div className="opts">
-              <button
-                type="button"
-                className={"opt" + (user.role === "admin" ? " selected" : "")}
-                aria-pressed={user.role === "admin"}
+        <Card>
+          <CardHeader>
+            <CardTitle>Роль</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 gap-2 max-[1180px]:grid-cols-1">
+              <RoleOption
+                selected={user.role === "admin"}
                 disabled={user.role === "admin"}
                 onClick={() => patch({ role: "admin" }, "Роль изменена")}
-              >
-                <span className="radio" aria-hidden />
-                <span>
-                  <div style={{ fontWeight: 500 }}>Администратор</div>
-                  <div className="small muted-text">
-                    Всё, включая настройки и аккаунты
-                  </div>
-                </span>
-              </button>
-              <button
-                type="button"
-                className={"opt" + (user.role === "manager" ? " selected" : "")}
-                aria-pressed={user.role === "manager"}
+                label="Администратор"
+                hint="Всё, включая настройки и аккаунты"
+              />
+              <RoleOption
+                selected={user.role === "manager"}
                 disabled={user.role === "admin" && !demote}
                 title={
                   user.role === "admin" && !demote
@@ -510,40 +595,43 @@ function PanelUserDetail({
                     : undefined
                 }
                 onClick={() => patch({ role: "manager" }, "Роль изменена")}
-              >
-                <span className="radio" aria-hidden />
-                <span>
-                  <div style={{ fontWeight: 500 }}>Менеджер</div>
-                  <div className="small muted-text">
-                    Только назначенные клиенты
-                  </div>
-                </span>
-              </button>
+                label="Менеджер"
+                hint="Только назначенные клиенты"
+              />
             </div>
-            <table style={{ width: "100%", marginTop: 10 }}>
-              <thead>
-                <tr>
-                  <th style={{ textAlign: "left" }}>Право</th>
-                  <th>Администратор</th>
-                  <th>Менеджер</th>
-                </tr>
-              </thead>
-              <tbody>
+            <Table className="mt-2.5">
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-[38%]">Право</TableHead>
+                  <TableHead className="w-[18%]">Администратор</TableHead>
+                  <TableHead>Менеджер</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
                 {PERMS.map(([p, ad, mg]) => (
-                  <tr key={p}>
-                    <td style={{ textAlign: "left" }}>{p}</td>
-                    <td className={user.role === "admin" ? "" : "muted-text"}>
+                  <TableRow key={p}>
+                    <TableCell className="w-[38%]">{p}</TableCell>
+                    <TableCell
+                      className={
+                        "w-[18%] " +
+                        (user.role === "admin" ? "" : "text-muted-foreground")
+                      }
+                    >
                       {ad}
-                    </td>
-                    <td className={user.role === "manager" ? "" : "muted-text"}>
+                    </TableCell>
+                    <TableCell
+                      className={
+                        user.role === "manager" ? "" : "text-muted-foreground"
+                      }
+                    >
                       {mg}
-                    </td>
-                  </tr>
+                    </TableCell>
+                  </TableRow>
                 ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
 
         {user.role === "manager" && (
           <ManagerScopeEditor
@@ -562,36 +650,37 @@ function PanelUserDetail({
           />
         )}
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Смена пароля</span>
-          </div>
-          <div className="card-body">
+        <Card>
+          <CardHeader>
+            <CardTitle>Смена пароля</CardTitle>
+          </CardHeader>
+          <CardContent>
             <Label>
               Новый пароль
               <Input
+                ref={pwdRef}
                 type="password"
                 value={pwd}
                 autoComplete="new-password"
                 onChange={(e) => setPwd(e.target.value)}
               />
             </Label>
-            <div className="row" style={{ marginTop: 8 }}>
+            <div className="mt-2 flex items-center gap-2">
               <Button size="sm" onClick={savePassword} disabled={!pwd}>
                 <KeyRound aria-hidden /> Сменить пароль
               </Button>
-              <span className="muted-text small">
+              <span className="text-sm text-muted-foreground">
                 Хранится только как Argon2id; смена отзывает все сессии.
               </span>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Блокировка</span>
-          </div>
-          <div className="card-body">
+        <Card>
+          <CardHeader>
+            <CardTitle>Блокировка</CardTitle>
+          </CardHeader>
+          <CardContent>
             <Button
               variant={user.enabled ? "outline" : "default"}
               size="sm"
@@ -618,9 +707,9 @@ function PanelUserDetail({
                 "Разблокировать"
               )}
             </Button>
-          </div>
-        </div>
-      </div>
+          </CardContent>
+        </Card>
+      </InspectorBody>
     </>
   );
 }
@@ -647,18 +736,19 @@ function ManagerScopeEditor({
   const [netInput, setNetInput] = useState("");
   if (!draft) {
     return error ? (
-      <div className="card">
-        <div className="card-body">
-          <div className="callout callout-bad">
-            <Ban aria-hidden />
-            <div className="small">{error}</div>
-          </div>
-        </div>
-      </div>
+      <Card>
+        <CardContent>
+          <Callout tone="bad" icon={<Ban aria-hidden />}>
+            <span className="text-sm">{error}</span>
+          </Callout>
+        </CardContent>
+      </Card>
     ) : (
-      <div className="card">
-        <div className="card-body muted-text small">Загрузка области…</div>
-      </div>
+      <Card>
+        <CardContent className="text-sm text-muted-foreground">
+          Загрузка области…
+        </CardContent>
+      </Card>
     );
   }
 
@@ -688,18 +778,22 @@ function ManagerScopeEditor({
   }
 
   return (
-    <div className="card">
-      <div className="card-head">
-        <span className="card-title grow">Область менеджера</span>
-        {dirty && <Badge variant="secondary">в черновике</Badge>}
-      </div>
-      <div className="card-body">
-        <div className="small muted-text" style={{ marginBottom: 6 }}>
+    <Card>
+      <CardHeader>
+        <CardTitle>Область менеджера</CardTitle>
+        {dirty && (
+          <CardAction>
+            <Badge variant="secondary">в черновике</Badge>
+          </CardAction>
+        )}
+      </CardHeader>
+      <CardContent>
+        <div className="mb-1.5 text-sm text-muted-foreground">
           Сети для новых клиентов (CIDR)
         </div>
-        <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+        <div className="flex flex-wrap gap-1.5">
           {draft.networks.map((n) => (
-            <span className="chip" key={n}>
+            <Chip key={n}>
               {n}
               <Button
                 size="icon-xs"
@@ -711,17 +805,17 @@ function ManagerScopeEditor({
               >
                 <X aria-hidden />
               </Button>
-            </span>
+            </Chip>
           ))}
           {draft.networks.length === 0 && (
-            <span className="muted-text small">
+            <span className="text-sm text-muted-foreground">
               Не заданы: создавать клиентов нельзя
             </span>
           )}
         </div>
-        <div className="row" style={{ marginTop: 8 }}>
+        <div className="mt-2 flex items-center gap-2">
           <Input
-            className="mono"
+            className="font-mono"
             placeholder="10.20.0.0/22"
             value={netInput}
             onChange={(e) => setNetInput(e.target.value)}
@@ -737,59 +831,67 @@ function ManagerScopeEditor({
           </Button>
         </div>
 
-        <div
-          className="small muted-text"
-          style={{ marginTop: 14, marginBottom: 6 }}
-        >
+        <div className="mt-3.5 mb-1.5 text-sm text-muted-foreground">
           Назначенные клиенты
         </div>
         {draftClients.length === 0 ? (
-          <div className="muted-text small">В черновике нет клиентов</div>
-        ) : (
-          <div className="tw">
-            <table style={{ width: "100%" }}>
-              <tbody>
-                {draftClients.map((c) => {
-                  const checked = draft.clientIDs.includes(c.id);
-                  return (
-                    <tr key={c.id}>
-                      <td style={{ padding: "5px 8px" }}>
-                        <button
-                          type="button"
-                          className="row"
-                          style={{ gap: 8, textAlign: "left" }}
-                          onClick={() => toggleClient(c.id)}
-                          aria-pressed={checked}
-                        >
-                          <span
-                            className={"cbx" + (checked ? " on" : "")}
-                            aria-hidden
-                          />
-                          <span>{c.name}</span>
-                          <span className="mono muted-text small">{c.id}</span>
-                        </button>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+          <div className="text-sm text-muted-foreground">
+            В черновике нет клиентов
           </div>
+        ) : (
+          <Table>
+            <TableBody>
+              {draftClients.map((c) => {
+                const checked = draft.clientIDs.includes(c.id);
+                return (
+                  <TableRow key={c.id}>
+                    <TableCell className="py-1.5 px-2">
+                      <button
+                        type="button"
+                        aria-pressed={checked}
+                        onClick={() => toggleClient(c.id)}
+                        className="flex items-center gap-2 text-left"
+                      >
+                        <span
+                          aria-hidden
+                          className={cn(
+                            "grid size-3.5 shrink-0 place-content-center rounded-sm border",
+                            checked
+                              ? "border-primary bg-primary text-primary-foreground"
+                              : "border-input",
+                          )}
+                        >
+                          {checked && <Check className="size-3" />}
+                        </span>
+                        <span>{c.name}</span>
+                        <span className="font-mono text-sm text-muted-foreground">
+                          {c.id}
+                        </span>
+                      </button>
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
         )}
 
         {error && (
-          <div className="callout callout-bad" style={{ marginTop: 8 }}>
-            <Ban aria-hidden />
-            <div className="small">{error}</div>
-          </div>
+          <Callout
+            tone="bad"
+            icon={<Ban aria-hidden />}
+            className="mt-2"
+          >
+            <span className="text-sm">{error}</span>
+          </Callout>
         )}
-        <div className="row" style={{ marginTop: 10 }}>
+        <div className="mt-2.5 flex items-center gap-2">
           <Button size="sm" onClick={onSave} disabled={!dirty}>
             Сохранить область
           </Button>
         </div>
-      </div>
-    </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -818,6 +920,7 @@ function ProxyAccountDetail({
   const owner = account.owner ?? "";
   const ownerIsSelf = session.role === "manager" && owner === session.username;
   const [pwd, setPwd] = useState("");
+  const pwdRef = useRef<HTMLInputElement>(null);
 
   async function patch(payload: Record<string, unknown>, ok: string) {
     setError(null);
@@ -833,35 +936,44 @@ function ProxyAccountDetail({
 
   return (
     <>
-      <header className="inspector-head">
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <h1 className="page-title mono" style={{ margin: 0 }}>
-            {account.username}
-          </h1>
-          <Badge variant="secondary">логин прокси</Badge>
-          {ownerIsSelf && <Badge variant="secondary">создан вами</Badge>}
-          {account.enabled ? (
-            <Badge className="badge-ok">активен</Badge>
-          ) : (
-            <Badge variant="secondary">выкл</Badge>
-          )}
-          <span className="grow" />
-        </div>
-      </header>
-      <div className="inspector-body">
+      <InspectorHeader
+        title={<span className="font-mono">{account.username}</span>}
+        status={
+          <>
+            <Badge variant="secondary">логин прокси</Badge>
+            {ownerIsSelf && (
+              <Badge variant="secondary">создан вами</Badge>
+            )}
+            {account.enabled ? (
+              <Badge variant="ok">активен</Badge>
+            ) : (
+              <Badge variant="secondary">выкл</Badge>
+            )}
+          </>
+        }
+        actions={
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => pwdRef.current?.focus()}
+          >
+            <KeyRound aria-hidden /> Сменить пароль
+          </Button>
+        }
+      />
+      <InspectorBody>
         {error && (
-          <div className="callout callout-bad">
-            <Ban aria-hidden />
-            <div className="small">{error}</div>
-          </div>
+          <Callout tone="bad" icon={<Ban aria-hidden />}>
+            <span className="text-sm">{error}</span>
+          </Callout>
         )}
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Где используется</span>
-          </div>
-          <div className="card-body">
+        <Card>
+          <CardHeader>
+            <CardTitle>Где используется</CardTitle>
+          </CardHeader>
+          <CardContent>
             {usedBy.length > 0 ? (
-              <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+              <div className="flex flex-wrap gap-1.5">
                 {usedBy.map((c) => (
                   <Badge key={c.id} variant="outline">
                     {c.name}
@@ -869,41 +981,42 @@ function ProxyAccountDetail({
                 ))}
               </div>
             ) : (
-              <div className="muted-text small">
+              <div className="text-sm text-muted-foreground">
                 Ни к одному клиенту не привязан.
               </div>
             )}
-            <div className="muted-text small" style={{ marginTop: 8 }}>
+            <div className="mt-2 text-sm text-muted-foreground">
               Логин подтверждает, кто подключился. Что разрешено, решает
               политика клиента.
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Владелец</span>
-          </div>
-          <div className="card-body">
-            <span className="mono">{owner || "admin"}</span>
-          </div>
-        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Владелец</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <span className="font-mono text-sm">{owner || "admin"}</span>
+          </CardContent>
+        </Card>
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Смена пароля</span>
-          </div>
-          <div className="card-body">
+        <Card>
+          <CardHeader>
+            <CardTitle>Смена пароля</CardTitle>
+          </CardHeader>
+          <CardContent>
             <Label>
               Новый пароль
               <Input
+                ref={pwdRef}
                 type="password"
                 value={pwd}
                 autoComplete="new-password"
                 onChange={(e) => setPwd(e.target.value)}
               />
             </Label>
-            <div className="row" style={{ marginTop: 8 }}>
+            <div className="mt-2 flex items-center gap-2">
               <Button
                 size="sm"
                 onClick={() => patch({ password: pwd }, "Пароль изменён")}
@@ -911,18 +1024,18 @@ function ProxyAccountDetail({
               >
                 <KeyRound aria-hidden /> Сменить пароль
               </Button>
-              <span className="muted-text small">
+              <span className="text-sm text-muted-foreground">
                 Смена сразу закрывает старый пароль у прокси.
               </span>
             </div>
-          </div>
-        </div>
+          </CardContent>
+        </Card>
 
-        <div className="card">
-          <div className="card-head">
-            <span className="card-title grow">Состояние</span>
-          </div>
-          <div className="card-body">
+        <Card>
+          <CardHeader>
+            <CardTitle>Состояние</CardTitle>
+          </CardHeader>
+          <CardContent>
             <Button
               variant={account.enabled ? "outline" : "default"}
               size="sm"
@@ -935,9 +1048,9 @@ function ProxyAccountDetail({
             >
               {account.enabled ? "Отключить" : "Включить"}
             </Button>
-          </div>
-        </div>
-      </div>
+          </CardContent>
+        </Card>
+      </InspectorBody>
     </>
   );
 }
@@ -961,32 +1074,29 @@ function NewAccountForm({
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<"admin" | "manager">("manager");
   return (
-    <section className="inspector-pane">
-      <header className="inspector-head">
-        <h1 className="page-title" style={{ margin: 0 }}>
-          {kind === "panel" ? "Новый пользователь" : "Новый логин прокси"}
-        </h1>
-      </header>
-      <div className="inspector-body">
+    <InspectorPane>
+      <InspectorHeader
+        title={kind === "panel" ? "Новый пользователь" : "Новый логин прокси"}
+      />
+      <InspectorBody>
         {error && (
-          <div className="callout callout-bad">
-            <Ban aria-hidden />
-            <div className="small">{error}</div>
-          </div>
+          <Callout tone="bad" icon={<Ban aria-hidden />}>
+            <span className="text-sm">{error}</span>
+          </Callout>
         )}
-        <div className="card">
-          <div className="card-body">
+        <Card>
+          <CardContent>
             <Label>
               {kind === "panel" ? "Имя пользователя" : "Логин"}
               <Input
-                className="mono"
+                className="font-mono"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 placeholder="латинские буквы, цифры, точка, дефис"
                 autoFocus
               />
             </Label>
-            <Label style={{ marginTop: 8 }}>
+            <Label className="mt-2">
               Пароль
               <Input
                 type="password"
@@ -996,35 +1106,20 @@ function NewAccountForm({
               />
             </Label>
             {kind === "panel" && (
-              <div className="opts" style={{ marginTop: 8 }}>
-                <button
-                  type="button"
-                  className={"opt" + (role === "admin" ? " selected" : "")}
-                  aria-pressed={role === "admin"}
+              <div className="mt-2 grid grid-cols-2 gap-2 max-[1180px]:grid-cols-1">
+                <RoleOption
+                  selected={role === "admin"}
                   onClick={() => setRole("admin")}
-                >
-                  <span className="radio" aria-hidden />
-                  <span>
-                    <div style={{ fontWeight: 500 }}>Администратор</div>
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  className={"opt" + (role === "manager" ? " selected" : "")}
-                  aria-pressed={role === "manager"}
+                  label="Администратор"
+                />
+                <RoleOption
+                  selected={role === "manager"}
                   onClick={() => setRole("manager")}
-                >
-                  <span className="radio" aria-hidden />
-                  <span>
-                    <div style={{ fontWeight: 500 }}>Менеджер</div>
-                  </span>
-                </button>
+                  label="Менеджер"
+                />
               </div>
             )}
-            <div
-              className="row"
-              style={{ justifyContent: "flex-end", marginTop: 12 }}
-            >
+            <div className="mt-3 flex justify-end gap-2">
               <Button variant="ghost" onClick={onCancel}>
                 Отмена
               </Button>
@@ -1032,9 +1127,9 @@ function NewAccountForm({
                 <Plus aria-hidden /> Создать
               </Button>
             </div>
-          </div>
-        </div>
-      </div>
-    </section>
+          </CardContent>
+        </Card>
+      </InspectorBody>
+    </InspectorPane>
   );
 }
