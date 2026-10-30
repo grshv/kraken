@@ -42,6 +42,9 @@ type AuditEvent = {
   actor: string;
   action: string;
   entity_id: string;
+  // detail is the server summary ("Клиент «x» изменён"); empty for actions
+  // without one. Untrusted display text.
+  detail?: string;
   timestamp: string;
 };
 type AuditPage = {
@@ -142,19 +145,6 @@ export function AuditSection(props: SectionProps) {
     <div className="grid min-h-0 w-full [grid-template-columns:var(--list-w,300px)_minmax(0,1fr)]">
       <ListPane>
         <ListPaneHeader title="Аудит">
-          <div className="relative flex items-center">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
-            />
-            <Input
-              aria-label="Поиск по актору"
-              className="h-8 pl-[30px]"
-              placeholder="Кто, что, ревизия…"
-              value={actor}
-              onChange={(e) => setActor(e.target.value)}
-            />
-          </div>
           <ToggleGroup
             type="single"
             variant="chip"
@@ -172,6 +162,19 @@ export function AuditSection(props: SectionProps) {
               </ToggleGroupItem>
             ))}
           </ToggleGroup>
+          <div className="relative flex items-center">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
+            />
+            <Input
+              aria-label="Поиск по актору"
+              className="h-8 pl-[30px]"
+              placeholder="Имя пользователя"
+              value={actor}
+              onChange={(e) => setActor(e.target.value)}
+            />
+          </div>
         </ListPaneHeader>
         <ListPaneBody>
           {loadError ? (
@@ -197,9 +200,13 @@ export function AuditSection(props: SectionProps) {
                       key={a.id}
                       selected={selectedID === a.id}
                       leading={<Icon aria-hidden />}
-                      title={actionLabel(a.action)}
+                      title={a.detail || actionLabel(a.action)}
                       meta={localTime(a.timestamp, false)}
-                      subtitle={a.actor}
+                      subtitle={
+                        a.detail
+                          ? `${actionLabel(a.action)} · ${a.actor}`
+                          : a.actor
+                      }
                       onClick={() => setSelectedID(a.id)}
                     />
                   );
@@ -374,6 +381,9 @@ function AuditDetail({
           <CardContent>
             <KeyValue
               items={[
+                ...(event.detail
+                  ? ([["Что", event.detail]] as [string, string][])
+                  : []),
                 ["Кто", event.actor],
                 [
                   "Когда",

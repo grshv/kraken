@@ -36,7 +36,7 @@ func ApplyServiceUpdate(ctx context.Context, st *store.Store, rt *local.Manager,
 	if err != nil {
 		return op, err
 	}
-	if _, err = st.InsertRevision(ctx, revision.ID, string(body), "local-cli", "service_update_revision"); err != nil {
+	if _, err = st.InsertRevision(ctx, revision.ID, string(body), "local-cli", "service_update_revision", "Обновление служебной конфигурации"); err != nil {
 		return op, err
 	}
 	op = Operation{ID: store.ID(), Action: "service_update", Revision: revision.ID, Status: "reloading", Findings: []string{}, Created: stamp(), Updated: stamp()}

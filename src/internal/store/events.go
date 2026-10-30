@@ -39,6 +39,7 @@ type AuditEvent struct {
 	Actor     string `json:"actor"`
 	Action    string `json:"action"`
 	Entity    string `json:"entity_id"`
+	Detail    string `json:"detail"`
 	Timestamp string `json:"timestamp"`
 }
 type cursor struct {
@@ -135,7 +136,7 @@ func (s *Store) AuditPage(ctx context.Context, q AuditQuery) (Page[AuditEvent], 
 		}
 	}
 	args = append(args, q.Limit+1)
-	rows, e := s.Read.QueryContext(ctx, "SELECT id,actor,action,entity_id,created_at FROM audit_events WHERE "+clause+" ORDER BY id DESC LIMIT ?", args...)
+	rows, e := s.Read.QueryContext(ctx, "SELECT id,actor,action,entity_id,detail,created_at FROM audit_events WHERE "+clause+" ORDER BY id DESC LIMIT ?", args...)
 	if e != nil {
 		return p, e
 	}
@@ -143,7 +144,7 @@ func (s *Store) AuditPage(ctx context.Context, q AuditQuery) (Page[AuditEvent], 
 	for rows.Next() {
 		var id, ts int64
 		var v AuditEvent
-		if e = rows.Scan(&id, &v.Actor, &v.Action, &v.Entity, &ts); e != nil {
+		if e = rows.Scan(&id, &v.Actor, &v.Action, &v.Entity, &v.Detail, &ts); e != nil {
 			rows.Close()
 			return p, e
 		}

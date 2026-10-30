@@ -350,8 +350,9 @@ func (s *Store) ListOperationBodies(ctx context.Context) ([]struct{ ID, Body str
 // audit row per changed client/policy and assigns new manager clients in one
 // transaction so a crash cannot leave a created client unassigned. entityIDs
 // are the client/policy IDs that differ from the active snapshot; they receive
-// action-specific audit rows alongside the legacy "draft" row.
-func (s *Store) ChangeDraftWithAssignments(ctx context.Context, v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string) error {
+// action-specific audit rows alongside the legacy "draft" row. details holds
+// the audit detail per entity id and under "draft" for the draft-level row.
+func (s *Store) ChangeDraftWithAssignments(ctx context.Context, v any, actor, action string, expected int, username string, newClientIDs, entityIDs []string, details map[string]string) error {
 	ctx, cancel := opCtx(ctx)
 	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
@@ -381,11 +382,11 @@ func (s *Store) ChangeDraftWithAssignments(ctx context.Context, v any, actor, ac
 		return e
 	}
 	now := time.Now().Unix()
-	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,detail,created_at) VALUES(?,?,?,?,?)", actor, action, "draft", details["draft"], now); e != nil {
 		return e
 	}
 	for _, id := range entityIDs {
-		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,detail,created_at) VALUES(?,?,?,?,?)", actor, action, id, details[id], now); e != nil {
 			return e
 		}
 	}
@@ -399,7 +400,7 @@ func (s *Store) ChangeDraftWithAssignments(ctx context.Context, v any, actor, ac
 
 // ChangeDraft writes the draft and the draft-level plus per-entity audit rows
 // in one transaction. The admin path: no manager assignments are needed.
-func (s *Store) ChangeDraft(ctx context.Context, v any, actor, action string, expected int, entityIDs []string) error {
+func (s *Store) ChangeDraft(ctx context.Context, v any, actor, action string, expected int, entityIDs []string, details map[string]string) error {
 	ctx, cancel := opCtx(ctx)
 	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
@@ -429,11 +430,11 @@ func (s *Store) ChangeDraft(ctx context.Context, v any, actor, action string, ex
 		return e
 	}
 	now := time.Now().Unix()
-	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, "draft", now); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,detail,created_at) VALUES(?,?,?,?,?)", actor, action, "draft", details["draft"], now); e != nil {
 		return e
 	}
 	for _, id := range entityIDs {
-		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, id, now); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,detail,created_at) VALUES(?,?,?,?,?)", actor, action, id, details[id], now); e != nil {
 			return e
 		}
 	}
@@ -444,7 +445,7 @@ func (s *Store) ChangeDraft(ctx context.Context, v any, actor, action string, ex
 // the handler), bumps the version by one, and writes the draft-level plus
 // per-entity audit rows in one transaction. entityIDs are the client/policy IDs
 // that differed between the discarded draft and the active snapshot.
-func (s *Store) DiscardDraft(ctx context.Context, v any, actor string, expected int, entityIDs []string) error {
+func (s *Store) DiscardDraft(ctx context.Context, v any, actor string, expected int, entityIDs []string, details map[string]string) error {
 	ctx, cancel := opCtx(ctx)
 	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
@@ -474,11 +475,11 @@ func (s *Store) DiscardDraft(ctx context.Context, v any, actor string, expected 
 		return e
 	}
 	now := time.Now().Unix()
-	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", "draft", now); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,detail,created_at) VALUES(?,?,?,?,?)", actor, "discard_draft", "draft", details["draft"], now); e != nil {
 		return e
 	}
 	for _, id := range entityIDs {
-		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, "discard_draft", id, now); e != nil {
+		if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,detail,created_at) VALUES(?,?,?,?,?)", actor, "discard_draft", id, details[id], now); e != nil {
 			return e
 		}
 	}
@@ -522,8 +523,9 @@ AND key NOT IN (SELECT key FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DE
 // InsertRevision stores the revision JSON under kv key "revision:<id>" with
 // the next sequential number in "$.number", and writes the corresponding
 // audit_event in one transaction. The counter lives in kv "revision_seq", so
-// numbers never repeat after pruning. Returns the assigned number.
-func (s *Store) InsertRevision(ctx context.Context, revID, revBody, actor, action string) (int64, error) {
+// numbers never repeat after pruning. detail is the audit summary. Returns the
+// assigned number.
+func (s *Store) InsertRevision(ctx context.Context, revID, revBody, actor, action, detail string) (int64, error) {
 	ctx, cancel := opCtx(ctx)
 	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
@@ -539,7 +541,7 @@ func (s *Store) InsertRevision(ctx context.Context, revID, revBody, actor, actio
 	if _, e = tx.ExecContext(ctx, "INSERT INTO kv VALUES(?,json_set(?,'$.number',?))", "revision:"+revID, revBody, n); e != nil {
 		return 0, e
 	}
-	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, revID, time.Now().Unix()); e != nil {
+	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,detail,created_at) VALUES(?,?,?,?,?)", actor, action, revID, detail, time.Now().Unix()); e != nil {
 		return 0, e
 	}
 	return n, tx.Commit()

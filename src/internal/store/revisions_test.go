@@ -22,7 +22,7 @@ func TestRevisionNumbersSequentialAcrossPrune(t *testing.T) {
 	defer st.DB.Close()
 	for i := 1; i <= 3; i++ {
 		id := fmt.Sprintf("r%d", i)
-		n, e := st.InsertRevision(ctx, id, `{"id":"`+id+`","number":0}`, "admin", "create_revision")
+		n, e := st.InsertRevision(ctx, id, `{"id":"`+id+`","number":0}`, "admin", "create_revision", "")
 		if e != nil || n != int64(i) {
 			t.Fatalf("insert %s: n=%d err=%v", id, n, e)
 		}
@@ -36,7 +36,7 @@ func TestRevisionNumbersSequentialAcrossPrune(t *testing.T) {
 	if _, e = st.RevisionNumber(ctx, "r1"); e != sql.ErrNoRows {
 		t.Fatalf("r1 must be pruned: %v", e)
 	}
-	if n, e := st.InsertRevision(ctx, "r4", `{"id":"r4"}`, "admin", "create_revision"); e != nil || n != 4 {
+	if n, e := st.InsertRevision(ctx, "r4", `{"id":"r4"}`, "admin", "create_revision", ""); e != nil || n != 4 {
 		t.Fatalf("after prune: n=%d err=%v", n, e)
 	}
 	rows, e := st.ListRevisions(ctx)
@@ -81,7 +81,7 @@ func TestMigration006NumbersExistingRevisions(t *testing.T) {
 			t.Fatalf("%s: %d %v, want %d", id, n, e, want)
 		}
 	}
-	if n, e := st.InsertRevision(ctx, "new", `{"id":"new"}`, "admin", "create_revision"); e != nil || n != 3 {
+	if n, e := st.InsertRevision(ctx, "new", `{"id":"new"}`, "admin", "create_revision", ""); e != nil || n != 3 {
 		t.Fatalf("next: %d %v", n, e)
 	}
 }

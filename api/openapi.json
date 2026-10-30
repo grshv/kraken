@@ -4418,6 +4418,7 @@
           "actor",
           "action",
           "entity_id",
+          "detail",
           "timestamp"
         ],
         "properties": {
@@ -4432,6 +4433,11 @@
           },
           "entity_id": {
             "type": "string"
+          },
+          "detail": {
+            "type": "string",
+            "maxLength": 300,
+            "description": "Short summary of the change, empty when the action has none. Draft-level update_draft rows list what this save changed; per-entity update_draft/discard_draft rows name only that client or policy; create_revision lists changes against the active configuration. Untrusted display text (contains object names)."
           },
           "timestamp": {
             "type": "string",

@@ -32,6 +32,9 @@ var sql006 string
 //go:embed 007.sql
 var sql007 string
 
+//go:embed 008.sql
+var sql008 string
+
 // Ordered is the canonical list applied at store.Open. New migrations append
 // here with increasing Version; never edit a shipped entry's SQL or Checksum.
 var Ordered = []Migration{
@@ -42,4 +45,5 @@ var Ordered = []Migration{
 	{Version: 5, SQL: sql005, Checksum: "notification-marks-v1"},
 	{Version: 6, SQL: sql006, Checksum: "revision-numbers-v1"},
 	{Version: 7, SQL: sql007, Checksum: "session-client-v1"},
+	{Version: 8, SQL: sql008, Checksum: "audit-detail-v1"},
 }

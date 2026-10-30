@@ -476,9 +476,10 @@ func (s *Server) discardDraft(w http.ResponseWriter, r *http.Request, v session)
 			return
 		}
 	}
-	entities := changedEntityIDs(current.Snapshot, active)
+	entities, details := changedEntities(current.Snapshot, active)
+	details["draft"] = auditSummary("Сброшено: ", semanticDiff(active, current.Snapshot))
 	d := Draft{Version: input.Expected + 1, Snapshot: active, Updated: stamp()}
-	if e := s.Store.DiscardDraft(ctx, d, v.User, input.Expected, entities); e != nil {
+	if e := s.Store.DiscardDraft(ctx, d, v.User, input.Expected, entities, details); e != nil {
 		if errors.Is(e, store.ErrConflict) {
 			fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")
 			return
@@ -581,11 +582,17 @@ func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) 
 		return
 	}
 	d := Draft{Version: input.Expected + 1, Snapshot: finalSnapshot, Updated: stamp()}
-	entities := changedEntityIDs(finalSnapshot, manifest.Snapshot)
+	entities, details := changedEntities(finalSnapshot, manifest.Snapshot)
+	// The draft-level row says what this save changed; per-entity rows say how
+	// each object differs from the active configuration.
+	var previous Draft
+	if s.Store.Get(ctx, "draft", &previous) == nil {
+		details["draft"] = auditSummary("", semanticDiff(previous.Snapshot, finalSnapshot))
+	}
 	if v.Role == "manager" {
-		e = s.Store.ChangeDraftWithAssignments(ctx, d, v.User, "update_draft", input.Expected, v.User, newIDs, entities)
+		e = s.Store.ChangeDraftWithAssignments(ctx, d, v.User, "update_draft", input.Expected, v.User, newIDs, entities, details)
 	} else {
-		e = s.Store.ChangeDraft(ctx, d, v.User, "update_draft", input.Expected, entities)
+		e = s.Store.ChangeDraft(ctx, d, v.User, "update_draft", input.Expected, entities, details)
 	}
 	if errors.Is(e, store.ErrConflict) {
 		fail(w, 409, "revision_conflict", "Черновик уже изменён. Обновите страницу")
@@ -650,7 +657,8 @@ func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v sessio
 	}
 	rev := Revision{ID: store.ID(), DraftVersion: d.Version, Hash: policy.Hash(d.Snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: d.Snapshot}
 	b, _ := json.Marshal(rev)
-	n, e := s.Store.InsertRevision(ctx, rev.ID, string(b), v.User, "create_revision")
+	active := s.activeConfigurationSnapshot()
+	n, e := s.Store.InsertRevision(ctx, rev.ID, string(b), v.User, "create_revision", auditSummary("", semanticDiff(active, d.Snapshot)))
 	if e != nil {
 		if s.failStorageBusy(w, e) {
 			return

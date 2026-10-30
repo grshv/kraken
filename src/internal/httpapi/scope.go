@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/netip"
 	"sort"
+	"strings"
 
 	"kraken.local/kraken/internal/policy"
 	"kraken.local/kraken/internal/store"
@@ -447,65 +448,75 @@ func (s *Server) activeConfigurationSnapshot() policy.Snapshot {
 	return policy.Empty()
 }
 
-// changedEntityIDs returns the IDs of clients and policies that differ between
-// the draft and the active snapshot (added, modified or removed). Used to write
-// one audit row per changed object alongside the draft-level row on update and
-// discard. Comparison mirrors draftChangesOutOfScope: raw JSON of each record.
-func changedEntityIDs(draft, active policy.Snapshot) []string {
-	ids := make(map[string]struct{})
-	addClient := func(id string) { ids[id] = struct{}{} }
+// changedEntities returns the IDs of clients and policies that differ between
+// the draft and the active snapshot (added, modified or removed), with an
+// audit detail per id ("Клиент «x» изменён"). Used to write one audit row per
+// changed object alongside the draft-level row on update and discard; the
+// detail names only that object, so a manager seeing rows of his clients
+// learns nothing about others. Comparison mirrors draftChangesOutOfScope: raw
+// JSON of each record.
+func changedEntities(draft, active policy.Snapshot) ([]string, map[string]string) {
+	details := map[string]string{}
+	same := func(a, b any) bool {
+		ab, _ := json.Marshal(a)
+		bb, _ := json.Marshal(b)
+		return string(ab) == string(bb)
+	}
 	activeClients := map[string]policy.Client{}
 	for _, c := range active.Clients {
 		activeClients[c.ID] = c
 	}
-	draftClients := map[string]policy.Client{}
+	draftClients := map[string]bool{}
 	for _, c := range draft.Clients {
-		draftClients[c.ID] = c
-		old, ok := activeClients[c.ID]
-		if !ok {
-			addClient(c.ID)
-			continue
-		}
-		ab, _ := json.Marshal(old)
-		bb, _ := json.Marshal(c)
-		if string(ab) != string(bb) {
-			addClient(c.ID)
+		draftClients[c.ID] = true
+		if old, ok := activeClients[c.ID]; !ok {
+			details[c.ID] = "Клиент «" + c.Name + "» добавлен"
+		} else if !same(old, c) {
+			details[c.ID] = "Клиент «" + c.Name + "» изменён"
 		}
 	}
-	for id := range activeClients {
-		if _, ok := draftClients[id]; !ok {
-			addClient(id)
+	for id, c := range activeClients {
+		if !draftClients[id] {
+			details[id] = "Клиент «" + c.Name + "» удалён"
 		}
 	}
 	activePol := map[string]policy.Policy{}
 	for _, p := range active.Policies {
 		activePol[p.ID] = p
 	}
-	draftPol := map[string]policy.Policy{}
+	draftPol := map[string]bool{}
 	for _, p := range draft.Policies {
-		draftPol[p.ID] = p
-		old, ok := activePol[p.ID]
-		if !ok {
-			ids[p.ID] = struct{}{}
-			continue
-		}
-		ab, _ := json.Marshal(old)
-		bb, _ := json.Marshal(p)
-		if string(ab) != string(bb) {
-			ids[p.ID] = struct{}{}
+		draftPol[p.ID] = true
+		if old, ok := activePol[p.ID]; !ok {
+			details[p.ID] = "Политика «" + p.Name + "» добавлена"
+		} else if !same(old, p) {
+			details[p.ID] = "Политика «" + p.Name + "» изменена"
 		}
 	}
-	for id := range activePol {
-		if _, ok := draftPol[id]; !ok {
-			ids[id] = struct{}{}
+	for id, p := range activePol {
+		if !draftPol[id] {
+			details[id] = "Политика «" + p.Name + "» удалена"
 		}
 	}
-	out := make([]string, 0, len(ids))
-	for id := range ids {
-		out = append(out, id)
+	ids := make([]string, 0, len(details))
+	for id := range details {
+		ids = append(ids, id)
 	}
-	sort.Strings(out)
-	return out
+	sort.Strings(ids)
+	return ids, details
+}
+
+// auditSummary joins semanticDiff lines into one audit detail of at most
+// 300 characters.
+func auditSummary(prefix string, lines []string) string {
+	if len(lines) == 0 {
+		return ""
+	}
+	out := []rune(prefix + strings.Join(lines, "; "))
+	if len(out) > 300 {
+		return string(out[:299]) + "…"
+	}
+	return string(out)
 }
 
 // loadActiveManifestOrDraft is a convenience that never fails fatally: a

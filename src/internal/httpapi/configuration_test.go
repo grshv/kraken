@@ -236,7 +236,7 @@ func TestRevisionOperationsCannotChangeInstalledListeners(t *testing.T) {
 	snapshot.Settings.HTTPPort = 8080
 	revision := Revision{ID: store.ID(), DraftVersion: 1, Hash: policy.Hash(snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: snapshot}
 	encoded, _ := json.Marshal(revision)
-	if _, e := s.Store.InsertRevision(context.Background(), revision.ID, string(encoded), "admin", "create_revision"); e != nil {
+	if _, e := s.Store.InsertRevision(context.Background(), revision.ID, string(encoded), "admin", "create_revision", ""); e != nil {
 		t.Fatal(e)
 	}
 	for _, action := range []string{"validate", "apply", "rollback"} {
@@ -282,7 +282,7 @@ func TestRollbackCompatibilityMatchesCompilerAndImage(t *testing.T) {
 	}{{"current-build", policy.CompilerVersion, s.Image, true}, {"legacy-build", "5", s.Image, false}, {"other-image", policy.CompilerVersion, "other-image", false}} {
 		revision := Revision{ID: tc.id, Snapshot: manifest.Snapshot, Compiler: tc.compiler, Image: tc.image}
 		body, _ := json.Marshal(revision)
-		if _, err = s.Store.InsertRevision(context.Background(), tc.id, string(body), "fixture", "create_revision"); err != nil {
+		if _, err = s.Store.InsertRevision(context.Background(), tc.id, string(body), "fixture", "create_revision", ""); err != nil {
 			t.Fatal(err)
 		}
 		op := Operation{ID: "applied-" + tc.id, Action: "apply", Revision: tc.id, Status: "succeeded"}

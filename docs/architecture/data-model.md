@@ -16,7 +16,7 @@ SQLite и journal обслуживает один Go executable, но транз
 | proxy_accounts | username, password_hash, enabled, created_at, updated_at, owner | Отдельные credentials proxy; owner = username панели или NULL (admin). Менеджер видит свои и логины только его клиентов |
 | kv | key, value | Draft/revisions как JSON; optimistic version и validation на уровне приложения |
 | operations | id, idempotency_key, request_hash, body | Один key — один payload; outcome операции хранится отдельно от draft |
-| audit_events | id, actor, action, entity_id, created_at | Без паролей/ключей/config body, mutation и audit атомарны |
+| audit_events | id, actor, action, entity_id, detail, created_at | Без паролей/ключей/config body, mutation и audit атомарны |
 | notification_marks | id, status, actor, marked_at | Только отметка «seen»/«ignored» к вычисляемому уведомлению (id `denied/<client>/<host>` или `source/<ip>`); общая для всех, с audit `mark_notifications` в той же транзакции; живёт 90 дней |
 | schema_migrations | version, checksum, applied_at | DDL/data/version в одной транзакции; применённая миграция не редактируется |
 
@@ -96,7 +96,12 @@ secret references и terminal outcome. Он связывается с запис
   created_at INTEGER)` — unix секунды; range-queries на Prune используют индекс
   на created_at. PUT и DELETE draft пишут по одной строке на каждого
   изменённого клиента и политику в той же транзакции: `entity_id` = их id,
-  `action` = `update_draft` (PUT) или `discard_draft` (DELETE). `GET /audit`
+  `action` = `update_draft` (PUT) или `discard_draft` (DELETE). `detail` —
+  краткая суть до 300 символов: у строки `draft` — что изменило это сохранение
+  (у сброса — «Сброшено: …», у `create_revision` — отличия от действующей
+  конфигурации), у строки объекта — только этот клиент или политика («Клиент «x»
+  изменён»), поэтому менеджер по строкам своих клиентов не узнаёт о чужих.
+  `GET /audit`
   принимает фильтр `entity_id` (до 256 символов, иначе 400 `invalid_filter`);
   отпечаток cursor учитывает фильтр, менеджер видит только свои записи.
 - `sessions` — только авторизованные sessions с hash случайного cookie token,
@@ -120,7 +125,8 @@ secret references и terminal outcome. Он связывается с запис
 (тестовые тома), телеметрия начинается с нуля. `005.sql` (`notification-marks-v1`) добавляет `notification_marks`. `006.sql`
 (`revision-numbers-v1`) нумерует существующие ревизии по порядку вставки и
 заводит счётчик `revision_seq` в `kv`. `007.sql` (`session-client-v1`) добавляет
-`sessions.created_at`, `remote`, `user_agent`. Runner записывает version и checksum в
+`sessions.created_at`, `remote`, `user_agent`. `008.sql` (`audit-detail-v1`) добавляет
+`audit_events.detail`. Runner записывает version и checksum в
 `schema_migrations`. DDL, перенос данных и версия выполняются одной транзакцией
 SQLite: ошибка откатывает весь переход. Записанный checksum, не совпадающий с
 checksum этой сборки, означает базу несовместимой сборки — `store.Open`
