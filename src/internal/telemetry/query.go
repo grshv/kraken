@@ -612,3 +612,61 @@ func (t *Store) DistinctClients(ctx context.Context, from, to time.Time, scope *
 
 var _ = filepath.Join
 var _ = events.Event{}
+
+// ClientHostCount is a per-(client, host) aggregate.
+type ClientHostCount struct {
+	ClientID string
+	Host     string
+	Counts
+	LastSeen time.Time // start of the latest bucket with a denial
+}
+
+// DeniedHosts lists (client, host) pairs with at least one denial over
+// [from,to), most denied first, from the hourly (or daily, past hourly
+// retention) rollups. The "(other)" overflow host is skipped. Scoped to the
+// client IDs of a non-nil scope.
+func (t *Store) DeniedHosts(ctx context.Context, from, to time.Time, scope *Scope, limit int) ([]ClientHostCount, error) {
+	if limit <= 0 {
+		limit = 500
+	}
+	if scope != nil && len(scope.ClientIDs) == 0 {
+		return []ClientHostCount{}, nil
+	}
+	table, col := "client_host_1h", "bucket"
+	if from.UTC().Unix() < t.now().Add(-t.opts.HourlyRetention).Unix() {
+		table, col = "client_host_1d", "day"
+	}
+	query := "SELECT client_id, host, SUM(requests), SUM(denied), SUM(bytes), MAX(CASE WHEN denied>0 THEN " + col + " END) FROM " + table +
+		" WHERE " + col + ">=? AND " + col + "<? AND denied>0 AND host<>'(other)'"
+	args := []any{from.UTC().Unix(), to.UTC().Unix()}
+	if scope != nil {
+		query += " AND client_id IN (" + placeholders(len(scope.ClientIDs)) + ")"
+		for _, c := range scope.ClientIDs {
+			args = append(args, c)
+		}
+	}
+	query += " GROUP BY client_id, host ORDER BY SUM(denied) DESC, client_id, host LIMIT ?"
+	args = append(args, limit)
+	out := []ClientHostCount{}
+	e := t.rollReader(ctx, func(r *sql.DB) error {
+		rows, e := r.QueryContext(ctx, query, args...)
+		if e != nil {
+			return e
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var h ClientHostCount
+			var last int64
+			if e = rows.Scan(&h.ClientID, &h.Host, &h.Requests, &h.Denied, &h.Bytes, &last); e != nil {
+				return e
+			}
+			h.LastSeen = time.Unix(last, 0).UTC()
+			out = append(out, h)
+		}
+		return rows.Err()
+	})
+	if e != nil {
+		return nil, e
+	}
+	return out, nil
+}

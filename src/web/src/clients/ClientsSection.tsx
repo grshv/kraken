@@ -96,6 +96,13 @@ import { Sparkline, TrafficChart, type Bucket } from "./TrafficChart";
 import { clientChanges } from "./history";
 import { missingDomains } from "./missing";
 import {
+  countNotices,
+  useClientNotices,
+  type Notice,
+  type NoticeStatus,
+} from "./notifications";
+import { DeniedDomains } from "./DeniedDomains";
+import {
   addDomainToClientPolicy,
   changeClientPolicy,
   createClientFromIP,
@@ -105,7 +112,7 @@ import {
   setClientNetworks,
 } from "../draft/edits";
 import type { Client, Event, Policy, Session, Snapshot } from "../model";
-import { pluralRu } from "../model";
+import { ago, pluralRu } from "../model";
 import type { NavId } from "../shell/nav";
 
 // Inspector shapes (subset of fields the screens render).
@@ -703,7 +710,8 @@ function ClientDetail({
     };
   }, [request, client.id]);
   const lastSeen = recent?.[0]?.timestamp;
-  const missing = missingDomains(stats?.top_destinations, policy).length;
+  const notices = useClientNotices(request, client.id);
+  const missing = countNotices(notices.items).new;
   const tabs: [Tab, string][] = [
     ["overview", "Обзор"],
     ["access", "Доступ"],
@@ -840,6 +848,8 @@ function ClientDetail({
             stats={stats}
             recent={recent}
             snap={snap}
+            notices={notices.items}
+            onMark={notices.mark}
             onCommit={onCommit}
             onToast={onToast}
             onTab={onTab}
@@ -852,7 +862,9 @@ function ClientDetail({
             snap={snap}
             sharedWith={sharedWith}
             policyEditable={policyEditable}
-            stats={stats}
+            notices={notices.items}
+            onMark={notices.mark}
+            canBlock={!scope}
             request={request}
             onCommit={onCommit}
             onToast={onToast}
@@ -887,16 +899,6 @@ function ClientDetail({
       </InspectorBody>
     </>
   );
-}
-
-// ago renders a past timestamp as "сейчас", "N мин", "N ч" or "N д".
-function ago(iso: string | null | undefined): string {
-  if (!iso) return "—";
-  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
-  if (min < 1) return "сейчас";
-  if (min < 60) return `${min} мин`;
-  if (min < 48 * 60) return `${Math.round(min / 60)} ч`;
-  return `${Math.round(min / 1440)} д`;
 }
 
 function kindLabel(kind?: string): string {
@@ -942,8 +944,9 @@ function PolicyBadge({
   );
 }
 
-// OverviewTab follows the prototype: a callout per denied domain missing from
-// the policy, KPIs, then traffic and top destinations on the left and rules
+// OverviewTab follows the prototype: a callout with the new denied domains
+// missing from the policy (notifications; "Просмотрено" marks them seen for
+// everyone), KPIs, then traffic and top destinations on the left and rules
 // and recent requests on the right.
 function OverviewTab({
   client,
@@ -951,6 +954,8 @@ function OverviewTab({
   stats,
   recent,
   snap,
+  notices,
+  onMark,
   onCommit,
   onToast,
   onTab,
@@ -960,6 +965,8 @@ function OverviewTab({
   stats?: ClientStats;
   recent: Event[] | null;
   snap: Snapshot;
+  notices: Notice[] | null;
+  onMark: (ids: string[], status: NoticeStatus) => Promise<void>;
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
   onTab: (t: Tab) => void;
@@ -967,8 +974,9 @@ function OverviewTab({
   const top = stats?.top_destinations ?? [];
   const deniedTop = missingDomains(stats?.top_destinations, policy);
   const isMissing = (host: string) => deniedTop.some((d) => d.host === host);
-  const shown = deniedTop.slice(0, 5);
-  const rest = deniedTop.length - shown.length;
+  const fresh = (notices ?? []).filter((n) => n.status === "new");
+  const shown = fresh.slice(0, 5);
+  const rest = fresh.length - shown.length;
   const policyName = policy ? policy.name : "";
   const shared = policy
     ? snap.clients.filter((c) => c.policy_id === policy.id).length
@@ -981,27 +989,51 @@ function OverviewTab({
   const max = Math.max(1, ...top.map((d) => d.requests));
   return (
     <>
-      {deniedTop.length > 0 && (
+      {fresh.length > 0 && (
         <Callout tone="bad" icon={<Ban aria-hidden />}>
-          <div className="font-medium">
-            {deniedTop.length === 1
-              ? "Домена нет"
-              : `${pluralRu(deniedTop.length, "домена", "доменов", "доменов")} нет`}{" "}
-            в политике «{policyName}» ·{" "}
-            {pluralRu(
-              deniedTop.reduce((n, d) => n + d.denied, 0),
-              "отказ",
-              "отказа",
-              "отказов",
-            )}{" "}
-            за 24 ч
-          </div>
-          <div className="mt-0.5 text-sm text-muted-foreground">
-            <span className="font-mono">
-              {shown.map((d) => d.host).join(", ")}
-            </span>
-            {rest > 0 && ` и ещё ${rest}`}. Разрешить можно ниже, в «Куда
-            обращается», или во вкладке «Доступ».
+          <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
+            <div className="min-w-0 flex-1">
+              <div className="font-medium">
+                {fresh.length === 1
+                  ? "Новый домен, которого нет"
+                  : `${pluralRu(fresh.length, "новый домен", "новых домена", "новых доменов")}, которых нет`}{" "}
+                в политике «{policyName}» ·{" "}
+                {pluralRu(
+                  fresh.reduce((n, d) => n + d.denied, 0),
+                  "отказ",
+                  "отказа",
+                  "отказов",
+                )}{" "}
+                за 7 дней
+              </div>
+              <div className="mt-0.5 text-sm text-muted-foreground">
+                <span className="font-mono">
+                  {shown.map((d) => d.host).join(", ")}
+                </span>
+                {rest > 0 && ` и ещё ${rest}`}
+              </div>
+            </div>
+            <div className="flex gap-1.5">
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => onTab("access")}
+              >
+                Разобрать
+              </Button>
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() =>
+                  void onMark(
+                    fresh.map((n) => n.id),
+                    "seen",
+                  )
+                }
+              >
+                <Check aria-hidden /> Просмотрено
+              </Button>
+            </div>
           </div>
         </Callout>
       )}
@@ -1241,7 +1273,9 @@ function AccessTab({
   snap,
   sharedWith,
   policyEditable,
-  stats,
+  notices,
+  onMark,
+  canBlock,
   request,
   onCommit,
   onToast,
@@ -1252,7 +1286,9 @@ function AccessTab({
   snap: Snapshot;
   sharedWith: Client[];
   policyEditable: boolean;
-  stats?: ClientStats;
+  notices: Notice[] | null;
+  onMark: (ids: string[], status: NoticeStatus) => Promise<void>;
+  canBlock: boolean;
   request: SectionProps["request"];
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
@@ -1282,7 +1318,6 @@ function AccessTab({
       live = false;
     };
   }, [policy?.id]);
-  const deniedTop = missingDomains(stats?.top_destinations, policy);
   // Policies another client could share: allowlists not owned by this client.
   const sharable = snap.policies.filter(
     (p) => p.mode === "allowlist" && p.id !== policy?.id,
@@ -1449,6 +1484,18 @@ function AccessTab({
           )}
         </CardContent>
       </Card>
+      {policy.mode === "allowlist" && policyEditable && (
+        <DeniedDomains
+          clientID={client.id}
+          policy={policy}
+          snap={snap}
+          items={notices}
+          canBlock={canBlock}
+          onMark={onMark}
+          onCommit={onCommit}
+          onToast={onToast}
+        />
+      )}
       {policy.mode === "allowlist" && (
         <Card>
           <CardHeader>
@@ -1471,32 +1518,6 @@ function AccessTab({
             </CardAction>
           </CardHeader>
           <CardContent>
-            {deniedTop.length > 0 && (
-              <Callout
-                tone="warn"
-                icon={<TriangleAlert aria-hidden />}
-                className="mb-2.5"
-              >
-                <div className="flex flex-wrap items-center gap-1.5 text-sm">
-                  Отказанные домены этого клиента:{" "}
-                  {deniedTop.map((d) => (
-                    <Button
-                      key={d.host}
-                      size="xs"
-                      variant="outline"
-                      onClick={async () => {
-                        const res = await onCommit(
-                          addDomainToClientPolicy(snap, client.id, d.host),
-                        );
-                        if (res.ok) onToast(`Домен ${d.host} добавлен`);
-                      }}
-                    >
-                      <Plus aria-hidden /> {d.host} · {d.denied}
-                    </Button>
-                  ))}
-                </div>
-              </Callout>
-            )}
             <DomainEditor
               destinations={policy.destinations}
               hits={hits}

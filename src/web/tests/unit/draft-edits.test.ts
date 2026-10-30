@@ -2,6 +2,8 @@ import { describe, it, expect } from "vitest";
 import type { Snapshot } from "../../src/model";
 import {
   addDomainToClientPolicy,
+  addDomainsToClientPolicy,
+  blockDomainsForAll,
   changeClientPolicy,
   createClientFromIP,
   clientsOfPolicy,
@@ -176,5 +178,39 @@ describe("clientsOfPolicy", () => {
     expect(clientsOfPolicy(snapshot(), "p-shared")).toEqual(["c-b"]);
     expect(clientsOfPolicy(snapshot(), "p-own")).toEqual(["c-a"]);
     expect(clientsOfPolicy(snapshot(), "p-missing")).toEqual([]);
+  });
+});
+
+describe("addDomainsToClientPolicy", () => {
+  it("adds several exact hosts in one edit and skips invalid ones", () => {
+    const next = addDomainsToClientPolicy(snapshot(), "c-a", [
+      "pypi.org",
+      "own.example",
+      "not a domain",
+    ]);
+    expect(next.policies.find((p) => p.id === "p-own")!.destinations).toEqual([
+      { domain: "own.example", include_subdomains: false },
+      { domain: "pypi.org", include_subdomains: false },
+    ]);
+  });
+  it("no-ops on a missing client or no valid host", () => {
+    const s = snapshot();
+    expect(addDomainsToClientPolicy(s, "c-zzz", ["x.example"])).toBe(s);
+    expect(addDomainsToClientPolicy(s, "c-a", ["bad host"])).toBe(s);
+  });
+});
+
+describe("blockDomainsForAll", () => {
+  it("adds exact hosts to settings.blocked_domains once", () => {
+    const once = blockDomainsForAll(snapshot(), ["evil.test", "evil.test"]);
+    const twice = blockDomainsForAll(once, ["evil.test", "other.test"]);
+    expect(twice.settings!.blocked_domains).toEqual([
+      { domain: "evil.test", include_subdomains: false },
+      { domain: "other.test", include_subdomains: false },
+    ]);
+  });
+  it("no-ops without valid hosts", () => {
+    const s = snapshot();
+    expect(blockDomainsForAll(s, ["bad host"])).toBe(s);
   });
 });

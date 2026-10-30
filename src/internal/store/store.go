@@ -504,6 +504,9 @@ func (s *Store) Prune(ctx context.Context, auditCutoff time.Time, revisionRetent
 	if _, e = tx.ExecContext(ctx, "DELETE FROM audit_events WHERE created_at < ?", auditCutoff.Unix()); e != nil {
 		return e
 	}
+	if _, e = tx.ExecContext(ctx, "DELETE FROM notification_marks WHERE marked_at < ?", time.Now().Add(-NotificationMarkRetention).Unix()); e != nil {
+		return e
+	}
 	if revisionRetention > 0 {
 		// Keep revisions referenced by a succeeded operation (so rollback history
 		// is never pruned) plus the most recent N unreferenced ones.

@@ -56,6 +56,45 @@ export function addDomainToClientPolicy(
   });
 }
 
+// addDomainsToClientPolicy merges several hosts (exact names) into the
+// client policy in one edit; invalid hosts are skipped. Same no-op rules as
+// addDomainToClientPolicy.
+export function addDomainsToClientPolicy(
+  draft: Snapshot,
+  clientID: string,
+  hosts: string[],
+): Snapshot {
+  const client = draft.clients.find((c) => c.id === clientID);
+  const policy = draft.policies.find((p) => p.id === client?.policy_id);
+  if (!policy || policy.mode !== "allowlist") return draft;
+  const parsed = hosts
+    .map((h) => parseDomainInput(h))
+    .filter((d): d is DomainEntry => d !== null);
+  if (!parsed.length) return draft;
+  return withPolicy(draft, policy.id, {
+    ...policy,
+    destinations: mergeDestinations(policy.destinations, parsed),
+  });
+}
+
+// blockDomainsForAll adds exact hosts to settings.blocked_domains (denied for
+// every client before policies). Hosts already blocked are kept once.
+export function blockDomainsForAll(draft: Snapshot, hosts: string[]): Snapshot {
+  const parsed = hosts
+    .map((h) => parseDomainInput(h))
+    .filter((d): d is DomainEntry => d !== null)
+    .map((d) => ({ domain: d.domain, include_subdomains: false }));
+  if (!parsed.length || !draft.settings) return draft;
+  const current = draft.settings.blocked_domains ?? [];
+  return {
+    ...draft,
+    settings: {
+      ...draft.settings,
+      blocked_domains: mergeDestinations(current, parsed),
+    },
+  };
+}
+
 // changeClientPolicy reassigns a client to an existing policy. No-op when the
 // client or the target policy is missing.
 export function changeClientPolicy(

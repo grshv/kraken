@@ -322,6 +322,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/inspector/events/{event_id}/explain", s.authorized("read", s.inspectorEventExplain))
 	mux.HandleFunc("GET /api/v1/inspector/draft-impact", s.authorized("read", s.inspectorDraftImpact))
 	mux.HandleFunc("GET /api/v1/inspector/domain-templates", s.authorized("read", s.inspectorDomainTemplates))
+	mux.HandleFunc("GET /api/v1/notifications", s.authorized("read", s.notifications))
+	mux.HandleFunc("POST /api/v1/notifications/marks", s.authorized("read", s.markNotifications))
 	mux.HandleFunc("GET /api/v1/audit", s.authorized("audit", s.auditEvents))
 	mux.HandleFunc("GET /api/v1/users", s.adminOnly(s.listUsers))
 	mux.HandleFunc("POST /api/v1/users", s.adminOnly(s.createUser))

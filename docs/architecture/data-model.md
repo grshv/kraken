@@ -17,6 +17,7 @@ SQLite и journal обслуживает один Go executable, но транз
 | kv | key, value | Draft/revisions как JSON; optimistic version и validation на уровне приложения |
 | operations | id, idempotency_key, request_hash, body | Один key — один payload; outcome операции хранится отдельно от draft |
 | audit_events | id, actor, action, entity_id, created_at | Без паролей/ключей/config body, mutation и audit атомарны |
+| notification_marks | id, status, actor, marked_at | Только отметка «seen»/«ignored» к вычисляемому уведомлению (id `denied/<client>/<host>` или `source/<ip>`); общая для всех, с audit `mark_notifications` в той же транзакции; живёт 90 дней |
 | schema_migrations | version, checksum, applied_at | DDL/data/version в одной транзакции; применённая миграция не редактируется |
 
 Клиенты, source networks, policies, destinations, TLS profiles и settings —
@@ -112,7 +113,7 @@ secret references и terminal outcome. Он связывается с запис
 `(client_id, ingested_at)` для rollup-запросов инспектора. `004.sql`
 (`telemetry-split-v1`) выносит события прокси из управляющей БД: удаляет
 `proxy_events`, его индексы и `event_checkpoint` из `kv`; данных для переноса нет
-(тестовые тома), телеметрия начинается с нуля. Runner записывает version и checksum в
+(тестовые тома), телеметрия начинается с нуля. `005.sql` (`notification-marks-v1`) добавляет `notification_marks`. Runner записывает version и checksum в
 `schema_migrations`. DDL, перенос данных и версия выполняются одной транзакцией
 SQLite: ошибка откатывает весь переход. Записанный checksum, не совпадающий с
 checksum этой сборки, означает базу несовместимой сборки — `store.Open`
@@ -127,7 +128,7 @@ checksum этой сборки, означает базу несовместим
 `store.Prune` реализует retention управляющей БД: удаляет audit_events старше
 `store.AuditRetention` (3 года) без лимита на количество строк, а также
 ревизии, которые не ссылаются на succeeded operation и не входят в последние N
-(по умолчанию 20). Retention телеметрии (сырые события и агрегаты) выполняет
+(по умолчанию 20). Отметки уведомлений старше 90 дней удаляются там же: уведомление снова считается новым. Retention телеметрии (сырые события и агрегаты) выполняет
 `telemetry.Store.Maintain` в том же периодическом тике `Manager.Maintain`.
 
 ## Реализованное расширение

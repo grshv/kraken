@@ -235,3 +235,13 @@ export function localTime(iso: string, seconds = true): string {
     ...(seconds ? { second: "2-digit" } : {}),
   });
 }
+
+// ago renders a past timestamp as "сейчас", "N мин", "N ч" or "N д".
+export function ago(iso: string | null | undefined): string {
+  if (!iso) return "—";
+  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (min < 1) return "сейчас";
+  if (min < 60) return `${min} мин`;
+  if (min < 48 * 60) return `${Math.round(min / 60)} ч`;
+  return `${Math.round(min / 1440)} д`;
+}

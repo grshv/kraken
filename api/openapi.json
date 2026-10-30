@@ -2611,6 +2611,185 @@
           }
         }
       }
+    },
+    "/notifications": {
+      "get": {
+        "operationId": "listNotifications",
+        "summary": "Computed notifications for the last 7 days with shared marks; admin/manager read",
+        "description": "Notifications are computed from telemetry rollups, not stored: denied_domain — a client was denied a host its active policy does not list (protection and blocked-for-all denials excluded); unknown_source — traffic from an address no client describes. A manager sees only his clients and sources inside his networks. counts are computed before the status filter.",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "new",
+                "seen",
+                "ignored",
+                "all"
+              ]
+            },
+            "description": "Default: new and seen."
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "maxLength": 256
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "denied_domain",
+                "unknown_source"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Notifications"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/marks": {
+      "post": {
+        "operationId": "markNotifications",
+        "summary": "Set one status on up to 500 notifications; admin/manager",
+        "description": "seen — visible but not new; ignored — hidden from default lists and counts; new — removes the mark. Marks are shared by all users, audited as mark_notifications and pruned after 90 days. A manager may mark only ids of his clients or networks (otherwise 400 invalid_ids).",
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MarkNotifications"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Marked",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "required": [
+                    "marked",
+                    "status"
+                  ],
+                  "properties": {
+                    "marked": {
+                      "type": "integer"
+                    },
+                    "status": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_ids or invalid_status",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5166,6 +5345,150 @@
             "items": {
               "$ref": "#/components/schemas/InspectorDomainTemplate"
             }
+          }
+        }
+      },
+      "Notification": {
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "status",
+          "requests",
+          "denied",
+          "last_seen"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "denied/<client_id>/<host> or source/<ip>"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "denied_domain",
+              "unknown_source"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "seen",
+              "ignored"
+            ]
+          },
+          "client_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "client_name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "source_ip": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "host": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "denied": {
+            "type": "integer"
+          },
+          "last_seen": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "marked_by": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "marked_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          }
+        }
+      },
+      "Notifications": {
+        "type": "object",
+        "required": [
+          "window_days",
+          "counts",
+          "items"
+        ],
+        "properties": {
+          "window_days": {
+            "type": "integer"
+          },
+          "counts": {
+            "type": "object",
+            "required": [
+              "new",
+              "seen",
+              "ignored"
+            ],
+            "properties": {
+              "new": {
+                "type": "integer"
+              },
+              "seen": {
+                "type": "integer"
+              },
+              "ignored": {
+                "type": "integer"
+              }
+            }
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Notification"
+            }
+          }
+        }
+      },
+      "MarkNotifications": {
+        "type": "object",
+        "required": [
+          "ids",
+          "status"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "ids": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 500,
+            "items": {
+              "type": "string",
+              "maxLength": 300
+            }
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "new",
+              "seen",
+              "ignored"
+            ]
           }
         }
       }
