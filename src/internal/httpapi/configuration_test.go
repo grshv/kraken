@@ -115,6 +115,25 @@ func TestComparisonIgnoresOmittedDefaultsAndSetOrdering(t *testing.T) {
 	if got := semanticDiff(old, current); len(got) != 0 {
 		t.Fatalf("equivalent values became changes: %v", got)
 	}
+	d := func(name string) policy.Destination { return policy.Destination{Domain: name} }
+	old.Clients[0].LegacyPolicyID, current.Clients[0].LegacyPolicyID = "", ""
+	old.Clients[0].TLSProfileID = old.TLSProfiles[0].ID
+	current.Clients[0].TLSProfileID = current.TLSProfiles[0].ID
+	old.Policies = []policy.Policy{{ID: "p-a", Name: "a"}, {ID: "p-b", Name: "b"}}
+	current.Policies = []policy.Policy{{ID: "p-b", Name: "b"}, {ID: "p-a", Name: "a"}}
+	old.Clients[0].Access, current.Clients[0].Access = policy.AccessList, policy.AccessList
+	old.Clients[0].PolicyIDs = []string{"p-a", "p-b"}
+	old.Clients[0].Destinations = []policy.Destination{d("b.test"), d("a.test")}
+	current.Clients[0].PolicyIDs = []string{"p-b", "p-a"}
+	current.Clients[0].Destinations = []policy.Destination{d("a.test"), d("b.test")}
+	if got := semanticDiff(old, current); len(got) != 0 {
+		t.Fatalf("reordered own domains or policies became changes: %v", got)
+	}
+	current.Clients[0].PolicyIDs = []string{"p-a"}
+	if got := semanticDiff(old, current); len(got) != 1 || got[0] != "Изменён клиент: build" {
+		t.Fatalf("detached policy lost: %v", got)
+	}
+	current.Clients[0].PolicyIDs = []string{"p-b", "p-a"}
 	current.Settings.ConnectTimeout = 45
 	if got := semanticDiff(old, current); len(got) != 1 || got[0] != "Изменены настройки Squid" {
 		t.Fatalf("actual change lost: %v", got)

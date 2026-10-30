@@ -133,6 +133,25 @@ func TestSquidParseMatrix(t *testing.T) {
 			st.LogRotations = 30
 			s.Settings = &st
 		}},
+		{"15-schema2-union-and-none", func(s *policy.Snapshot) {
+			// Current schema: a list client with own domains and two attached
+			// sets (overlapping, one entry covered by *.parent), an all-web
+			// client and a client without access.
+			*s = policy.Upgrade(*s)
+			d := func(name string, sub bool) policy.Destination {
+				return policy.Destination{Domain: name, IncludeSubdomains: sub}
+			}
+			s.Policies = append(s.Policies,
+				policy.Policy{ID: "p-docs", Name: "Docs", Destinations: []policy.Destination{d("docs.test", false), d("allowed.test", false)}},
+				policy.Policy{ID: "p-repo", Name: "Repos", Destinations: []policy.Destination{d("debian.test", true)}},
+			)
+			s.Clients[0].PolicyIDs = []string{"p-allow", "p-docs", "p-repo"}
+			s.Clients[0].Destinations = []policy.Destination{d("own.test", false), d("deb.debian.test", false)}
+			s.Clients = append(s.Clients,
+				policy.Client{ID: "c-web", Name: "web", Networks: []string{"198.51.100.0/24"}, Enabled: true, Access: policy.AccessAllWeb, TLSProfileID: httpProfile, PolicyIDs: []string{"p-docs"}, Destinations: []policy.Destination{}},
+				policy.Client{ID: "c-none", Name: "none", Networks: []string{"203.0.113.5/32"}, Enabled: true, Access: policy.AccessNone, TLSProfileID: tlsProfile, PolicyIDs: []string{}, Destinations: []policy.Destination{d("never.test", false)}},
+			)
+		}},
 	}
 
 	// Render every snapshot into its own .conf file in the fixtures dir.

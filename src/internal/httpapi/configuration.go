@@ -273,23 +273,32 @@ func comparisonSnapshot(input policy.Snapshot) policy.Snapshot {
 			}
 		}
 		sort.Strings(c.Networks)
+		// Own domains and attached sets are sets: their order is not a change.
+		c.Destinations = sortedDestinations(c.Destinations)
+		c.PolicyIDs = append([]string{}, c.PolicyIDs...)
+		sort.Strings(c.PolicyIDs)
 	}
 	for i := range s.Policies {
 		p := &s.Policies[i]
-		p.Destinations = append([]policy.Destination{}, p.Destinations...)
-		sort.Slice(p.Destinations, func(i, j int) bool {
-			a, b := p.Destinations[i], p.Destinations[j]
-			if a.Domain == b.Domain {
-				return !a.IncludeSubdomains && b.IncludeSubdomains
-			}
-			return a.Domain < b.Domain
-		})
+		p.Destinations = sortedDestinations(p.Destinations)
 	}
 	sort.Slice(s.Clients, func(i, j int) bool { return s.Clients[i].ID < s.Clients[j].ID })
 	sort.Slice(s.Policies, func(i, j int) bool { return s.Policies[i].ID < s.Policies[j].ID })
 	sort.Slice(s.TLSProfiles, func(i, j int) bool { return s.TLSProfiles[i].ID < s.TLSProfiles[j].ID })
 	return s
 }
+func sortedDestinations(in []policy.Destination) []policy.Destination {
+	out := append([]policy.Destination{}, in...)
+	sort.Slice(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if a.Domain == b.Domain {
+			return !a.IncludeSubdomains && b.IncludeSubdomains
+		}
+		return a.Domain < b.Domain
+	})
+	return out
+}
+
 func semanticDiff(a, b policy.Snapshot) []string {
 	a, b = comparisonSnapshot(a), comparisonSnapshot(b)
 	out := []string{}
