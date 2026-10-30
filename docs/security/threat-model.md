@@ -22,7 +22,7 @@ Runtime module не является security boundary: он в том же exec
 | SSRF и DNS rebinding | Destination ACL, fixed probes, egress firewall | Metadata/private/rebinding deny |
 | XSS в логах | Экранирование, CSP, bounded parser | HTML как текст |
 | CSRF и session theft | Token/Origin/cookie flags, verifier hash; пользователь видит свои сессии (адрес, User-Agent) и завершает чужие для себя; id сессии в API односторонний, token и hash не выдаются | Cross-origin mutations и revoke tests; менеджер не видит и не завершает чужие сессии (404) |
-| Перебор пароля | Argon2id, rate limit, local bootstrap | Login throttling/reset |
+| Перебор пароля | Argon2id, rate limit, local bootstrap; смена своего пароля требует текущий пароль, не больше 5 попыток в минуту на учётку, неверный текущий пароль — в аудит | Login throttling/reset; тесты смены своего пароля (CSRF, неверный текущий, лимит, гонка с reset) |
 | Apply/crash расширяет доступ | Durable journal и LKG в управляющей БД, flock в tmpfs, startup gate: конфиг Squid пишется из LKG до его старта | Crash на каждой границе и restart Squid |
 | Disk full | Quotas/rotation/watermarks | DB/journal/log failures без silent apply |
 | Утечка TLS key | Узкие UID/file permissions, local provisioning | Отсутствие keys в image/export/logs |
@@ -82,6 +82,8 @@ credentials; пользователь видит только номер стр�
 
 В SQLite хранится только salted Argon2id verifier. Исходный пароль проходит через
 RAM при вводе/проверке; полное гарантированное обнуление памяти Go не заявляется.
-CLI reset меняет hash и отзывает sessions одной транзакцией; создание новой сессии
+CLI reset меняет hash и отзывает sessions одной транзакцией; смена своего пароля
+заменяет hash, только если он не изменился с проверки текущего (иначе 409), и
+одной транзакцией завершает остальные сессии пользователя; создание новой сессии
 сверяет текущий hash в транзакции, чтобы старый login не пережил reset.
 [Параметры и границы](authentication-and-certificates.md).

@@ -30,7 +30,8 @@ import type { ApplyRun } from "../draft/useApplyFlow";
 
 export type ShellHandlers = {
   onLogout: () => void;
-  onChangePassword: () => void;
+  onOpenAccount: () => void;
+  onChangePassword: (current: string, next: string) => Promise<void>;
   onEndOtherSessions: () => void;
   onRefreshDraft: () => void;
   onDiscardDraft: () => void;
@@ -235,6 +236,7 @@ export function InspectorShell({
           </button>
           <ProfileMenu
             session={session}
+            onOpenAccount={handlers.onOpenAccount}
             onChangePassword={handlers.onChangePassword}
             onLogout={handlers.onLogout}
             onEndOtherSessions={handlers.onEndOtherSessions}

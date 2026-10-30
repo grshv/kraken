@@ -259,3 +259,36 @@ func (s *Store) AuditTx(ctx context.Context, tx *sql.Tx, actor, action, entity s
 	_, e := tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, entity, time.Now().Unix())
 	return e
 }
+
+// ErrPasswordChanged means the stored verifier no longer matches the one the
+// caller checked, e.g. an admin reset raced a self-service change.
+var ErrPasswordChanged = errors.New("password changed concurrently")
+
+// ChangeOwnPassword replaces username's verifier only if it still equals
+// oldHash, ends every other session of the user (keep stays) and audits
+// "change_password", all in one transaction.
+func (s *Store) ChangeOwnPassword(ctx context.Context, username, oldHash, newHash, keep string) error {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	tx, e := s.DB.BeginTx(ctx, nil)
+	if e != nil {
+		return e
+	}
+	defer tx.Rollback()
+	res, e := tx.ExecContext(ctx, "UPDATE users SET password_hash=? WHERE username=? AND password_hash=? AND enabled=1", newHash, username, oldHash)
+	if e != nil {
+		return e
+	}
+	if n, e := res.RowsAffected(); e != nil {
+		return e
+	} else if n != 1 {
+		return ErrPasswordChanged
+	}
+	if _, e = tx.ExecContext(ctx, "DELETE FROM sessions WHERE username=? AND token_hash<>?", username, keep); e != nil {
+		return e
+	}
+	if e = s.AuditTx(ctx, tx, username, "change_password", username); e != nil {
+		return e
+	}
+	return tx.Commit()
+}

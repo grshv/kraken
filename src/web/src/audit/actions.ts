@@ -11,7 +11,8 @@
 // store/proxy_accounts.go (create_proxy_account, update_proxy_account,
 // reset_proxy_password), httpapi/server.go (update_draft, discard_draft,
 // create_revision), httpapi/sessions.go and admin (revoke_session,
-// revoke_sessions), httpapi/notifications.go (mark_notifications).
+// revoke_sessions, change_password, change_password_failed),
+// httpapi/notifications.go (mark_notifications).
 
 export type AuditCategory = "apply" | "login" | "account" | "draft" | "other";
 
@@ -25,6 +26,8 @@ export const AUDIT_ACTIONS: readonly string[] = [
   "revoke_session",
   "revoke_sessions",
   "password_reset",
+  "change_password",
+  "change_password_failed",
   "create_user",
   "update_user",
   "update_scope",
@@ -47,6 +50,8 @@ const LABELS: Record<string, string> = {
   revoke_session: "Завершена сессия",
   revoke_sessions: "Завершены сессии",
   password_reset: "Сброс пароля (CLI)",
+  change_password: "Смена своего пароля",
+  change_password_failed: "Неверный текущий пароль при смене",
   create_user: "Создан пользователь панели",
   update_user: "Изменён пользователь панели",
   update_scope: "Изменена область менеджера",
@@ -76,6 +81,8 @@ const CATEGORIES: Record<string, AuditCategory> = {
   update_proxy_account: "account",
   reset_proxy_password: "account",
   password_reset: "account",
+  change_password: "account",
+  change_password_failed: "login",
   update_draft: "draft",
   discard_draft: "draft",
 };

@@ -397,9 +397,13 @@ function App() {
     onLogout: () => {
       void logout();
     },
-    onChangePassword: () => {
-      setNavId("accounts");
-      showToast("Откроется форма смены пароля");
+    onOpenAccount: () => setNavId("accounts"),
+    onChangePassword: async (current, next) => {
+      await api("/session/password", "PUT", {
+        current_password: current,
+        new_password: next,
+      });
+      showToast("Пароль изменён, другие сессии завершены");
     },
     onEndOtherSessions: () => {
       if (!session?.username) return;

@@ -183,6 +183,123 @@
         ]
       }
     },
+    "/session/password": {
+      "put": {
+        "operationId": "changeOwnPassword",
+        "summary": "Change the signed-in user's own password",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "current_password",
+                  "new_password"
+                ],
+                "properties": {
+                  "current_password": {
+                    "type": "string",
+                    "maxLength": 1024
+                  },
+                  "new_password": {
+                    "type": "string",
+                    "description": "12..1024 bytes; must differ from the current password."
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "Password replaced; this session stays, other sessions of the user are revoked. Audit change_password."
+          },
+          "409": {
+            "description": "The stored verifier changed concurrently (admin or CLI reset). code=credentials_changed.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "code=invalid_current_password (audit change_password_failed) or invalid_password.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "More than 5 attempts per minute for the account. code=rate_limited.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "Insufficient disk space for a mutation; the request was rejected before any write. code=storage_full.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "X-CSRF-Token",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1
+            },
+            "description": "Same-origin session-bound token. Login uses pre-auth token from GET /session."
+          }
+        ],
+        "description": "Any authenticated role. Requires the current password; Argon2id work shares the login concurrency slots."
+      }
+    },
     "/status": {
       "get": {
         "operationId": "getStatus",

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"net/http"
 	"strings"
 	"time"
@@ -140,4 +141,78 @@ func (s *Server) revokeSessions(w http.ResponseWriter, r *http.Request, v sessio
 		return
 	}
 	respond(w, 200, map[string]any{"revoked": n})
+}
+
+// changeOwnPassword lets the signed-in user replace their password after
+// proving the current one. Attempts are limited to 5 per minute per account;
+// the current session stays and every other session of the user ends.
+func (s *Server) changeOwnPassword(w http.ResponseWriter, r *http.Request, v session) {
+	var input struct {
+		Current string `json:"current_password"`
+		New     string `json:"new_password"`
+	}
+	if !decode(w, r, &input) {
+		return
+	}
+	if len(input.Current) > 1024 {
+		fail(w, 400, "invalid_input", "Некорректные данные")
+		return
+	}
+	key := "chpw:" + v.User
+	now := time.Now()
+	s.throttleMu.Lock()
+	entry := s.attempts[key]
+	entry.Times = appendFresh(entry.Times, now.Add(-time.Minute), now)
+	s.attempts[key] = entry
+	s.throttleMu.Unlock()
+	if len(entry.Times) > 5 {
+		s.auditAudit(r.Context(), v.User, "rate_limited", "change_password")
+		fail(w, 429, "rate_limited", "Слишком много попыток. Повторите через минуту")
+		return
+	}
+	if s.storageFull(w) {
+		return
+	}
+	release, ok := s.passwordWorkSlot(w)
+	if !ok {
+		return
+	}
+	defer release()
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	old, e := s.Store.UserPasswordHashStandalone(ctx, v.User)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	if !passwordMatches(old, input.Current) {
+		s.auditAudit(r.Context(), v.User, "change_password_failed", v.User)
+		fail(w, 422, "invalid_current_password", "Текущий пароль неверен")
+		return
+	}
+	if input.New == input.Current {
+		fail(w, 422, "invalid_password", "Новый пароль совпадает с текущим")
+		return
+	}
+	encoded, e := PasswordHash(input.New)
+	if e != nil {
+		fail(w, 422, "invalid_password", "Пароль должен содержать от 12 до 1024 байт")
+		return
+	}
+	e = s.Store.ChangeOwnPassword(ctx, v.User, old, encoded, v.Hash)
+	if errors.Is(e, store.ErrPasswordChanged) {
+		fail(w, 409, "credentials_changed", "Пароль уже изменён. Войдите заново")
+		return
+	}
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return
+	}
+	w.WriteHeader(204)
 }
