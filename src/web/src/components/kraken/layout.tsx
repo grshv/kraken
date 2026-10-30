@@ -99,7 +99,12 @@ export function ListRow({
       {...props}
     >
       {leading && (
-        <span className="row-span-2 text-muted-foreground [&_svg]:size-3.5">
+        <span
+          className={cn(
+            "flex text-muted-foreground [&_svg]:size-3.5",
+            (subtitle || aside) && "row-span-2",
+          )}
+        >
           {leading}
         </span>
       )}
