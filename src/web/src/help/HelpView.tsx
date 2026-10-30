@@ -1,6 +1,16 @@
 import { useEffect, useState } from "react";
 import { BookOpen, Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import {
+  ListPane,
+  ListPaneHeader,
+  ListPaneBody,
+  ListGroupLabel,
+  ListRow,
+  InspectorPane,
+  InspectorHeader,
+  InspectorBody,
+} from "@/components/kraken/layout";
 import { EmptyState } from "../shell/EmptyState";
 import { renderMarkdown } from "./markdown";
 import type { HelpEntry, HelpArticle } from "../model";
@@ -70,44 +80,45 @@ export function HelpView({ request }: { request: Request }) {
   })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="help-view">
-      <aside className="list-pane">
-        <div className="list-head">
-          <span className="list-title">Справка</span>
-          <div className="search-input">
-            <Search aria-hidden />
+    <div className="flex w-full min-h-0">
+      <ListPane>
+        <ListPaneHeader title="Справка">
+          <div className="relative flex items-center">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
+            />
             <Input
               aria-label="Поиск по справке"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Поиск…"
+              className="pl-[30px]"
             />
           </div>
-        </div>
-        <div className="list-body">
+        </ListPaneHeader>
+        <ListPaneBody>
           {grouped.length === 0 && (
-            <div className="list-group-label">
+            <ListGroupLabel>
               {index ? "Ничего не найдено" : "Загрузка…"}
-            </div>
+            </ListGroupLabel>
           )}
           {grouped.map((g) => (
             <div key={g.section}>
-              <div className="list-group-label">{g.section}</div>
+              <ListGroupLabel>{g.section}</ListGroupLabel>
               {g.items.map((e) => (
-                <button
+                <ListRow
                   key={e.slug}
-                  type="button"
-                  className={"list-row" + (slug === e.slug ? " selected" : "")}
+                  selected={slug === e.slug}
                   onClick={() => setSlug(e.slug)}
-                >
-                  <span className="ellipsis">{e.title}</span>
-                </button>
+                  title={e.title}
+                />
               ))}
             </div>
           ))}
-        </div>
-      </aside>
-      <section className="inspector-pane">
+        </ListPaneBody>
+      </ListPane>
+      <InspectorPane>
         {error ? (
           <EmptyState icon={<BookOpen />} title="Не удалось загрузить статью">
             {error}
@@ -115,17 +126,21 @@ export function HelpView({ request }: { request: Request }) {
         ) : !article ? (
           <EmptyState icon={<BookOpen />} title="Загрузка…" />
         ) : (
-          <article className="help-article">
-            <header className="inspector-head">
-              <div className="muted-text">{article.section}</div>
-              <h1 className="page-title">{article.title}</h1>
-            </header>
-            <div className="inspector-body">
+          <article className="flex min-h-0 min-w-0 flex-1 flex-col">
+            <InspectorHeader
+              crumbs={
+                <span className="text-sm text-muted-foreground">
+                  {article.section}
+                </span>
+              }
+              title={article.title}
+            />
+            <InspectorBody>
               {renderMarkdown(article.markdown, (s) => setSlug(s))}
-            </div>
+            </InspectorBody>
           </article>
         )}
-      </section>
+      </InspectorPane>
     </div>
   );
 }

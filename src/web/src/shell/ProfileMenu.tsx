@@ -1,5 +1,12 @@
-import { useState } from "react";
 import { LogOut, KeyRound, UserRound } from "lucide-react";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import type { Session } from "../model";
 
 // Avatar with profile menu. Closes on outside click, Escape, or action. The
@@ -13,84 +20,52 @@ export function ProfileMenu({
   onChangePassword: () => void;
   onLogout: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const name = session.username || "admin";
   const role = session.role === "manager" ? "Менеджер" : "Администратор";
   const initial = (name[0] || "A").toUpperCase();
   return (
-    <div className="profile-menu">
-      <button
-        type="button"
-        className={"avatar" + (open ? " active" : "")}
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`Профиль ${name}`}
-        onClick={() => setOpen((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === "Escape") setOpen(false);
-        }}
-      >
-        <span className="avatar-initial">{initial}</span>
-        <span className="avatar-online" aria-hidden />
-      </button>
-      {open && (
-        <>
-          <div
-            className="popover-overlay"
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="relative mb-1 mt-1.5 flex size-8 items-center justify-center rounded-full border border-border bg-transparent hover:border-ring focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+          aria-label={`Профиль ${name}`}
+        >
+          <Avatar className="size-full">
+            <AvatarFallback className="bg-muted text-base font-medium text-foreground">
+              {initial}
+            </AvatarFallback>
+          </Avatar>
+          <span
+            className="absolute -bottom-px -right-px z-10 size-2.5 rounded-full border-2 border-sidebar bg-ok"
             aria-hidden
-            onClick={() => setOpen(false)}
           />
-          <div role="menu" aria-label="Профиль" className="profile-popover">
-            <div className="profile-head">
-              <span className="avatar static" aria-hidden>
-                <span className="avatar-initial">{initial}</span>
-              </span>
-              <div className="profile-meta">
-                <div className="profile-name">{name}</div>
-                <div className="muted-text small">{role}</div>
-              </div>
-            </div>
-            <div className="menu-separator" />
-            <button
-              type="button"
-              role="menuitem"
-              className="menu-item"
-              onClick={() => {
-                setOpen(false);
-                onChangePassword();
-              }}
-            >
-              <UserRound aria-hidden />
-              Мой аккаунт
-            </button>
-            <button
-              type="button"
-              role="menuitem"
-              className="menu-item"
-              onClick={() => {
-                setOpen(false);
-                onChangePassword();
-              }}
-            >
-              <KeyRound aria-hidden />
-              Сменить пароль
-            </button>
-            <div className="menu-separator" />
-            <button
-              type="button"
-              role="menuitem"
-              className="menu-item danger"
-              onClick={() => {
-                setOpen(false);
-                onLogout();
-              }}
-            >
-              <LogOut aria-hidden />
-              Выйти
-            </button>
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" side="right" className="w-[268px] p-1.5">
+        <div className="flex items-center gap-2.5 px-2 pb-2.5 pt-2">
+          <Avatar className="size-8 border border-border">
+            <AvatarFallback className="bg-muted text-base font-medium text-foreground">
+              {initial}
+            </AvatarFallback>
+          </Avatar>
+          <div className="min-w-0">
+            <div className="font-semibold">{name}</div>
+            <div className="text-sm text-muted-foreground">{role}</div>
           </div>
-        </>
-      )}
-    </div>
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem onSelect={() => onChangePassword()}>
+          <UserRound aria-hidden /> Мой аккаунт
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onChangePassword()}>
+          <KeyRound aria-hidden /> Сменить пароль
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem variant="destructive" onSelect={() => onLogout()}>
+          <LogOut aria-hidden /> Выйти
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }

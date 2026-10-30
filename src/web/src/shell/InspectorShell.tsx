@@ -13,6 +13,7 @@ import {
   Users,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { cn } from "cn";
 import type { NavId, Role } from "./nav";
 import { navItems } from "./nav";
 import { KrakenMark } from "./KrakenMark";
@@ -128,41 +129,54 @@ export function InspectorShell({
   );
 
   return (
-    <div className="inspector-shell">
+    <div className="flex h-dvh flex-col bg-page">
       <a className="skip-link" href="#main-content">
         К содержимому
       </a>
-      <header className="app-header">
-        <div className="header-logo-cell">
-          <span className="brand-logo" aria-hidden>
-            <KrakenMark title="" />
+      <header className="grid h-[52px] flex-none grid-cols-[72px_var(--list-w,300px)_minmax(0,1fr)_minmax(0,520px)_minmax(0,1fr)] items-center border-b bg-card pr-4 max-[1180px]:grid-cols-[72px_min(var(--list-w,300px),260px)_minmax(0,0.4fr)_minmax(0,520px)_minmax(0,1fr)] max-[820px]:grid-cols-[auto_auto_minmax(0,1fr)_auto] max-[820px]:gap-2.5 max-[820px]:px-3.5">
+        <div className="flex justify-center">
+          <span
+            className="grid size-[34px] place-items-center text-foreground"
+            aria-hidden
+          >
+            <KrakenMark title="" className="size-[30px]" />
           </span>
         </div>
-        <div className="header-word-cell">
-          <span className="brand-word">Kraken</span>
+        <div className="flex min-w-0 items-center pl-3">
+          <span className="whitespace-nowrap text-sm font-semibold uppercase tracking-[0.24em] text-foreground">
+            Kraken
+          </span>
         </div>
-        <div className="header-gap" aria-hidden />
+        <div className="max-[820px]:hidden" aria-hidden />
         <button
           type="button"
-          className="search-trigger"
+          className="col-start-4 flex h-[34px] min-w-0 cursor-text items-center gap-2 justify-self-stretch rounded-md border bg-background px-3 text-base text-muted-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring max-[820px]:col-start-3"
           onClick={() => setPaletteOpen(true)}
         >
           <Search aria-hidden />
           <span className="grow">Клиент, IP, домен или действие…</span>
-          <kbd className="kbd">⌘K</kbd>
+          <kbd className="rounded-[6px] border bg-muted px-[5px] font-mono text-xs text-muted-foreground">
+            ⌘K
+          </kbd>
         </button>
-        <div className="header-stat-cell">
+        <div className="col-start-5 flex justify-end max-[820px]:col-start-4">
           <StatusIndicator status={status} onOpenAudit={handlers.onOpenAudit} />
         </div>
       </header>
       {status?.squid.state === "down" && (
-        <div className="down-banner" role="alert">
+        <div
+          className="flex flex-none items-center gap-2.5 border-b bg-bad-bg px-4 py-2 text-sm text-bad"
+          role="alert"
+        >
           <strong>Squid не отвечает.</strong> Трафик клиентов сейчас не
           проходит. Kraken перезапускает Squid с последней рабочей ревизией.
         </div>
       )}
-      <div className="app-body">
-        <nav className="rail" aria-label="Разделы">
+      <div className="grid min-h-0 flex-1 grid-cols-[72px_minmax(0,1fr)]">
+        <nav
+          className="flex flex-col items-center gap-0.5 overflow-y-auto border-r bg-sidebar py-2"
+          aria-label="Разделы"
+        >
           {items
             .filter((n) => n.group === "main")
             .map((n) => {
@@ -179,7 +193,7 @@ export function InspectorShell({
                 </RailItem>
               );
             })}
-          <span className="rail-spacer" />
+          <span className="grow" />
           {items
             .filter((n) => n.group === "bottom")
             .map((n) => {
@@ -198,7 +212,7 @@ export function InspectorShell({
             })}
           <button
             type="button"
-            className="rail-item"
+            className="flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-[18px]"
             aria-label={dark ? "Светлая тема" : "Тёмная тема"}
             aria-pressed={dark}
             onClick={() => setTheme(dark ? "light" : "dark")}
@@ -213,7 +227,7 @@ export function InspectorShell({
           />
         </nav>
         <div
-          className="app-content"
+          className="flex min-h-0 min-w-0 flex-col bg-background"
           id="main-content"
           tabIndex={-1}
           style={
@@ -288,7 +302,10 @@ function RailItem({
   return (
     <button
       type="button"
-      className={"rail-item" + (active ? " active" : "")}
+      className={cn(
+        "flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-[18px]",
+        active && "bg-[var(--accent-soft)] text-accent",
+      )}
       aria-current={active ? "page" : undefined}
       data-nav={id}
       onClick={onClick}

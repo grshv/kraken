@@ -1,5 +1,14 @@
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { ChevronRight } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { KeyValue } from "@/components/kraken/blocks";
+import { cn } from "cn";
 import type { Status } from "../model";
 
 // Compact status indicator in the header. Click toggles a popover with the
@@ -24,50 +33,47 @@ export function StatusIndicator({
         : state === "degraded"
           ? "Ограничен"
           : "Нет данных";
-  const dotClass = `status-dot ${state}`;
+  const dotClass =
+    state === "up"
+      ? "bg-ok"
+      : state === "down" || state === "degraded"
+        ? "bg-bad"
+        : "bg-muted-foreground";
 
   return (
-    <div className="status-indicator">
-      <button
-        type="button"
-        className="status-trigger"
-        aria-expanded={open}
-        aria-haspopup="dialog"
-        aria-label={`Состояние сервера: ${label}`}
-        onClick={() => setOpen((v) => !v)}
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-2 px-2.5"
+          aria-label={`Состояние сервера: ${label}`}
+        >
+          <span className={cn("size-2 rounded-full", dotClass)} aria-hidden />
+          <span className="text-sm">{label}</span>
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent
+        align="end"
+        sideOffset={4}
+        className="w-80 px-3.5 py-3"
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <span className={dotClass} aria-hidden />
-        <span className="status-label">{label}</span>
-      </button>
-      {open && (
-        <>
-          <div
-            className="popover-overlay"
-            aria-hidden
-            onClick={() => setOpen(false)}
-          />
-          <div
-            role="dialog"
-            aria-label="Состояние сервера"
-            className="status-popover"
+        <StatusPopoverBody status={status} squidUp={squidUp} />
+        <div className="mt-2.5 flex justify-end border-t pt-2.5">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              setOpen(false);
+              onOpenAudit();
+            }}
           >
-            <StatusPopoverBody status={status} squidUp={squidUp} />
-            <div className="status-popover-footer">
-              <button
-                type="button"
-                className="link-button"
-                onClick={() => {
-                  setOpen(false);
-                  onOpenAudit();
-                }}
-              >
-                История применений
-              </button>
-            </div>
-          </div>
-        </>
-      )}
-    </div>
+            История применений
+          </Button>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }
 
@@ -81,40 +87,30 @@ function StatusPopoverBody({
   const squid = status?.squid;
   const runtime = status?.runtime;
   const rev = status?.applied_revision ?? null;
-  const observeText = (s: string | null) => s ?? "—";
+  const items: [ReactNode, ReactNode][] = [
+    ["Экземпляр", "—"],
+    ["Ревизия", rev ? shortId(rev) : "—"],
+    ["Squid", squid?.detail || (squidUp ? "работает" : "недоступен")],
+    [
+      "Свежесть журнала",
+      runtime?.observed_at ? relative(runtime.observed_at) : "—",
+    ],
+  ];
+  if (squid?.stale) items.push(["Данные", "устаревшие"]);
   return (
-    <dl className="status-kv">
-      <div className="status-row">
-        <span className={"badge " + (squidUp ? "badge-ok" : "badge-bad")}>
-          <span className="status-dot" aria-hidden />
+    <div className="flex flex-col gap-1.5">
+      <div className="flex items-center gap-2.5">
+        <Badge variant={squidUp ? "ok" : "bad"}>
+          <span className="size-1.5 rounded-full bg-current" aria-hidden />
           {squidUp ? "Squid работает" : squid?.detail || "Squid не отвечает"}
-        </span>
+        </Badge>
         {squid?.observed_at && (
-          <span className="muted-text small">
+          <span className="text-sm text-muted-foreground">
             проверено {relative(squid.observed_at)}
           </span>
         )}
       </div>
-      <KV label="Экземпляр" value="—" />
-      <KV label="Ревизия" value={rev ? shortId(rev) : "—"} />
-      <KV
-        label="Squid"
-        value={squid?.detail || (squidUp ? "работает" : "недоступен")}
-      />
-      <KV
-        label="Свежесть журнала"
-        value={runtime?.observed_at ? relative(runtime.observed_at) : "—"}
-      />
-      {squid?.stale && <KV label="Данные" value="устаревшие" />}
-    </dl>
-  );
-}
-
-function KV({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="kv-row">
-      <dt>{label}</dt>
-      <dd>{value}</dd>
+      <KeyValue items={items} />
     </div>
   );
 }
