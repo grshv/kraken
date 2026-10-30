@@ -120,9 +120,9 @@
   --mod-fg: #92400e;
   --del-bg: #fdf0f0;
   --del-fg: #991b1b;
-  --s-allow: #525252;
+  --s-allow: #15803d;
   --s-deny: #b91c1c;
-  --s-allow-soft: #52525224;
+  --s-allow-soft: #15803d24;
 }
 
 .dark {
@@ -171,9 +171,9 @@
   --mod-fg: #fcd34d;
   --del-bg: #3f0b0b;
   --del-fg: #fca5a5;
-  --s-allow: #a3a3a3;
+  --s-allow: #4ade80;
   --s-deny: #f07070;
-  --s-allow-soft: #a3a3a324;
+  --s-allow-soft: #4ade8024;
 }
 
 @layer base {
