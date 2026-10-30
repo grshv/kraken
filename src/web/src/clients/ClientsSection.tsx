@@ -98,6 +98,7 @@ import { missingDomains } from "./missing";
 import {
   countNotices,
   useClientNotices,
+  useSourceNotices,
   type Notice,
   type NoticeStatus,
 } from "./notifications";
@@ -175,6 +176,16 @@ export function ClientsSection(props: SectionProps) {
   const [confirmFn, setConfirmFn] = useState<(() => void) | null>(null);
   const [unknown, setUnknown] = useState<UnknownSource[] | null>(null);
   const [stats, setStats] = useState<Record<string, ClientStats>>({});
+  // Ignored undescribed sources leave the list until shown again.
+  const sources = useSourceNotices(request);
+  const [showIgnored, setShowIgnored] = useState(false);
+  const isIgnored = (ip: string) => sources.byIP[ip]?.status === "ignored";
+  const ignoredCount = (unknown ?? []).filter((u) =>
+    isIgnored(u.source_ip),
+  ).length;
+  const visibleUnknown = (unknown ?? []).filter(
+    (u) => showIgnored || !isIgnored(u.source_ip),
+  );
 
   const snap = draft?.snapshot;
   const activeSnap = active;
@@ -290,7 +301,7 @@ export function ClientsSection(props: SectionProps) {
           />
           <ListPaneBody>
             <ListGroupLabel>Неописанные источники</ListGroupLabel>
-            {(unknown ?? []).map((u) => (
+            {visibleUnknown.map((u) => (
               <ListRow
                 key={u.source_ip}
                 title={<span className="font-mono text-sm">{u.source_ip}</span>}
@@ -334,6 +345,28 @@ export function ClientsSection(props: SectionProps) {
       request={request}
       from={creating.from}
       fromSource={unknown?.find((u) => u.source_ip === creating.from)}
+      sourceStatus={
+        creating.from
+          ? (sources.byIP[creating.from]?.status ?? "new")
+          : undefined
+      }
+      onMarkSource={async (status) => {
+        if (!creating.from) return;
+        try {
+          await sources.mark(creating.from, status);
+        } catch {
+          onToast("Не удалось сохранить отметку");
+          return;
+        }
+        if (status === "ignored") setCreating(null);
+        onToast(
+          status === "ignored"
+            ? "Источник скрыт из списка"
+            : status === "seen"
+              ? "Отмечено как просмотренное"
+              : "Отметка снята",
+        );
+      }}
       initialName={creating.name}
       initialSrc={creating.src}
       initialDomains={creating.domains}
@@ -474,17 +507,29 @@ export function ClientsSection(props: SectionProps) {
               />
             );
           })}
-          {unknown && unknown.length > 0 && (
+          {(visibleUnknown.length > 0 || ignoredCount > 0) && (
             <>
               <ListGroupLabel>Неописанные источники</ListGroupLabel>
-              {unknown.map((u) => (
+              {visibleUnknown.map((u) => (
                 <ListRow
                   key={u.source_ip}
                   selected={creating?.from === u.source_ip}
                   title={<span className="font-mono">{u.source_ip}</span>}
                   meta={
-                    <span className="text-bad">
+                    <span
+                      className={cn(
+                        sources.byIP[u.source_ip]?.status === "new" ||
+                          !sources.byIP[u.source_ip]
+                          ? "text-bad"
+                          : "text-muted-foreground",
+                      )}
+                    >
                       {pluralRu(u.denied, "отказ", "отказа", "отказов")}
+                      {isIgnored(u.source_ip)
+                        ? " · игнорируется"
+                        : sources.byIP[u.source_ip]?.status === "seen"
+                          ? " · просмотрено"
+                          : ""}
                     </span>
                   }
                   subtitle={u.top_destinations.map((d) => d.host).join(", ")}
@@ -503,6 +548,17 @@ export function ClientsSection(props: SectionProps) {
                   }
                 />
               ))}
+              {ignoredCount > 0 && (
+                <button
+                  type="button"
+                  className="px-3.5 py-2 text-left text-sm text-muted-foreground hover:text-foreground"
+                  onClick={() => setShowIgnored((v) => !v)}
+                >
+                  {showIgnored
+                    ? "Скрыть игнорируемые"
+                    : `Показать игнорируемые (${ignoredCount})`}
+                </button>
+              )}
             </>
           )}
           {filtered.length === 0 && (
@@ -2131,6 +2187,8 @@ function NewClientForm({
   request,
   from,
   fromSource,
+  sourceStatus,
+  onMarkSource,
   initialName,
   initialSrc,
   initialDomains,
@@ -2141,6 +2199,8 @@ function NewClientForm({
   request: SectionProps["request"];
   from?: string;
   fromSource?: UnknownSource;
+  sourceStatus?: NoticeStatus;
+  onMarkSource?: (status: NoticeStatus) => Promise<void>;
   initialName: string;
   initialSrc: string;
   initialDomains: string[];
@@ -2198,9 +2258,38 @@ function NewClientForm({
           ) : undefined
         }
         actions={
-          <Button size="xs" variant="ghost" onClick={onCancel}>
-            Отмена
-          </Button>
+          <>
+            {from && onMarkSource && sourceStatus === "new" && (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => void onMarkSource("seen")}
+              >
+                Просмотрено
+              </Button>
+            )}
+            {from && onMarkSource && sourceStatus !== "ignored" && (
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => void onMarkSource("ignored")}
+              >
+                Игнорировать
+              </Button>
+            )}
+            {from && onMarkSource && sourceStatus && sourceStatus !== "new" && (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => void onMarkSource("new")}
+              >
+                Снять отметку
+              </Button>
+            )}
+            <Button size="xs" variant="ghost" onClick={onCancel}>
+              Отмена
+            </Button>
+          </>
         }
         meta="Клиент попадёт в черновик. Трафик не изменится, пока вы не примените изменения."
       />

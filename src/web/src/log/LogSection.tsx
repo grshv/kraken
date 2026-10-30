@@ -914,6 +914,9 @@ function LogDetail({
       </Badge>,
     ],
   ];
+  if (event.deny_reason) {
+    kvItems.push(["Причина", denyReasonLabel(event.deny_reason)]);
+  }
   if (event.count != null && event.count > 1) {
     kvItems.push([
       "Повторов",

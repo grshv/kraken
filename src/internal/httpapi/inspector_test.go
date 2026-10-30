@@ -68,13 +68,22 @@ func applySnapshot(t *testing.T, h http.Handler, s *Server, cookie *http.Cookie,
 	}
 	var rev Revision
 	json.Unmarshal(w.Body.Bytes(), &rev)
-	vop := postOp(t, h, cookie, csrf, `{"action":"validate","revision_id":"`+rev.ID+`","expected_applied_revision":null}`, "inspector-validate-"+label)
+	// The applied revision the operations must expect: null on the first apply.
+	var st struct {
+		Applied *string `json:"applied_revision"`
+	}
+	getJSON(t, h, cookie, "/status", &st)
+	expected := "null"
+	if st.Applied != nil && *st.Applied != "" {
+		expected = `"` + *st.Applied + `"`
+	}
+	vop := postOp(t, h, cookie, csrf, `{"action":"validate","revision_id":"`+rev.ID+`","expected_applied_revision":`+expected+`}`, "inspector-validate-"+label)
 	s.Wait()
 	vop = getOp(t, h, cookie, vop.ID)
 	if vop.Status != "validated" {
 		t.Fatalf("applySnapshot(%s) validate: %s %s", label, vop.Status, vop.Findings)
 	}
-	aop := postOp(t, h, cookie, csrf, `{"action":"apply","revision_id":"`+rev.ID+`","expected_applied_revision":null,"validation_operation_id":"`+vop.ID+`"}`, "inspector-apply-"+label)
+	aop := postOp(t, h, cookie, csrf, `{"action":"apply","revision_id":"`+rev.ID+`","expected_applied_revision":`+expected+`,"validation_operation_id":"`+vop.ID+`"}`, "inspector-apply-"+label)
 	s.Wait()
 	aop = getOp(t, h, cookie, aop.ID)
 	if aop.Status != "succeeded" {
@@ -539,5 +548,25 @@ func TestInspectorDomainTemplates(t *testing.T) {
 		if x.ID == "" || x.Name == "" || len(x.Destinations) == 0 {
 			t.Fatalf("empty template: %+v", x)
 		}
+	}
+}
+
+// A source the rollups still remember stops being "unknown" (and its
+// notification disappears) once the active configuration covers it.
+func TestInspectorUnknownSourcesSkipsDescribed(t *testing.T) {
+	s, h, c, csrf := inspectorFixture(t)
+	snap := inspectorSnapshot()
+	snap.Clients = append(snap.Clients, policy.Client{ID: "c-new", Name: "new", Kind: "network", Networks: []string{"10.9.9.0/24"}, Enabled: true, PolicyID: "p-allow"})
+	applySnapshot(t, h, s, c, csrf, "described", snap)
+	var v struct {
+		Sources []struct {
+			IP string `json:"source_ip"`
+		} `json:"sources"`
+	}
+	if code := getJSON(t, h, c, "/inspector/unknown-sources", &v); code != 200 || len(v.Sources) != 0 {
+		t.Fatalf("described source still listed: %d %+v", code, v.Sources)
+	}
+	if n := listNotifications(t, h, c, "?kind=unknown_source"); len(n.Items) != 0 {
+		t.Fatalf("notification for described source: %+v", n.Items)
 	}
 }

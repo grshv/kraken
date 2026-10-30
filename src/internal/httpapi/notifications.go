@@ -38,6 +38,21 @@ type notification struct {
 func deniedID(clientID, host string) string { return "denied/" + clientID + "/" + host }
 func sourceID(ip string) string             { return "source/" + ip }
 
+// sourceDescribed reports whether a client of snap already covers the source
+// address (an unparsable address counts as described and is skipped).
+func sourceDescribed(snap policy.Snapshot, source string) bool {
+	ip, e := netip.ParseAddr(source)
+	if e != nil {
+		return true
+	}
+	for _, c := range snap.Clients {
+		if clientContainsIP(c, ip) {
+			return true
+		}
+	}
+	return false
+}
+
 // missingFromPolicy reports whether a denial of host for client is the kind a
 // user can fix by allowing the domain: not a protection or blocked-for-all
 // denial, the client is enabled, and its policy neither allows all web nor
@@ -111,18 +126,7 @@ func (s *Server) computeNotifications(ctx context.Context, v session) ([]notific
 		})
 	}
 	for _, src := range sources {
-		ip, e := netip.ParseAddr(src.SourceIP)
-		if e != nil {
-			continue
-		}
-		described := false
-		for _, c := range snap.Clients {
-			if clientContainsIP(c, ip) {
-				described = true
-				break
-			}
-		}
-		if described {
+		if sourceDescribed(snap, src.SourceIP) {
 			continue
 		}
 		out = append(out, notification{

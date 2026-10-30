@@ -286,6 +286,7 @@ export function InspectorShell({
         preview={preview}
         status={status}
         run={applyRun}
+        request={request}
         onRefreshDraft={handlers.onRefreshDraft}
       />
       <ConfirmDialog

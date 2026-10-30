@@ -473,7 +473,7 @@ function App() {
     return (
       <main className="grid min-h-dvh place-items-center bg-background p-6">
         <Card className="w-full max-w-[410px] gap-4 p-8 shadow-[0_8px_30px_#0000000d]">
-          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-[-0.015em]">
+          <h1 className="flex items-center gap-3 text-sm font-semibold uppercase tracking-[0.24em]">
             <KrakenMark title="" className="size-8" />
             Kraken
           </h1>
@@ -696,7 +696,7 @@ function LoginView({
   return (
     <main className="grid min-h-dvh place-items-center bg-background p-6">
       <Card className="w-full max-w-[410px] gap-4 p-8 shadow-[0_8px_30px_#0000000d]">
-        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-[-0.015em]">
+        <h1 className="flex items-center gap-3 text-sm font-semibold uppercase tracking-[0.24em]">
           <KrakenMark title="" className="size-8" />
           Kraken
         </h1>

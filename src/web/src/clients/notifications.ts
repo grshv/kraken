@@ -56,3 +56,35 @@ export function countNotices(items: Notice[] | null): NoticeCounts {
   for (const n of items ?? []) c[n.status]++;
   return c;
 }
+
+// useSourceNotices loads the marks of undescribed sources, keyed by IP, so
+// the clients list can hide ignored ones and the "create from source" form
+// can mark one seen or ignored.
+export function useSourceNotices(request: SectionProps["request"]) {
+  const [byIP, setByIP] = useState<Record<string, Notice>>({});
+  const load = useCallback(() => {
+    return request<{ items: Notice[] }>(
+      "/notifications?status=all&kind=unknown_source",
+    )
+      .then((r) => {
+        const m: Record<string, Notice> = {};
+        for (const n of r.items ?? []) if (n.source_ip) m[n.source_ip] = n;
+        setByIP(m);
+      })
+      .catch(() => {});
+  }, [request]);
+  useEffect(() => {
+    void load();
+  }, [load]);
+  const mark = useCallback(
+    async (ip: string, status: NoticeStatus) => {
+      await request("/notifications/marks", "POST", {
+        ids: [`source/${ip}`],
+        status,
+      });
+      await load();
+    },
+    [request, load],
+  );
+  return { byIP, mark };
+}

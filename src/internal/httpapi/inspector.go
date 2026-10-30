@@ -380,8 +380,14 @@ func (s *Server) inspectorUnknownSources(w http.ResponseWriter, r *http.Request,
 		fail(w, 503, "storage_unavailable", "Неописанные источники временно недоступны")
 		return
 	}
+	// The rollups remember a source for 24 h; once a client covers it in the
+	// active configuration it is no longer undescribed.
+	snap := s.loadActiveManifestOrDraft(ctx)
 	items := make([]map[string]any, 0, len(srcs))
 	for _, sc := range srcs {
+		if sourceDescribed(snap, sc.SourceIP) {
+			continue
+		}
 		dests := make([]map[string]any, 0, len(sc.Top))
 		for _, d := range sc.Top {
 			dests = append(dests, map[string]any{"host": d.Host, "requests": d.Requests, "denied": d.Denied})

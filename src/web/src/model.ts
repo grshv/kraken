@@ -128,6 +128,7 @@ export type Event = {
   count: number;
   tls_mode: "unknown" | "tunnel";
   revision_id: string | null;
+  deny_reason?: string | null;
 };
 
 // UpstreamProxy routes client traffic through a parent Squid peer; exclusive
