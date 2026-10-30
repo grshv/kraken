@@ -1,8 +1,27 @@
 import { useEffect, useMemo, useState } from "react";
-import { History, Search } from "lucide-react";
+import { Diff, History, KeyRound, Play, Search, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import {
+  InspectorBody,
+  InspectorHeader,
+  InspectorPane,
+  ListGroupLabel,
+  ListPane,
+  ListPaneBody,
+  ListPaneHeader,
+  ListRow,
+} from "../components/kraken/layout";
+import { KeyValue } from "../components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import type { Preview, RevisionSummary } from "../model";
@@ -36,8 +55,7 @@ const PAGE_LIMIT = 100;
 // detail pane reads the revision (admin only) for changes and operation status.
 export function AuditSection(props: SectionProps) {
   const { request, session, onToast, onNavigate } = props;
-  const canConfigure =
-    session.permissions?.includes("configure") ?? false;
+  const canConfigure = session.permissions?.includes("configure") ?? false;
   const [actor, setActor] = useState("");
   const [category, setCategory] = useState<AuditCategory | "all">("all");
   const [items, setItems] = useState<AuditEvent[]>([]);
@@ -89,6 +107,15 @@ export function AuditSection(props: SectionProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
+  // Keep the first event selected when the list loads with nothing picked, so
+  // the detail pane is populated on first open (the query effect clears the
+  // selection on every actor-search change).
+  useEffect(() => {
+    if (selectedID === null && items.length > 0) {
+      setSelectedID(items[0].id);
+    }
+  }, [items, selectedID]);
+
   const loadMore = async () => {
     if (!cursor) return;
     const sp = new URLSearchParams(query);
@@ -110,36 +137,45 @@ export function AuditSection(props: SectionProps) {
   const selected = filtered.find((a) => a.id === selectedID) ?? null;
 
   return (
-    <div className="placeholder-section">
-      <aside className="list-pane">
-        <div className="list-head">
-          <span className="list-title">Аудит</span>
-          <div className="search-input">
-            <Search aria-hidden />
+    <div className="grid min-h-0 w-full [grid-template-columns:var(--list-w,300px)_minmax(0,1fr)]">
+      <ListPane>
+        <ListPaneHeader title="Аудит">
+          <div className="relative flex items-center">
+            <Search
+              aria-hidden
+              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
+            />
             <Input
               aria-label="Поиск по актору"
+              className="h-8 pl-[30px]"
               placeholder="Кто, что, ревизия…"
               value={actor}
               onChange={(e) => setActor(e.target.value)}
             />
           </div>
-          <div className="row" style={{ gap: 6, flexWrap: "wrap" }}>
+          <ToggleGroup
+            type="single"
+            value={category}
+            onValueChange={(v) => {
+              if (v) setCategory(v as AuditCategory | "all");
+            }}
+            className="flex-wrap gap-1.5"
+          >
             {AUDIT_FILTERS.map((f) => (
-              <button
+              <ToggleGroupItem
                 key={f.id}
-                type="button"
-                className={"badge" + (category === f.id ? " badge-selected" : "")}
-                aria-pressed={category === f.id}
-                onClick={() => setCategory(f.id)}
+                value={f.id}
+                aria-label={f.label}
+                className="h-[22px] rounded-md px-2 text-sm data-[state=on]:bg-secondary data-[state=on]:text-secondary-foreground"
               >
                 {f.label}
-              </button>
+              </ToggleGroupItem>
             ))}
-          </div>
-        </div>
-        <div className="list-body">
+          </ToggleGroup>
+        </ListPaneHeader>
+        <ListPaneBody>
           {loadError ? (
-            <div className="list-muted">
+            <div className="px-3.5 py-4 text-sm text-muted-foreground">
               <ErrorState
                 title="Аудит недоступен"
                 detail="Не удалось загрузить события. Повторяем запрос…"
@@ -153,43 +189,39 @@ export function AuditSection(props: SectionProps) {
           ) : (
             groups.map((g) => (
               <div key={g.day}>
-                <div className="list-group-label">{g.day}</div>
-                {g.items.map((a) => (
-                  <button
-                    key={a.id}
-                    className={
-                      "list-row audit-item" +
-                      (selectedID === a.id ? " selected" : "")
-                    }
-                    onClick={() => setSelectedID(a.id)}
-                  >
-                    <span>
-                      <div className="ellipsis">{actionLabel(a.action)}</div>
-                      <div className="xs muted-text">{a.actor}</div>
-                    </span>
-                    <span className="xs muted-text num">
-                      {a.timestamp.slice(11, 16)}
-                    </span>
-                  </button>
-                ))}
+                <ListGroupLabel>{g.day}</ListGroupLabel>
+                {g.items.map((a) => {
+                  const Icon = auditCategoryIcon(actionCategory(a.action));
+                  return (
+                    <ListRow
+                      key={a.id}
+                      selected={selectedID === a.id}
+                      leading={<Icon aria-hidden />}
+                      title={actionLabel(a.action)}
+                      meta={a.timestamp.slice(11, 16)}
+                      subtitle={a.actor}
+                      onClick={() => setSelectedID(a.id)}
+                    />
+                  );
+                })}
               </div>
             ))
           )}
           {gap && !loadError && (
-            <div className="list-muted small">
+            <div className="px-3.5 py-4 text-sm text-muted-foreground">
               В аудите есть пропуски: возможно, старые записи удалены.
             </div>
           )}
           {cursor && !loadError && (
-            <div className="row" style={{ justifyContent: "center", padding: 12 }}>
+            <div className="flex justify-center p-3">
               <Button size="xs" variant="ghost" onClick={loadMore}>
                 Ещё
               </Button>
             </div>
           )}
-        </div>
-      </aside>
-      <section className="inspector-pane">
+        </ListPaneBody>
+      </ListPane>
+      <InspectorPane>
         {selected ? (
           <AuditDetail
             event={selected}
@@ -198,13 +230,13 @@ export function AuditSection(props: SectionProps) {
             onNavigate={onNavigate}
           />
         ) : (
-          <div className="inspector-body">
+          <InspectorBody>
             <EmptyState icon={<History />} title="Выберите событие">
               Выберите запись слева, чтобы увидеть детали действия.
             </EmptyState>
-          </div>
+          </InspectorBody>
         )}
-      </section>
+      </InspectorPane>
     </div>
   );
 }
@@ -236,6 +268,24 @@ function dayLabel(ts: string): string {
   if (diff === 0) return "Сегодня";
   if (diff === 1) return "Вчера";
   return d.toLocaleDateString("ru-RU", { day: "numeric", month: "short" });
+}
+
+// Map an audit category to a status-style icon for the list row's leading
+// slot, mirroring the prototype's per-entry icons (apply → play, login → user,
+// account → key, draft → diff, other → history).
+function auditCategoryIcon(cat: AuditCategory) {
+  switch (cat) {
+    case "apply":
+      return Play;
+    case "login":
+      return User;
+    case "account":
+      return KeyRound;
+    case "draft":
+      return Diff;
+    case "other":
+      return History;
+  }
 }
 
 // AuditDetail renders the actor/timestamp/entity and, for revisions, fetches
@@ -305,68 +355,81 @@ function AuditDetail({
 
   return (
     <>
-      <header className="inspector-head">
-        <div className="row" style={{ gap: 8, flexWrap: "wrap" }}>
-          <h1 className="page-title" style={{ margin: 0 }}>
-            {actionLabel(event.action)}
-          </h1>
-          <Badge variant="secondary">{catLabel}</Badge>
-        </div>
-        <div className="muted-text small">
-          {dayLabel(event.timestamp)}, {event.timestamp.slice(11, 19)} ·{" "}
-          {event.actor}
-        </div>
-      </header>
-      <div className="inspector-body">
-        <div className="card">
-          <div className="card-body">
-            <dl className="kv-row">
-              <dt>Кто</dt>
-              <dd>{event.actor}</dd>
-              <dt>Когда</dt>
-              <dd className="num">
-                {event.timestamp.replace("T", " ").slice(0, 19)}
-              </dd>
-              <dt>Объект</dt>
-              <dd className="mono">{event.entity_id || "—"}</dd>
-            </dl>
-          </div>
-        </div>
+      <InspectorHeader
+        title={actionLabel(event.action)}
+        status={
+          <Badge variant={detailBadgeVariant(event, cat, revision)}>
+            {catLabel}
+          </Badge>
+        }
+        meta={
+          <>
+            {dayLabel(event.timestamp)}, {event.timestamp.slice(11, 19)} ·{" "}
+            {event.actor}
+          </>
+        }
+      />
+      <InspectorBody>
+        <Card>
+          <CardContent>
+            <KeyValue
+              items={[
+                ["Кто", event.actor],
+                [
+                  "Когда",
+                  <span className="tabular-nums">
+                    {event.timestamp.replace("T", " ").slice(0, 19)}
+                  </span>,
+                ],
+                [
+                  "Объект",
+                  <span className="font-mono">{event.entity_id || "—"}</span>,
+                ],
+              ]}
+            />
+          </CardContent>
+        </Card>
 
         {isRevision && (
-          <div className="card">
-            <div className="card-head">
-              <span className="card-title grow">Что изменилось</span>
-              <span className="mono muted-text small">
-                {event.entity_id.slice(0, 8)}
-              </span>
-            </div>
-            <div className="card-body">
+          <Card>
+            <CardHeader>
+              <CardTitle>Что изменилось</CardTitle>
+              <CardAction>
+                <span className="font-mono text-sm text-muted-foreground">
+                  {event.entity_id.slice(0, 8)}
+                </span>
+              </CardAction>
+            </CardHeader>
+            <CardContent>
               {canConfigure ? (
                 failed ? (
-                  <div className="muted-text small">
+                  <div className="text-sm text-muted-foreground">
                     Не удалось загрузить preview ревизии.
                   </div>
                 ) : preview ? (
                   preview.summary.length > 0 ? (
-                    <ul className="md-ul" style={{ margin: 0 }}>
+                    <ul className="my-0 list-disc pl-[22px] leading-relaxed">
                       {preview.summary.map((s, i) => (
                         <li key={i}>{s}</li>
                       ))}
                     </ul>
                   ) : (
-                    <span className="muted-text small">Без пользовательских изменений</span>
+                    <span className="text-sm text-muted-foreground">
+                      Без пользовательских изменений
+                    </span>
                   )
                 ) : (
-                  <span className="muted-text small">Загружаем…</span>
+                  <span className="text-sm text-muted-foreground">
+                    Загружаем…
+                  </span>
                 )
               ) : (
-                <div className="muted-text small">
+                <div className="text-sm text-muted-foreground">
                   Просмотр изменений ревизии доступен администратору.
                 </div>
               )}
               {revision && (
-                <div className="row" style={{ marginTop: 10, gap: 8, flexWrap: "wrap" }}>
+                <div className="mt-2.5 flex flex-wrap gap-2">
                   <Badge variant={statusBadge(revision.latest_status)}>
                     {statusLabel(revision.latest_status)}
                   </Badge>
@@ -378,20 +441,20 @@ function AuditDetail({
                   )}
                 </div>
               )}
-            </div>
-          </div>
+            </CardContent>
+          </Card>
         )}
 
-        <div className="muted-text small">
-          Аудит хранит 90 дней или 5 000 событий. Пароли и содержимое запросов не
-          записываются.
+        <div className="text-sm text-muted-foreground">
+          Аудит хранит 90 дней или 5 000 событий. Пароли и содержимое запросов
+          не записываются.
         </div>
-        <div className="row">
+        <div className="flex items-center gap-2">
           <Button size="xs" variant="ghost" onClick={() => onNavigate("audit")}>
             К списку
           </Button>
         </div>
-      </div>
+      </InspectorBody>
     </>
   );
 }
@@ -409,5 +472,37 @@ function statusLabel(s: string): string {
 function statusBadge(s: string): "default" | "destructive" | "secondary" {
   if (s === "succeeded") return "default";
   if (s === "rolled_back" || s === "rejected") return "destructive";
+  return "secondary";
+}
+
+// Header summary badge: ok for a successful apply/login, bad for a rollback,
+// error or failed login, secondary otherwise. For revisions we use the fetched
+// latest_status when available (admin); a non-admin viewer sees secondary.
+function detailBadgeVariant(
+  event: AuditEvent,
+  cat: AuditCategory,
+  revision: RevisionSummary | null,
+): "ok" | "bad" | "secondary" {
+  if (cat === "login") {
+    if (event.action === "login") return "ok";
+    if (
+      event.action === "login_failed" ||
+      event.action === "csrf_failed" ||
+      event.action === "rate_limited" ||
+      event.action === "session_capacity_reached"
+    )
+      return "bad";
+    return "secondary"; // logout
+  }
+  if (cat === "apply") {
+    if (revision) {
+      const s = revision.latest_status;
+      if (s === "succeeded" || s === "validated" || s === "degraded")
+        return "ok";
+      if (s === "rolled_back" || s === "rejected") return "bad";
+      return "secondary";
+    }
+    return "secondary";
+  }
   return "secondary";
 }
