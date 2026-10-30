@@ -1,4 +1,4 @@
-import { LogOut, KeyRound, UserRound } from "lucide-react";
+import { LogOut, KeyRound, UserRound, X } from "lucide-react";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -15,10 +15,12 @@ export function ProfileMenu({
   session,
   onChangePassword,
   onLogout,
+  onEndOtherSessions,
 }: {
   session: Session;
   onChangePassword: () => void;
   onLogout: () => void;
+  onEndOtherSessions: () => void;
 }) {
   const name = session.username || "admin";
   const role = session.role === "manager" ? "Менеджер" : "Администратор";
@@ -60,6 +62,9 @@ export function ProfileMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onChangePassword()}>
           <KeyRound aria-hidden /> Сменить пароль
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onEndOtherSessions()}>
+          <X aria-hidden /> Завершить другие сессии
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onSelect={() => onLogout()}>

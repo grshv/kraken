@@ -58,7 +58,7 @@ func TestTouchSessionConditionalAndExistence(t *testing.T) {
 	}
 	hash := "test-token-hash"
 	now := time.Now().Unix()
-	if e := st.InsertSession(ctx, tx, hash, "admin", "csrf", now+3600, now); e != nil {
+	if e := st.InsertSession(ctx, tx, hash, "admin", "csrf", now+3600, now, SessionClient{}); e != nil {
 		t.Fatal(e)
 	}
 	if e := tx.Commit(); e != nil {

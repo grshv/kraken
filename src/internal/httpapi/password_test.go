@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"golang.org/x/crypto/argon2"
+	"kraken.local/kraken/internal/store"
 )
 
 func TestPasswordVerifierIsSaltedPHCOnly(t *testing.T) {
@@ -67,7 +68,7 @@ func TestResetPasswordRevokesSessionsAndDoesNotPersistPlaintext(t *testing.T) {
 		t.Fatal("missing safe audit event")
 	}
 	// Login which verified the old hash before reset must not mint a new session afterwards.
-	if _, e := s.newSession(httptest.NewRecorder(), "admin", oldHash, ""); !errors.Is(e, errCredentialsChanged) {
+	if _, e := s.newSession(httptest.NewRecorder(), "admin", store.SessionClient{}, oldHash, ""); !errors.Is(e, errCredentialsChanged) {
 		t.Fatalf("stale login was accepted: %v", e)
 	}
 	var sessions int

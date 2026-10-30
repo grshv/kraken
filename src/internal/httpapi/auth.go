@@ -159,7 +159,7 @@ func (s *Server) readSession(r *http.Request) (session, error) {
 
 // credentials holds the verified password hash and previous token hash. The
 // transaction rechecks the hash before rotating into an authenticated session.
-func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...string) (session, error) {
+func (s *Server) newSession(w http.ResponseWriter, user string, client store.SessionClient, credentials ...string) (session, error) {
 	if user == "" {
 		return s.newAnonymousSession(w), nil
 	}
@@ -219,7 +219,7 @@ func (s *Server) newSession(w http.ResponseWriter, user string, credentials ...s
 		}
 		return v, errors.New("session capacity reached")
 	}
-	if e = s.Store.InsertSession(ctx, tx, v.Hash, user, v.CSRF, v.Expires, now); e != nil {
+	if e = s.Store.InsertSession(ctx, tx, v.Hash, user, v.CSRF, v.Expires, now, client); e != nil {
 		return v, e
 	}
 	if e = s.Store.AuditTx(ctx, tx, user, "login", ""); e != nil {
@@ -259,7 +259,7 @@ func (s *Server) sessionView(ctx context.Context, w http.ResponseWriter, v sessi
 func (s *Server) sessionGet(w http.ResponseWriter, r *http.Request) {
 	v, e := s.readSession(r)
 	if e != nil {
-		v, e = s.newSession(w, "")
+		v, e = s.newSession(w, "", store.SessionClient{})
 	}
 	if e != nil {
 		if s.failStorageBusy(w, e) {
@@ -372,7 +372,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		fail(w, 401, "invalid_credentials", "Неверное имя или пароль")
 		return
 	}
-	v, e = s.newSession(w, input.Username, encoded, v.Hash)
+	v, e = s.newSession(w, input.Username, sessionClient(r), encoded, v.Hash)
 	if errors.Is(e, errCredentialsChanged) {
 		fail(w, 401, "invalid_credentials", "Учётные данные изменились. Войдите заново")
 		return

@@ -28,7 +28,7 @@ func mustCreate(t *testing.T, s *store.Store, name, role string) {
 
 func mustSession(t *testing.T, s *store.Store, hash, user string) {
 	t.Helper()
-	if _, e := s.DB.ExecContext(context.Background(), "INSERT INTO sessions VALUES(?,?,?,?,?)", hash, user, "csrf", 9999999999, 0); e != nil {
+	if _, e := s.DB.ExecContext(context.Background(), "INSERT INTO sessions(token_hash,username,csrf,expires_at,last_seen_at) VALUES(?,?,?,?,?)", hash, user, "csrf", 9999999999, 0); e != nil {
 		t.Fatal(e)
 	}
 }

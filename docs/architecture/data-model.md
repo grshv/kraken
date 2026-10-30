@@ -10,7 +10,7 @@ SQLite и journal обслуживает один Go executable, но транз
 | Таблица | Что хранит | Инвариант |
 | --- | --- | --- |
 | users | username, password_hash, role, enabled | Только verifier; admin/manager, последний active admin защищён |
-| sessions | token_hash, username, csrf, expires_at, last_seen_at | Cookie token хранится только как hash, password/role/disable mutation отзывает sessions |
+| sessions | token_hash, username, csrf, expires_at, last_seen_at, created_at, remote, user_agent | Cookie token хранится только как hash, password/role/disable mutation отзывает sessions |
 | manager_networks | username, cidr | Сети менеджера; FK на users ON DELETE CASCADE, PK по паре |
 | manager_clients | username, client_id | Назначенные клиенты менеджера; FK на users ON DELETE CASCADE, PK по паре; висячие удаляются при обслуживании |
 | proxy_accounts | username, password_hash, enabled, created_at, updated_at, owner | Отдельные credentials proxy; owner = username панели или NULL (admin). Менеджер видит свои и логины только его клиентов |
@@ -101,7 +101,8 @@ secret references и terminal outcome. Он связывается с запис
   отпечаток cursor учитывает фильтр, менеджер видит только свои записи.
 - `sessions` — только авторизованные sessions с hash случайного cookie token,
   FK на `users` с `ON DELETE CASCADE`. Анонимные CSRF holders подписываются в
-  памяти без DB rows.
+  памяти без DB rows. `created_at`, `remote`, `user_agent` записываются при
+  входе для списка сессий; у строк до `007.sql` они нулевые.
 
 Переход к полной реляционной схеме потребовал бы новых миграций и пересмотра
 `draftMu`/`opsMu` ([ADR 0018](../adr/0018-storage-concurrency.md)).
@@ -118,7 +119,8 @@ secret references и terminal outcome. Он связывается с запис
 `proxy_events`, его индексы и `event_checkpoint` из `kv`; данных для переноса нет
 (тестовые тома), телеметрия начинается с нуля. `005.sql` (`notification-marks-v1`) добавляет `notification_marks`. `006.sql`
 (`revision-numbers-v1`) нумерует существующие ревизии по порядку вставки и
-заводит счётчик `revision_seq` в `kv`. Runner записывает version и checksum в
+заводит счётчик `revision_seq` в `kv`. `007.sql` (`session-client-v1`) добавляет
+`sessions.created_at`, `remote`, `user_agent`. Runner записывает version и checksum в
 `schema_migrations`. DDL, перенос данных и версия выполняются одной транзакцией
 SQLite: ошибка откатывает весь переход. Записанный checksum, не совпадающий с
 checksum этой сборки, означает базу несовместимой сборки — `store.Open`

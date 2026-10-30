@@ -401,6 +401,19 @@ function App() {
       setNavId("accounts");
       showToast("Откроется форма смены пароля");
     },
+    onEndOtherSessions: () => {
+      if (!session?.username) return;
+      api<{ revoked: number }>(
+        `/users/${encodeURIComponent(session.username)}/sessions`,
+        "DELETE",
+      )
+        .then((r) =>
+          showToast(
+            r.revoked ? "Другие сессии завершены" : "Других сессий нет",
+          ),
+        )
+        .catch((e) => showToast((e as Error).message));
+    },
     onRefreshDraft: async () => {
       await work(async () => {
         setDraft(await api<Draft>("/configuration/draft"));

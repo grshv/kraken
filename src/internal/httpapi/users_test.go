@@ -82,7 +82,7 @@ func TestUsersRolesAndServerPermissions(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = s.newSession(httptest.NewRecorder(), "observer", oldHash, ""); e == nil {
+	if _, e = s.newSession(httptest.NewRecorder(), "observer", store.SessionClient{}, oldHash, ""); e == nil {
 		t.Fatal("disabled user logged in")
 	}
 }

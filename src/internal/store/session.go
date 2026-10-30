@@ -121,12 +121,79 @@ func (s *Store) SessionCount(ctx context.Context, tx *sql.Tx) (total int, err er
 	return total, err
 }
 
+// SessionClient is where a session was opened from: the peer address and a
+// bounded User-Agent. Both are untrusted display data.
+type SessionClient struct {
+	Remote, UserAgent string
+}
+
 // InsertSession writes one session row within tx.
-func (s *Store) InsertSession(ctx context.Context, tx *sql.Tx, hash, user, csrf string, expires, now int64) error {
+func (s *Store) InsertSession(ctx context.Context, tx *sql.Tx, hash, user, csrf string, expires, now int64, client SessionClient) error {
 	ctx, cancel := opCtx(ctx)
 	defer cancel()
-	_, e := tx.ExecContext(ctx, "INSERT INTO sessions VALUES(?,?,?,?,?)", hash, user, csrf, expires, now)
+	_, e := tx.ExecContext(ctx, "INSERT INTO sessions(token_hash,username,csrf,expires_at,last_seen_at,created_at,remote,user_agent) VALUES(?,?,?,?,?,?,?,?)", hash, user, csrf, expires, now, now, client.Remote, client.UserAgent)
 	return e
+}
+
+// SessionInfo is one live session of a user for the session list. TokenHash
+// never leaves the server; callers derive a public id from it.
+type SessionInfo struct {
+	TokenHash                  string
+	Created, LastSeen, Expires int64
+	Remote, UserAgent          string
+}
+
+// UserSessions lists sessions of username that are neither expired nor idle
+// past idleCutoff, newest activity first.
+func (s *Store) UserSessions(ctx context.Context, username string, now, idleCutoff int64) ([]SessionInfo, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	rows, e := s.Read.QueryContext(ctx, "SELECT token_hash,created_at,last_seen_at,expires_at,remote,user_agent FROM sessions WHERE username=? AND expires_at>=? AND last_seen_at>=? ORDER BY last_seen_at DESC", username, now, idleCutoff)
+	if e != nil {
+		return nil, e
+	}
+	defer rows.Close()
+	out := []SessionInfo{}
+	for rows.Next() {
+		var v SessionInfo
+		if e = rows.Scan(&v.TokenHash, &v.Created, &v.LastSeen, &v.Expires, &v.Remote, &v.UserAgent); e != nil {
+			return nil, e
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+// RevokeUserSessions deletes sessions of username with its audit row in one
+// transaction. With only set it deletes that one session ("revoke_session");
+// otherwise every session except keep ("revoke_sessions"). Returns the count.
+func (s *Store) RevokeUserSessions(ctx context.Context, username, only, keep, actor string) (int, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	tx, e := s.DB.BeginTx(ctx, nil)
+	if e != nil {
+		return 0, e
+	}
+	defer tx.Rollback()
+	var res sql.Result
+	action := "revoke_sessions"
+	if only != "" {
+		action = "revoke_session"
+		res, e = tx.ExecContext(ctx, "DELETE FROM sessions WHERE username=? AND token_hash=?", username, only)
+	} else {
+		res, e = tx.ExecContext(ctx, "DELETE FROM sessions WHERE username=? AND token_hash<>?", username, keep)
+	}
+	if e != nil {
+		return 0, e
+	}
+	n, e := res.RowsAffected()
+	if e != nil {
+		return 0, e
+	}
+	if e = s.AuditTx(ctx, tx, actor, action, username); e != nil {
+		return 0, e
+	}
+	return int(n), tx.Commit()
 }
 
 // UserPasswordHash loads the salted Argon2id PHC string for one user, or

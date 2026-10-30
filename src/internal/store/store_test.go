@@ -61,7 +61,7 @@ func TestSessionRequiresExistingUser(t *testing.T) {
 		t.Fatal(e)
 	}
 	defer tx.Rollback()
-	if e = st.InsertSession(context.Background(), tx, "hash", "nobody", "csrf", 9999999999, 1); e == nil {
+	if e = st.InsertSession(context.Background(), tx, "hash", "nobody", "csrf", 9999999999, 1, SessionClient{}); e == nil {
 		t.Fatal("session for unknown user stored")
 	}
 }

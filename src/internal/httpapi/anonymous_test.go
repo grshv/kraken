@@ -62,7 +62,7 @@ func TestAnonymousCookieIntegrityExpiryAndRestart(t *testing.T) {
 func TestAuthenticatedCapacityDoesNotDeadlockStorage(t *testing.T) {
 	s, h := fixtureServer(t)
 	_, e := s.Store.DB.Exec(`WITH RECURSIVE n(x) AS (VALUES(1) UNION ALL SELECT x+1 FROM n WHERE x<256)
- INSERT INTO sessions SELECT printf('test-%d',x),'admin','csrf',?,? FROM n`, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
+ INSERT INTO sessions(token_hash,username,csrf,expires_at,last_seen_at) SELECT printf('test-%d',x),'admin','csrf',?,? FROM n`, time.Now().Add(time.Hour).Unix(), time.Now().Unix())
 	if e != nil {
 		t.Fatal(e)
 	}

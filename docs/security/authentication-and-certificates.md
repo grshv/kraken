@@ -18,6 +18,14 @@ budget/rate limit. Пароли не обрезать молча; огранич
 Cookie `__Host-session; Secure; HttpOnly; SameSite=Strict; Path=/`, без Domain.
 Rotation после login и повышения прав; logout, disable user и reset password
 отзывают сессии серверно. Предварительные сроки: idle 30 min, absolute 12 h.
+Пользователь видит свои живые сессии (`GET /users/{name}/sessions`: начало,
+адрес и User-Agent при входе, последняя активность) и завершает одну или все,
+кроме текущей; администратор — сессии любого пользователя. Чужое имя для
+менеджера — 404. Идентификатор сессии в API — первые 8 байт SHA-256 от
+token hash с префиксом: по нему нельзя восстановить ни token, ни hash. Адрес —
+peer TCP-соединения (без доверия к `X-Forwarded-For`), User-Agent без управляющих
+символов и не длиннее 256 символов; оба — данные для показа, не идентификация.
+Завершение пишется в аудит (`revoke_session`, `revoke_sessions`) той же транзакцией.
 Не хранить bearer token в localStorage. Credentials не попадают в access log.
 [OWASP Session Management](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 

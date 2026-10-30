@@ -31,6 +31,7 @@ import type { ApplyRun } from "../draft/useApplyFlow";
 export type ShellHandlers = {
   onLogout: () => void;
   onChangePassword: () => void;
+  onEndOtherSessions: () => void;
   onRefreshDraft: () => void;
   onDiscardDraft: () => void;
   onOpenAudit: () => void;
@@ -236,6 +237,7 @@ export function InspectorShell({
             session={session}
             onChangePassword={handlers.onChangePassword}
             onLogout={handlers.onLogout}
+            onEndOtherSessions={handlers.onEndOtherSessions}
           />
         </nav>
         <div

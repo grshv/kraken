@@ -49,6 +49,7 @@ import {
   type PanelUser,
 } from "./rules";
 import { parseNetwork } from "../clients/networks";
+import { SessionsCard } from "./SessionsCard";
 import type { SectionProps } from "../sections/sectionProps";
 import type { NavId } from "../shell/nav";
 
@@ -758,33 +759,11 @@ function PanelUserDetail({
               />
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle>Сессии</CardTitle>
-                <CardDescription>12 ч или 30 мин бездействия</CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">
-              {self && session.expires_at ? (
-                <div className="flex items-center gap-2 text-base text-foreground">
-                  Эта сессия
-                  <Badge variant="secondary">эта</Badge>
-                  <span className="text-sm text-muted-foreground">
-                    до{" "}
-                    {new Date(session.expires_at).toLocaleTimeString("ru-RU", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                    })}
-                  </span>
-                </div>
-              ) : null}
-              <div className="mt-1.5">
-                Завершить все сессии: смените пароль или заблокируйте
-                пользователя.
-              </div>
-            </CardContent>
-          </Card>
+          <SessionsCard
+            username={user.username}
+            request={request}
+            onToast={onToast}
+          />
         </div>
       </InspectorBody>
     </>

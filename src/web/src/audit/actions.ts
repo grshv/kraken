@@ -10,7 +10,8 @@
 // (update_scope), store/users.go (create_user, update_user),
 // store/proxy_accounts.go (create_proxy_account, update_proxy_account,
 // reset_proxy_password), httpapi/server.go (update_draft, discard_draft,
-// create_revision).
+// create_revision), httpapi/sessions.go and admin (revoke_session,
+// revoke_sessions), httpapi/notifications.go (mark_notifications).
 
 export type AuditCategory = "apply" | "login" | "account" | "draft" | "other";
 
@@ -21,6 +22,8 @@ export const AUDIT_ACTIONS: readonly string[] = [
   "login",
   "logout",
   "session_capacity_reached",
+  "revoke_session",
+  "revoke_sessions",
   "password_reset",
   "create_user",
   "update_user",
@@ -31,6 +34,7 @@ export const AUDIT_ACTIONS: readonly string[] = [
   "update_draft",
   "discard_draft",
   "create_revision",
+  "mark_notifications",
 ] as const;
 
 const LABELS: Record<string, string> = {
@@ -40,6 +44,8 @@ const LABELS: Record<string, string> = {
   login: "Вход в панель",
   logout: "Выход из панели",
   session_capacity_reached: "Достигнут лимит сессий",
+  revoke_session: "Завершена сессия",
+  revoke_sessions: "Завершены сессии",
   password_reset: "Сброс пароля (CLI)",
   create_user: "Создан пользователь панели",
   update_user: "Изменён пользователь панели",
@@ -50,6 +56,7 @@ const LABELS: Record<string, string> = {
   update_draft: "Изменение в черновике",
   discard_draft: "Сброс черновика",
   create_revision: "Создание ревизии",
+  mark_notifications: "Отметка уведомлений",
 };
 
 const CATEGORIES: Record<string, AuditCategory> = {
@@ -60,6 +67,8 @@ const CATEGORIES: Record<string, AuditCategory> = {
   csrf_failed: "login",
   rate_limited: "login",
   session_capacity_reached: "login",
+  revoke_session: "login",
+  revoke_sessions: "login",
   create_user: "account",
   update_user: "account",
   update_scope: "account",

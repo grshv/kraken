@@ -62,7 +62,7 @@ func TestUserAuditFailureRollsBackChangesAndRevocation(t *testing.T) {
 			t.Fatal(e)
 		}
 	}
-	if _, e = s.DB.Exec("INSERT INTO sessions VALUES('session','two','csrf',9999999999,9999999999)"); e != nil {
+	if _, e = s.DB.Exec("INSERT INTO sessions(token_hash,username,csrf,expires_at,last_seen_at) VALUES('session','two','csrf',9999999999,9999999999)"); e != nil {
 		t.Fatal(e)
 	}
 	_, e = s.DB.Exec(`CREATE TRIGGER fail_user_audit BEFORE INSERT ON audit_events WHEN NEW.action='update_user' BEGIN SELECT RAISE(ABORT,'injected write failure'); END;`)

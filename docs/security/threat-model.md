@@ -21,7 +21,7 @@ Runtime module не является security boundary: он в том же exec
 | Config/command injection | Строгая модель, фиксированные argv, без shell | CRLF/metacharacters/traversal fixtures |
 | SSRF и DNS rebinding | Destination ACL, fixed probes, egress firewall | Metadata/private/rebinding deny |
 | XSS в логах | Экранирование, CSP, bounded parser | HTML как текст |
-| CSRF и session theft | Token/Origin/cookie flags, verifier hash | Cross-origin mutations и revoke tests |
+| CSRF и session theft | Token/Origin/cookie flags, verifier hash; пользователь видит свои сессии (адрес, User-Agent) и завершает чужие для себя; id сессии в API односторонний, token и hash не выдаются | Cross-origin mutations и revoke tests; менеджер не видит и не завершает чужие сессии (404) |
 | Перебор пароля | Argon2id, rate limit, local bootstrap | Login throttling/reset |
 | Apply/crash расширяет доступ | Durable journal и LKG в управляющей БД, flock в tmpfs, startup gate: конфиг Squid пишется из LKG до его старта | Crash на каждой границе и restart Squid |
 | Disk full | Quotas/rotation/watermarks | DB/journal/log failures без silent apply |

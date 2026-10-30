@@ -37,7 +37,7 @@ func session(t *testing.T, st *store.Store, user, hash string) {
 	ctx := context.Background()
 	tx, _ := st.BeginTx(ctx)
 	now := time.Now().Unix()
-	if e := st.InsertSession(ctx, tx, hash, user, "csrf", now+3600, now); e != nil {
+	if e := st.InsertSession(ctx, tx, hash, user, "csrf", now+3600, now, store.SessionClient{}); e != nil {
 		t.Fatal(e)
 	}
 	tx.Commit()
