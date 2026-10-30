@@ -66,8 +66,8 @@ Runtime module держит один межпроцессный file lock для
 Приложение создаёт durable operation intent и audit event в одной DB-транзакции.
 Внутренний worker сохраняет journal/snapshot перед promotion; операции не зависят
 от request context браузера. После disconnect клиент запрашивает прежний ID/key.
-После restart reconciliation связывает SQLite intent с filesystem journal до новых
-mutations. При недоступной DB новая mutation не начинается. Публичный 202 означает
+После restart reconciliation связывает operation intent с journal `runtime.journal`
+той же БД до новых mutations. При недоступной DB новая mutation не начинается. Публичный 202 означает
 сохранённый intent, а не завершённое применение или принятие удалённым сервисом.
 
 ## Алгоритм apply

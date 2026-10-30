@@ -16,9 +16,5 @@ jobs:
         run: docker build --target verify -f deploy/Dockerfile -t kraken:verify .
       - name: Build appliance
         run: docker build -f deploy/Dockerfile -t kraken:dev .
-      - name: Exercise real Squid
-        run: python3 src/tests/integration/smoke.py
-      - name: Network denials on real Squid
-        run: python3 src/tests/integration/network.py
-      - name: APT through the proxy
-        run: python3 src/tests/integration/apt.py
+      - name: Integration tests on real Squid
+        run: make integration

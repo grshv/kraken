@@ -73,13 +73,14 @@ egress VM, реализовать на контролируемой сетево
 ключ панели — UID 10013. Нет обещания, что внутренний модуль скроет секрет от
 скомпрометированного Go-процесса.
 
-Config монтируется каталогом, atomic rename должен быть виден всем процессам.
-Не перекрывать `/etc/squid` целиком без проверки defaults upstream image.
+Конфиг Squid генерируется в tmpfs `/dev/shm/kraken` и заменяется rename в том же
+каталоге; монтировать его не нужно. Не перекрывать `/etc/squid` целиком: там
+defaults upstream-сборки.
 Compose снимает все capabilities, кроме `SETUID`, `SETGID` и `KILL` (их требует Pebble
 от root для запуска сервисов под `proxy` и `kraken`), и включает `no-new-privileges`;
 у Squid и панели эффективных capabilities нет. Rootless Docker или userns-remap на
-хосте совместимы с образом и настраиваются при установке. Read-only rootfs не включён:
-не проверен на реальном image. Cache init не выполняется при каждом apply.
+хосте совместимы с образом и настраиваются при установке. Read-only rootfs не
+включён. Cache init не выполняется при каждом apply.
 
 Телеметрия (события прокси и агрегаты) по умолчанию лежит в `/var/lib/kraken/data/telemetry`
 (тот же volume и владелец 10013:10013), отдельная от управляющей `control.sqlite3`.

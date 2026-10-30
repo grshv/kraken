@@ -1,9 +1,10 @@
 # Данные и инварианты
 
-SQLite — источник desired состояния и пользовательского аудита.
-Filesystem journal внутреннего runtime module фиксирует применение к процессу Squid.
-SQLite и journal обслуживает один Go executable, но транзакции между DB, файлами
-и Squid нет. Recovery gate умеет восстановить LKG без HTTP readiness панели.
+SQLite — источник desired состояния и пользовательского аудита. Journal
+применения и последняя рабочая конфигурация (LKG) лежат в той же управляющей БД
+(kv `runtime.journal`, `runtime.last_good`); общей транзакции между БД, конфигом
+в tmpfs и процессом Squid нет. Recovery gate восстанавливает LKG при старте, до
+HTTP readiness панели.
 
 ## Фактические данные
 
@@ -14,7 +15,7 @@ SQLite и journal обслуживает один Go executable, но транз
 | manager_networks | username, cidr | Сети менеджера; FK на users ON DELETE CASCADE, PK по паре |
 | manager_clients | username, client_id | Назначенные клиенты менеджера; FK на users ON DELETE CASCADE, PK по паре; висячие удаляются при обслуживании |
 | proxy_accounts | username, password_hash, enabled, created_at, updated_at, owner | Отдельные credentials proxy; owner = username панели или NULL (admin). Менеджер видит свои и логины только его клиентов |
-| kv | key, value | Draft/revisions как JSON; optimistic version и validation на уровне приложения |
+| kv | key, value | Draft, revisions и счётчик `revision_seq`, journal применения и LKG как JSON; optimistic version и validation на уровне приложения |
 | operations | id, idempotency_key, request_hash, body | Один key — один payload; outcome операции хранится отдельно от draft |
 | audit_events | id, actor, action, entity_id, detail, created_at | Без паролей/ключей/config body, mutation и audit атомарны |
 | notification_marks | id, status, actor, marked_at | Только отметка «seen»/«ignored» к вычисляемому уведомлению (id `denied/<client>/<host>` или `source/<ip>`); общая для всех, с audit `mark_notifications` в той же транзакции; живёт 90 дней |
@@ -73,13 +74,12 @@ Runtime journal хранит operation ID, request hash, stage, previous/candida
 manifest (compiler_version, revision_id, hash, image_digest, config, snapshot),
 secret references и terminal outcome. Он связывается с записью operations по
 одному ID: отдельного runner_id/IPC нет. Записи и manifest crash-safe; lock
-общий для web worker и startup gate того же бинарника. LKG/recovery metadata
-доступны gate при недоступной web DB; новые изменения без DB/audit не
-допускаются. Формат проверяется fault injection.
+`apply.lock` в tmpfs общий для web worker и startup gate того же бинарника.
+Новые изменения без DB/audit не допускаются. Формат проверяется fault injection.
 
-## Фактическая схема (ADR 0008)
+## Конфигурация в kv (ADR 0008)
 
-Вместо полной реляционной схемы из верхней таблицы реализовано kv-хранение:
+Конфигурация хранится в kv, а не в отдельных таблицах:
 
 - `draft` и `revision:<id>` хранятся в таблице `kv(key, value)` как opaque JSON.
   Номер ревизии (`$.number`, в интерфейсе `r-<number>`) выдаётся из счётчика
@@ -132,8 +132,8 @@ SQLite: ошибка откатывает весь переход. Записа�
 checksum этой сборки, означает базу несовместимой сборки — `store.Open`
 отказывается её открывать. См. [ADR 0010](../adr/0010-session-and-recovery-safety.md).
 
-Текущий retention телеметрии и audit указан ниже. Долгоживущие агрегаты
-реализованы в телеметрии (см. «Диагностическая история»); пороги диска
+Retention телеметрии и audit указан ниже. Долгоживущие агрегаты хранятся в
+телеметрии (см. «Диагностическая история»); пороги диска
 (пауза сбора событий, 507 на изменения) описаны в
 [observability](../operations/observability.md). Активная ревизия, LKG и ссылки
 незавершённых operations сохраняются; rotation сырого access.log не равна backup.
@@ -144,13 +144,12 @@ checksum этой сборки, означает базу несовместим
 (по умолчанию 20). Отметки уведомлений старше 90 дней удаляются там же: уведомление снова считается новым. Retention телеметрии (сырые события и агрегаты) выполняет
 `telemetry.Store.Maintain` в том же периодическом тике `Manager.Maintain`.
 
-## Реализованное расширение
+## Клиенты и пароли
 
 Client.kind: host/network/group, несколько source networks. settings и expert_config
 хранятся в immutable snapshot, исходный admin password туда не включается.
-users.password_hash хранит только Argon2id PHC verifier. CLI reset меняет
-его вместе с удалением sessions/audit в одной транзакции. Логическая схема выше
-не объявляет будущие tables/migration retention полностью реализованными.
+users.password_hash хранит только Argon2id PHC verifier. CLI reset и смена своего
+пароля меняют его вместе с удалением sessions и записью audit в одной транзакции.
 
 ## Диагностическая история
 

@@ -4,16 +4,16 @@
 
 | Команда | Что проверяет | Когда обязательна |
 | --- | --- | --- |
-| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter с необязательным `screen`, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace — реализован на Go (`src/tools/docs-check`) | Любое изменение |
+| `make docs-check` | Локальные ссылки, реестр ADR, карта docs, заголовки, OpenAPI (operationId, path params, CSRF), пример политики, статьи справки (front matter с необязательным `screen`, уникальный slug, совпадение с именем файла, разрешимость `help:` ссылок), whitespace — на Go (`src/tools/docs-check`) | Любое изменение |
 | `make check` | docs-check, typecheck и сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` | Любое изменение кода |
 | `make integration` | `go test -tags integration` на реальном Squid в образе `kraken:dev`/`kraken:ops` (`smoke_test.go`, `network_test.go`, `apt_test.go`, `ops_test.go`), локальные fixtures; фильтр через `RUN=` | Изменения policy, runtime, deploy, auth |
 | `make integration RUN=TestOps` | `ops_test.go` (`TestOpsBackupRestore`, `TestOpsCertReplace`, `TestOpsImageUpdate`, `TestOpsDiskFull`, `TestOpsForcedKill`): эксплуатационные процедуры runbook на образе `kraken:ops` — копия/восстановление тома `/var/lib/kraken`, замена сертификата, обновление образа, заполненный диск | Изменения deploy, runbook, runtime/recovery |
 | `npm --prefix src/web run test` | vitest: чистая логика каркаса (пределы панелей, навигация по ролям, конечный автомат применения) | Изменения логики в `src/web/src/shell` и `src/web/src/draft` |
 
 docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
-docs-check портирован с Python на Go (`src/tools/docs-check`); поведение и сообщения
-совпадают, тесты пакета покрывают ошибку каждого вида на фикстурах.
-CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` — verify-сборку и smoke.
+Тесты пакета `src/tools/docs-check` покрывают ошибку каждого вида на фикстурах.
+CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` — verify-сборку,
+образ и `make integration`.
 
 ## Go-тесты по пакетам
 

@@ -1,8 +1,5 @@
 # Локальный запуск
 
-Команды этого документа реализованы. Остальные runbooks описывают также будущие
-операции и не означают, что backup/restore уже автоматизирован.
-
 ## Сборка и первый вход
 
 Из корня: `make image`, затем `docker compose -f deploy/compose.yaml up -d`.
@@ -74,7 +71,7 @@ KRAKEN_PROXY_CERT_FILE=/absolute/path/proxy.crt KRAKEN_PROXY_KEY_FILE=/absolute/
 не получает доступ через HTTP listener. Серверный сертификат защищает
 подключение к прокси; HTTPS сайтов остаётся сквозным CONNECT.
 Ротация/смена установленных путей требует проверки и пересоздания контейнера;
-web provisioning ключей не реализован. Production ключи не помещать в Git/image.
+загрузки ключей через web нет. Production ключи не помещать в Git/image.
 
 ## Проверка поведения
 
