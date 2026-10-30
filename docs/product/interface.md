@@ -13,10 +13,14 @@
 React/Vite использует готовые компоненты [shadcn/ui](https://ui.shadcn.com/docs/installation/vite)
 (New York, Radix). Исходники компонентов в `src/web/src/components/ui`,
 конфигурация CLI — `src/web/components.json`. Локальные компоненты в embedded
-bundle: runtime CDN и Node server не нужны. Tailwind CSS 4 задаёт utility
-styles; семантические цвета и радиусы — `theme.css`, компоновка оболочки —
-`style.css`. Собственные глобальные button/input styles не подменяют состояния
-готовых компонентов.
+bundle: runtime CDN и Node server не нужны. Экраны собираются из компонентов shadcn (Card, Badge, Table, Tabs, Switch,
+RadioGroup, ToggleGroup, Checkbox, DropdownMenu, Popover, Command, AlertDialog,
+Sheet) и общих обёрток `src/web/src/components/kraken` (список и строка списка,
+инспектор, callout, chip, KPI, key-value, поле формы, строка настройки) с
+утилитами Tailwind CSS 4. Токены цветов, статусов и шкала текста — `theme.css`;
+`style.css` в cascade layers держит только базовые сбросы, разделитель панелей,
+skip link и панель запроса журнала и не перебивает компоненты. Вид сверяется
+скриншотами с прототипом.
 
 Каркас «инспектор»: шапка по колонкам, левая колонка-разделов (rail), область
 список + деталь с перетаскиваемыми разделителями, нижняя панель черновика и
