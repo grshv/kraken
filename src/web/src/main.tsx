@@ -3,8 +3,9 @@ import { createRoot } from "react-dom/client";
 import { KeyRound, SlidersHorizontal, History, Activity } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Card } from "@/components/ui/card";
+import { Field, Callout } from "@/components/kraken/blocks";
 import { ConnectionError, fetchPanel, type Request } from "./api";
 import { ThemeProvider } from "./ThemeProvider";
 import type {
@@ -20,6 +21,7 @@ import type {
 import { navItems, type NavId } from "./shell/nav";
 import { paletteIntent } from "./shell/paletteIntent";
 import { InspectorShell, type ShellHandlers } from "./shell/InspectorShell";
+import { KrakenMark } from "./shell/KrakenMark";
 import type { ConfirmOptions } from "./shell/ConfirmDialog";
 import { useApplyFlow } from "./draft/useApplyFlow";
 import { HelpView } from "./help/HelpView";
@@ -420,7 +422,7 @@ function App() {
   // Fatal / connecting / login views.
   if (fatal)
     return (
-      <main className="login-wrap">
+      <main className="grid min-h-dvh place-items-center bg-background p-6">
         <ErrorState
           title="Панель недоступна"
           detail={fatal}
@@ -430,11 +432,14 @@ function App() {
     );
   if (!session)
     return (
-      <main className="login-wrap">
-        <div className="login-card">
-          <h1 className="login-title">Kraken</h1>
-          <p className="muted-text">Подключение…</p>
-        </div>
+      <main className="grid min-h-dvh place-items-center bg-background p-6">
+        <Card className="w-full max-w-[410px] gap-4 p-8 shadow-[0_8px_30px_#0000000d]">
+          <h1 className="flex items-center gap-2 text-xl font-semibold tracking-[-0.015em]">
+            <KrakenMark title="" className="size-8" />
+            Kraken
+          </h1>
+          <p className="text-muted-foreground">Подключение…</p>
+        </Card>
       </main>
     );
   if (!session.authenticated)
@@ -592,14 +597,22 @@ function App() {
       }}
     >
       {connectionError && (
-        <Alert variant="destructive" className="error" role="alert">
+        <Alert
+          variant="destructive"
+          className="mx-5 my-4 flex items-center justify-between gap-4"
+          role="alert"
+        >
           <AlertDescription>
             Нет связи с панелью. Повторяем подключение…
           </AlertDescription>
         </Alert>
       )}
       {error && !busy && (
-        <Alert variant="destructive" className="error" role="alert">
+        <Alert
+          variant="destructive"
+          className="mx-5 my-4 flex items-center justify-between gap-4"
+          role="alert"
+        >
           <AlertDescription>{error}</AlertDescription>
           <Button variant="ghost" size="sm" onClick={() => setError("")}>
             Закрыть
@@ -623,38 +636,42 @@ function LoginView({
   error: string;
 }) {
   return (
-    <main className="login-wrap">
-      <div className="login-card">
-        <h1 className="login-title">Kraken</h1>
-        <form onSubmit={onLogin} className="login-form">
-          <Label className="grid gap-2">
-            Имя пользователя
-            <Input name="username" autoComplete="username" required autoFocus />
-          </Label>
-          <Label className="grid gap-2">
-            Пароль
+    <main className="grid min-h-dvh place-items-center bg-background p-6">
+      <Card className="w-full max-w-[410px] gap-4 p-8 shadow-[0_8px_30px_#0000000d]">
+        <h1 className="flex items-center gap-2 text-xl font-semibold tracking-[-0.015em]">
+          <KrakenMark title="" className="size-8" />
+          Kraken
+        </h1>
+        <form onSubmit={onLogin} className="grid gap-4">
+          <Field label="Имя пользователя" htmlFor="login-username">
             <Input
+              id="login-username"
+              name="username"
+              autoComplete="username"
+              required
+              autoFocus
+            />
+          </Field>
+          <Field label="Пароль" htmlFor="login-password">
+            <Input
+              id="login-password"
               name="password"
               type="password"
               autoComplete="current-password"
               required
             />
-          </Label>
+          </Field>
           {connectionError && (
-            <Alert variant="destructive" className="error" role="alert">
-              <AlertDescription>
-                Нет связи с панелью. Повторяем подключение…
-              </AlertDescription>
-            </Alert>
+            <Callout tone="bad">
+              Нет связи с панелью. Повторяем подключение…
+            </Callout>
           )}
-          {error && (
-            <Alert variant="destructive" className="error" role="alert">
-              <AlertDescription>{error}</AlertDescription>
-            </Alert>
-          )}
-          <Button type="submit" size="lg" disabled={busy}>{busy ? "Вход…" : "Войти в панель"}</Button>
+          {error && <Callout tone="bad">{error}</Callout>}
+          <Button type="submit" size="lg" className="w-full" disabled={busy}>
+            {busy ? "Вход…" : "Войти в панель"}
+          </Button>
         </form>
-      </div>
+      </Card>
     </main>
   );
 }

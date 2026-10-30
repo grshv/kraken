@@ -1,5 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { Search } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+  CommandShortcut,
+} from "@/components/ui/command";
 import type { NavId } from "./nav";
 import { navItems } from "./nav";
 import type { Role } from "./nav";
@@ -9,7 +24,10 @@ type Action = {
   id: string;
   label: string;
   group: string;
+  // hint is a plain right-aligned description (e.g. "Создать источник доступа");
+  // shortcut is a key cap (e.g. "⌘↵") rendered with CommandShortcut's tracking.
   hint?: string;
+  shortcut?: string;
   run: () => void;
 };
 
@@ -31,8 +49,6 @@ export function CommandPalette({
   onAction: (id: string) => void;
 }) {
   const [query, setQuery] = useState("");
-  const [active, setActive] = useState(0);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const actions = useMemo<Action[]>(() => {
     const nav: Action[] = navItems(role).map((n) => ({
@@ -59,7 +75,7 @@ export function CommandPalette({
         id: "act:review",
         label: "Проверить и применить черновик",
         group: "Действия",
-        hint: "⌘↵",
+        shortcut: "⌘↵",
         run: () => onAction("act:review"),
       },
       {
@@ -72,115 +88,64 @@ export function CommandPalette({
     return [...stubs, ...nav].filter((a) => paletteIntent(a.id, role) !== null);
   }, [role, onNavigate, onAction]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    if (!q) return actions;
-    return actions.filter((a) => a.label.toLowerCase().includes(q));
-  }, [actions, query]);
-
+  // Reset the query when the palette closes so the next open starts fresh.
   useEffect(() => {
-    if (open) {
-      setQuery("");
-      setActive(0);
-      // focus after render
-      const t = setTimeout(() => inputRef.current?.focus(), 0);
-      return () => clearTimeout(t);
-    }
+    if (!open) setQuery("");
   }, [open]);
 
-  useEffect(() => {
-    setActive(0);
-  }, [query]);
-
-  // Reset active index when the filtered list shrinks below it.
-  useEffect(() => {
-    if (active >= filtered.length) setActive(0);
-  }, [filtered.length, active]);
-
-  if (!open) return null;
+  const groups = Array.from(new Set(actions.map((a) => a.group)));
 
   function choose(a: Action) {
     onOpenChange(false);
     a.run();
   }
 
-  function onKey(e: React.KeyboardEvent) {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      onOpenChange(false);
-      return;
-    }
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setActive((i) => (i + 1) % Math.max(1, filtered.length));
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setActive(
-        (i) =>
-          (i - 1 + Math.max(1, filtered.length)) % Math.max(1, filtered.length),
-      );
-      return;
-    }
-    if (e.key === "Enter") {
-      e.preventDefault();
-      const a = filtered[active];
-      if (a) choose(a);
-    }
-  }
-
-  const groups = Array.from(new Set(filtered.map((a) => a.group)));
-
   return (
-    <div className="palette-overlay" onClick={() => onOpenChange(false)}>
-      <div
-        role="dialog"
-        aria-label="Команды"
-        className="palette"
-        onClick={(e) => e.stopPropagation()}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent
+        showCloseButton={false}
+        className="top-20 translate-y-0 w-[min(560px,92%)] max-w-none p-0 sm:max-w-none"
       >
-        <div className="palette-input">
-          <Search aria-hidden />
-          <input
-            ref={inputRef}
-            aria-label="Команды"
+        <DialogHeader className="sr-only">
+          <DialogTitle>Команды</DialogTitle>
+          <DialogDescription>Разделы и действия</DialogDescription>
+        </DialogHeader>
+        <Command loop className="bg-transparent">
+          <CommandInput
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={onKey}
+            onValueChange={setQuery}
             placeholder="Клиент, IP, домен или действие…"
+            aria-label="Команды"
           />
-        </div>
-        <div className="palette-list">
-          {groups.map((g) => (
-            <div key={g}>
-              <div className="palette-group">{g}</div>
-              {filtered
-                .filter((a) => a.group === g)
-                .map((a) => {
-                  const idx = filtered.indexOf(a);
-                  return (
-                    <button
+          <CommandList className="max-h-[420px]">
+            <CommandEmpty>Ничего не найдено</CommandEmpty>
+            {groups.map((g) => (
+              <CommandGroup key={g} heading={g}>
+                {actions
+                  .filter((a) => a.group === g)
+                  .map((a) => (
+                    <CommandItem
                       key={a.id}
-                      type="button"
-                      className={
-                        "palette-option" + (idx === active ? " active" : "")
-                      }
-                      onMouseEnter={() => setActive(idx)}
-                      onClick={() => choose(a)}
+                      value={a.label}
+                      onSelect={() => choose(a)}
+                      className="data-[selected=true]:bg-sel data-[selected=true]:text-foreground"
                     >
                       <span className="grow">{a.label}</span>
-                      {a.hint && <kbd className="kbd">{a.hint}</kbd>}
-                    </button>
-                  );
-                })}
-            </div>
-          ))}
-          {filtered.length === 0 && (
-            <div className="palette-empty">Ничего не найдено</div>
-          )}
-        </div>
-      </div>
-    </div>
+                      {a.hint && (
+                        <span className="ml-auto text-sm text-muted-foreground">
+                          {a.hint}
+                        </span>
+                      )}
+                      {a.shortcut && (
+                        <CommandShortcut>{a.shortcut}</CommandShortcut>
+                      )}
+                    </CommandItem>
+                  ))}
+              </CommandGroup>
+            ))}
+          </CommandList>
+        </Command>
+      </DialogContent>
+    </Dialog>
   );
 }

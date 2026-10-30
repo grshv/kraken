@@ -34,7 +34,11 @@ export function renderMarkdown(
       }
       i++; // closing fence
       blocks.push(
-        <pre key={k()} className="md-code" data-lang={lang || undefined}>
+        <pre
+          key={k()}
+          className="m-0 mb-3 overflow-auto rounded-lg border bg-muted p-3 font-mono text-sm leading-[1.6]"
+          data-lang={lang || undefined}
+        >
           <code>{buf.join("\n")}</code>
         </pre>,
       );
@@ -48,7 +52,10 @@ export function renderMarkdown(
       const text = h[2].trim();
       const Tag = `h${Math.min(level + 1, 6)}` as unknown as "h1";
       blocks.push(
-        <Tag key={k()} className={`md-h md-h-${level}`}>
+        <Tag
+          key={k()}
+          className={`m-0 font-semibold ${level <= 1 ? "text-xl" : "text-lg"}`}
+        >
           {inline(text, onHelpLink)}
         </Tag>,
       );
@@ -65,7 +72,7 @@ export function renderMarkdown(
         i++;
       }
       blocks.push(
-        <ul key={k()} className="md-ul">
+        <ul key={k()} className="m-0 mb-3 list-disc pl-[22px] leading-[1.6]">
           {items}
         </ul>,
       );
@@ -81,7 +88,7 @@ export function renderMarkdown(
         i++;
       }
       blocks.push(
-        <ol key={k()} className="md-ol">
+        <ol key={k()} className="m-0 mb-3 list-decimal pl-[22px] leading-[1.6]">
           {items}
         </ol>,
       );
@@ -108,7 +115,7 @@ export function renderMarkdown(
       i++;
     }
     blocks.push(
-      <p key={k()} className="md-p">
+      <p key={k()} className="m-0 mb-3 leading-[1.6]">
         {inline(para.join(" "), onHelpLink)}
       </p>,
     );
@@ -145,7 +152,7 @@ function inline(
         <button
           key={`a-${key++}`}
           type="button"
-          className="md-link"
+          className="cursor-pointer text-accent font-medium hover:underline"
           onClick={() => onHelpLink?.(help[1])}
         >
           {label}
@@ -156,7 +163,7 @@ function inline(
         <a
           key={`a-${key++}`}
           href={target}
-          className="md-link"
+          className="text-accent font-medium hover:underline"
           rel="noreferrer noopener"
           target="_blank"
         >

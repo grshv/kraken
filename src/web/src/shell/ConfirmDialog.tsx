@@ -1,12 +1,14 @@
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export type ConfirmOptions = {
   title: string;
@@ -16,7 +18,7 @@ export type ConfirmOptions = {
 };
 
 // Single confirmation dialog used by destructive actions (discard draft,
-// delete client, block user). aria-describedby wired via DialogDescription.
+// delete client, block user). aria-describedby wired via AlertDialogDescription.
 export function ConfirmDialog({
   options,
   onConfirm,
@@ -27,35 +29,40 @@ export function ConfirmDialog({
   onCancel: () => void;
 }) {
   return (
-    <Dialog
+    <AlertDialog
       open={options !== null}
       onOpenChange={(open) => {
         if (!open) onCancel();
       }}
     >
-      <DialogContent aria-describedby="confirm-desc" className="confirm-dialog">
+      <AlertDialogContent
+        aria-describedby="confirm-desc"
+        className="sm:max-w-[440px]"
+      >
         {options && (
           <>
-            <DialogHeader>
-              <DialogTitle>{options.title}</DialogTitle>
-              <DialogDescription id="confirm-desc">
+            <AlertDialogHeader>
+              <AlertDialogTitle>{options.title}</AlertDialogTitle>
+              <AlertDialogDescription id="confirm-desc">
                 {options.text}
-              </DialogDescription>
-            </DialogHeader>
-            <DialogFooter>
-              <Button variant="outline" onClick={onCancel}>
-                Отмена
-              </Button>
-              <Button
-                variant={options.danger ? "destructive" : "default"}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel onClick={onCancel}>Отмена</AlertDialogCancel>
+              <AlertDialogAction
+                className={
+                  options.danger
+                    ? buttonVariants({ variant: "destructive" })
+                    : undefined
+                }
                 onClick={onConfirm}
               >
                 {options.ok}
-              </Button>
-            </DialogFooter>
+              </AlertDialogAction>
+            </AlertDialogFooter>
           </>
         )}
-      </DialogContent>
-    </Dialog>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }

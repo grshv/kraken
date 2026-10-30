@@ -13,9 +13,9 @@ export function ErrorState({
   onRetry?: () => void;
 }) {
   return (
-    <div className="fatal-state">
-      <AlertTriangle aria-hidden />
-      <h1>{title}</h1>
+    <div className="flex max-w-[460px] flex-col items-start gap-3">
+      <AlertTriangle className="size-7 text-bad" aria-hidden />
+      <h1 className="text-xl">{title}</h1>
       {detail && <p role="alert">{detail}</p>}
       {onRetry && <Button onClick={onRetry}>Повторить</Button>}
     </div>

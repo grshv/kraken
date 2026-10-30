@@ -1,5 +1,6 @@
 import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import type { Status } from "../model";
 
 // Bottom tray: appears only when /status.has_unapplied_changes is true and
@@ -15,9 +16,11 @@ export function DraftTray({
 }) {
   if (status?.has_unapplied_changes !== true) return null;
   return (
-    <div className="draft-tray">
-      <span className="pill pill-mod">Есть неприменённые изменения</span>
-      <span className="muted-text small hide-md">
+    <div className="flex flex-none items-center gap-2.5 border-t bg-card px-4 py-[9px]">
+      <Badge variant="mod" className="rounded-full px-2.5">
+        Есть неприменённые изменения
+      </Badge>
+      <span className="text-sm text-muted-foreground max-[1180px]:hidden">
         Трафик не изменится, пока изменения не применены
       </span>
       <span className="grow" />
