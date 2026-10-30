@@ -42,7 +42,7 @@ export no_proxy="localhost,127.0.0.1,::1"
 
 Добавьте строки в `~/.zshrc` для постоянства. Homebrew `brew` читает эти
 переменные; `brew update` обращается к `github.com` и
-`*.githubusercontent.com` — разрешите их в политике клиента.
+`*.githubusercontent.com` — разрешите их клиенту во вкладке «Доступ».
 
 ## Доверие сертификату
 

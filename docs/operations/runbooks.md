@@ -54,7 +54,7 @@ administrator защищён от блокировки и понижения. К
 ## APT/curl не скачивают
 
 Сверить effective proxy settings приложения: sudo, systemd, контейнеры и APT
-могут не наследовать shell env. Проверить source IP, enabled client, allowlist,
+могут не наследовать shell env. Проверить source IP, enabled client, режим доступа и итоговый список,
 redirect/CDN домены, TLS profile, proxy DNS и время на VM.
 Различать proxy denied (обычно 403), proxy auth (407),
 TLS handshake failure, upstream HTTP errors и APT signature/hash errors.

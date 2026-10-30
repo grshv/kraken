@@ -61,7 +61,7 @@ make integration   # реальный Squid, отдельные временны
 
 Первый frontend build требует `npm ci` (Makefile выполняет его автоматически).
 Integration использует локальные fake HTTP/HTTPS origins, проверяет доверие TLS,
-all_web/allowlist, защитные запреты, apply/idempotency, restart и rollback.
+весь веб и список доменов, защитные запреты, apply/idempotency, restart и rollback.
 Go unit tests дополнительно проверяют faults и crash recovery.
 
 ## Документация
