@@ -1079,7 +1079,7 @@ function OverviewTab({
               </Button>
               <Button
                 size="xs"
-                variant="ghost"
+                variant="outline"
                 onClick={() =>
                   void onMark(
                     fresh.map((n) => n.id),
@@ -1087,7 +1087,7 @@ function OverviewTab({
                   )
                 }
               >
-                <Check aria-hidden /> Просмотрено
+                <Check aria-hidden /> Отметить просмотренными
               </Button>
             </div>
           </div>
