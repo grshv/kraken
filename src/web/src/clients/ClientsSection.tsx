@@ -376,8 +376,8 @@ export function ClientsSection(props: SectionProps) {
           </div>
           <ToggleGroup
             type="single"
-            variant="outline"
-            size="sm"
+            variant="chip"
+            size="xs"
             spacing={1}
             value={filter}
             onValueChange={(v) => {
@@ -747,13 +747,13 @@ function ClientDetail({
       >
         <TabsList
           variant="line"
-          className="group-data-[orientation=horizontal]/tabs:h-auto h-auto w-full justify-start gap-[18px] border-b px-5"
+          className="group-data-[orientation=horizontal]/tabs:h-auto h-auto w-full p-0 justify-start gap-[18px] border-b px-5"
         >
           {tabs.map(([k, l]) => (
             <TabsTrigger
               key={k}
               value={k}
-              className="flex-none px-0 py-2 after:bg-accent group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+              className="flex-none px-0 py-[9px] text-base after:bg-accent group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
             >
               {l}
             </TabsTrigger>

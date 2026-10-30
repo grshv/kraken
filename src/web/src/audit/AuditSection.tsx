@@ -155,6 +155,9 @@ export function AuditSection(props: SectionProps) {
           </div>
           <ToggleGroup
             type="single"
+            variant="chip"
+            size="xs"
+            spacing={1}
             value={category}
             onValueChange={(v) => {
               if (v) setCategory(v as AuditCategory | "all");
@@ -166,7 +169,6 @@ export function AuditSection(props: SectionProps) {
                 key={f.id}
                 value={f.id}
                 aria-label={f.label}
-                className="h-[22px] rounded-md px-2 text-sm data-[state=on]:bg-secondary data-[state=on]:text-secondary-foreground"
               >
                 {f.label}
               </ToggleGroupItem>

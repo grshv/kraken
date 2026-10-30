@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { Copy, Plus, ShieldCheck, Trash2 } from "lucide-react";
+import { Copy, Pencil, Plus, ShieldCheck, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -338,7 +338,37 @@ function PolicyDetail({
   return (
     <>
       <InspectorHeader
-        title={policy.name}
+        title={
+          editingName ? (
+            <form
+              className="flex items-center gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const res = await onCommit(
+                  renamePolicy(snap, policy.id, name.trim() || policy.name),
+                );
+                if (res.ok) setEditingName(false);
+              }}
+            >
+              <Input
+                id={nameId}
+                aria-label="Название"
+                autoFocus
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Escape") setEditingName(false);
+                }}
+                className="w-[240px]"
+              />
+              <Button size="xs" type="submit">
+                Сохранить
+              </Button>
+            </form>
+          ) : (
+            policy.name
+          )
+        }
         status={
           <Badge variant="secondary">
             {policy.mode === "all_web"
@@ -355,6 +385,16 @@ function PolicyDetail({
           <>
             {mark === "new" && <Badge variant="add">новая, в черновике</Badge>}
             {mark === "changed" && <Badge variant="mod">изменена</Badge>}
+            {!editingName && (
+              <Button
+                size="xs"
+                variant="ghost"
+                onClick={() => setEditingName(true)}
+                disabled={!editable}
+              >
+                <Pencil aria-hidden /> Переименовать
+              </Button>
+            )}
             <Button size="xs" variant="outline" onClick={onDuplicate}>
               <Copy aria-hidden /> Дублировать
             </Button>
@@ -400,49 +440,6 @@ function PolicyDetail({
             </div>
           </Callout>
         )}
-        <Card>
-          <CardHeader>
-            <CardTitle className="flex-1 min-w-0">Название</CardTitle>
-            {editingName ? (
-              <CardAction>
-                <div className="flex items-center gap-2">
-                  <Input
-                    id={nameId}
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    className="w-[240px]"
-                  />
-                  <Button
-                    size="xs"
-                    onClick={async () => {
-                      const res = await onCommit(
-                        renamePolicy(
-                          snap,
-                          policy.id,
-                          name.trim() || policy.name,
-                        ),
-                      );
-                      if (res.ok) setEditingName(false);
-                    }}
-                  >
-                    Сохранить
-                  </Button>
-                </div>
-              </CardAction>
-            ) : (
-              <CardAction>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => setEditingName(true)}
-                  disabled={!editable}
-                >
-                  Переименовать
-                </Button>
-              </CardAction>
-            )}
-          </CardHeader>
-        </Card>
         <Card>
           <CardHeader>
             <CardTitle className="flex-1 min-w-0">Режим</CardTitle>

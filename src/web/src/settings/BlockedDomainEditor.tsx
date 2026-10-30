@@ -143,7 +143,7 @@ export function BlockedDomainEditor({
           />
           <span className="text-sm text-muted-foreground">с поддоменами</span>
         </div>
-        <Button size="sm" onClick={add}>
+        <Button variant="outline" onClick={add}>
           <Plus aria-hidden /> Добавить
         </Button>
       </div>

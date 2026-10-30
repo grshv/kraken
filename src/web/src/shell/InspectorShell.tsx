@@ -153,8 +153,8 @@ export function InspectorShell({
           className="col-start-4 flex h-[34px] min-w-0 cursor-text items-center gap-2 justify-self-stretch rounded-md border bg-background px-3 text-base text-muted-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring max-[820px]:col-start-3"
           onClick={() => setPaletteOpen(true)}
         >
-          <Search aria-hidden />
-          <span className="grow">Клиент, IP, домен или действие…</span>
+          <Search aria-hidden className="size-3.5" />
+          <span className="grow text-left">Клиент, IP, домен или действие…</span>
           <kbd className="rounded-[6px] border bg-muted px-[5px] font-mono text-xs text-muted-foreground">
             ⌘K
           </kbd>
@@ -212,7 +212,7 @@ export function InspectorShell({
             })}
           <button
             type="button"
-            className="flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-[18px]"
+            className="flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-4"
             aria-label={dark ? "Светлая тема" : "Тёмная тема"}
             aria-pressed={dark}
             onClick={() => setTheme(dark ? "light" : "dark")}
@@ -303,7 +303,7 @@ function RailItem({
     <button
       type="button"
       className={cn(
-        "flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-[18px]",
+        "flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-4",
         active && "bg-[var(--accent-soft)] text-accent",
       )}
       aria-current={active ? "page" : undefined}

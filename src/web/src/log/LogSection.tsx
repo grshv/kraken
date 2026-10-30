@@ -332,292 +332,303 @@ export function LogSection(props: SectionProps) {
   }, [events, selectedID]);
 
   return (
-    <section
-      className="grid min-h-0 w-full flex-1 [grid-template-columns:190px_minmax(0,1fr)_var(--detail-w,400px)] max-[1180px]:[grid-template-columns:minmax(0,1fr)_min(var(--detail-w,400px),320px)] max-[820px]:grid-cols-[1fr] max-[820px]:grid-rows-[auto_auto_auto]"
-      style={{ ["--detail-w" as string]: `${detail.width}px` }}
-    >
-      <aside className="flex w-[190px] min-h-0 flex-col gap-3.5 overflow-y-auto border-r bg-card p-3 max-[1180px]:hidden">
-        <FacetGroup title="Результат">
-          <FacetRow
-            label="Разрешено"
-            value={allowedCount}
-            checked={parsed.result === "allowed"}
-            onClick={() => applyResultFacet("allowed")}
+    <section className="flex min-h-0 w-full flex-1 flex-col">
+      <div className="flex h-[52px] flex-none items-center gap-2 border-b px-3.5">
+        <span className="font-semibold">Журнал</span>
+        {!paused && (
+          <Badge variant="ok">
+            <span className="size-1.5 rounded-full bg-current" /> обновляется
+          </Badge>
+        )}
+        <div className="relative flex min-w-0 max-w-[520px] flex-1 items-center">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
           />
-          <FacetRow
-            label="Отказ"
-            value={deniedCount}
-            checked={parsed.result === "denied"}
-            onClick={() => applyResultFacet("denied")}
+          <Input
+            aria-label="Поиск по журналу"
+            className="h-8 pl-[30px]"
+            placeholder="client:ci-01 host:example.com результат:отказ"
+            value={queryText}
+            onChange={(e) => setQueryText(e.target.value)}
           />
-        </FacetGroup>
-        <FacetGroup title="Клиент">
-          {clientCounts.map((c) => {
-            const name = c.id ? (clientNameByID.get(c.id) ?? c.id) : "";
-            const on = c.id ? () => applyClientFacet(c.id) : undefined;
-            return (
-              <FacetRow
-                key={c.id || "_unknown"}
-                label={name || "Не описан"}
-                value={c.count}
-                checked={
-                  !!name && parsed.client?.toLowerCase() === name.toLowerCase()
-                }
-                onClick={on}
-              />
-            );
-          })}
-          {clientCounts.length === 0 && (
-            <div className="text-sm text-muted-foreground">—</div>
-          )}
-        </FacetGroup>
-        <FacetGroup title="Метод">
-          {methodCounts.map((m) => {
-            const on = m.method ? () => applyMethodFacet(m.method) : undefined;
-            return (
-              <FacetRow
-                key={m.method || "_"}
-                label={m.method || "—"}
-                value={m.count}
-                checked={
-                  !!m.method &&
-                  parsed.method?.toLowerCase() === m.method.toLowerCase()
-                }
-                onClick={on}
-              />
-            );
-          })}
-          {methodCounts.length === 0 && (
-            <div className="text-sm text-muted-foreground">—</div>
-          )}
-        </FacetGroup>
-      </aside>
-
-      <div className="flex min-h-0 min-w-0 flex-col">
-        <div className="flex h-[52px] flex-none items-center gap-2 border-b px-3.5">
-          <span className="font-semibold">Журнал</span>
-          {!paused && (
-            <Badge variant="ok">
-              <span className="size-1.5 rounded-full bg-current" /> обновляется
-            </Badge>
-          )}
-          <div className="relative flex min-w-0 max-w-[520px] flex-1 items-center">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
-            />
-            <Input
-              aria-label="Поиск по журналу"
-              className="h-8 pl-[30px]"
-              placeholder="client:ci-01 host:example.com результат:отказ"
-              value={queryText}
-              onChange={(e) => setQueryText(e.target.value)}
-            />
-          </div>
-          <ToggleGroup
-            type="single"
-            variant="outline"
-            size="sm"
-            value={window.label}
-            aria-label="Окно журнала"
-            onValueChange={(v) => {
-              const w = FACET_WINDOWS.find((x) => x.label === v);
-              if (w) setWindow(w);
-            }}
-          >
-            {FACET_WINDOWS.map((w) => (
-              <ToggleGroupItem key={w.label} value={w.label}>
-                {w.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
-          {paused ? (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setPaused(false)}
-            >
-              <Play aria-hidden /> Продолжить
-            </Button>
-          ) : (
-            <Button variant="outline" size="sm" onClick={() => setPaused(true)}>
-              <Pause aria-hidden /> Пауза
-            </Button>
-          )}
-          {stale && (
-            <Badge variant="secondary">
-              <TriangleAlert aria-hidden /> журнал не свежий
-            </Badge>
-          )}
-          {gap && (
-            <Badge variant="secondary">
-              <TriangleAlert aria-hidden /> есть пропуски
-            </Badge>
-          )}
         </div>
-
-        <div className="flex-none border-b p-2.5">
-          <div className="mb-1.5 flex gap-3 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <span className="size-2.5 rounded-[2px] bg-s-allow" aria-hidden />
-              разрешено
-            </span>
-            <span className="flex items-center gap-1">
-              <span className="size-2.5 rounded-[2px] bg-s-deny" aria-hidden />
-              отказ
-            </span>
-            <span>
-              {window.step === "1m"
-                ? "по минутам"
-                : window.step === "15m"
-                  ? "по 15 минут"
-                  : "по часам"}
-            </span>
-          </div>
-          <div
-            className="flex h-12 items-end gap-px"
-            role="img"
-            aria-label="Гистограмма запросов"
-          >
-            {hist.map((b) => {
-              const total = b.allowed + b.denied;
-              const h = total === 0 ? 0 : (total / maxBin) * 100;
-              const denyH = total === 0 ? 0 : (b.denied / total) * h;
-              const label =
-                window.step === "1h"
-                  ? b.start.slice(0, 16)
-                  : b.start.slice(11, 16);
+        <ToggleGroup
+          type="single"
+          variant="seg"
+          size="sm"
+          spacing={0.5}
+          className="rounded-lg bg-muted p-[3px]"
+          value={window.label}
+          aria-label="Окно журнала"
+          onValueChange={(v) => {
+            const w = FACET_WINDOWS.find((x) => x.label === v);
+            if (w) setWindow(w);
+          }}
+        >
+          {FACET_WINDOWS.map((w) => (
+            <ToggleGroupItem key={w.label} value={w.label}>
+              {w.label}
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <span className="grow" />
+        {paused ? (
+          <Button variant="outline" size="sm" onClick={() => setPaused(false)}>
+            <Play aria-hidden /> Продолжить
+          </Button>
+        ) : (
+          <Button variant="outline" size="sm" onClick={() => setPaused(true)}>
+            <Pause aria-hidden /> Пауза
+          </Button>
+        )}
+        {stale && (
+          <Badge variant="secondary">
+            <TriangleAlert aria-hidden /> журнал не свежий
+          </Badge>
+        )}
+        {gap && (
+          <Badge variant="secondary">
+            <TriangleAlert aria-hidden /> есть пропуски
+          </Badge>
+        )}
+      </div>
+      <div
+        className="grid min-h-0 w-full flex-1 [grid-template-columns:190px_minmax(0,1fr)_var(--detail-w,400px)] max-[1180px]:[grid-template-columns:minmax(0,1fr)_min(var(--detail-w,400px),320px)] max-[820px]:grid-cols-[1fr] max-[820px]:grid-rows-[auto_auto_auto]"
+        style={{ ["--detail-w" as string]: `${detail.width}px` }}
+      >
+        <aside className="flex w-[190px] min-h-0 flex-col gap-3.5 overflow-y-auto border-r bg-card p-3 max-[1180px]:hidden">
+          <FacetGroup title="Результат">
+            <FacetRow
+              label="Разрешено"
+              value={allowedCount}
+              checked={parsed.result === "allowed"}
+              onClick={() => applyResultFacet("allowed")}
+            />
+            <FacetRow
+              label="Отказ"
+              value={deniedCount}
+              checked={parsed.result === "denied"}
+              onClick={() => applyResultFacet("denied")}
+            />
+          </FacetGroup>
+          <FacetGroup title="Клиент">
+            {clientCounts.map((c) => {
+              const name = c.id ? (clientNameByID.get(c.id) ?? c.id) : "";
+              const on = c.id ? () => applyClientFacet(c.id) : undefined;
               return (
-                <div
-                  key={b.start}
-                  className="relative min-w-px flex-1 rounded-t-sm bg-s-allow/70"
-                  style={{ height: `${h}%` }}
-                  title={`${label}: ${b.allowed} разрешено, ${b.denied} отказ`}
-                >
-                  <div
-                    className="absolute inset-x-0 top-0 rounded-t-sm bg-s-deny/95"
-                    style={{ height: `${denyH}%` }}
-                  />
-                </div>
+                <FacetRow
+                  key={c.id || "_unknown"}
+                  label={name || "Не описан"}
+                  value={c.count}
+                  checked={
+                    !!name &&
+                    parsed.client?.toLowerCase() === name.toLowerCase()
+                  }
+                  onClick={on}
+                />
               );
             })}
+            {clientCounts.length === 0 && (
+              <div className="text-sm text-muted-foreground">—</div>
+            )}
+          </FacetGroup>
+          <FacetGroup title="Метод">
+            {methodCounts.map((m) => {
+              const on = m.method
+                ? () => applyMethodFacet(m.method)
+                : undefined;
+              return (
+                <FacetRow
+                  key={m.method || "_"}
+                  label={m.method || "—"}
+                  value={m.count}
+                  checked={
+                    !!m.method &&
+                    parsed.method?.toLowerCase() === m.method.toLowerCase()
+                  }
+                  onClick={on}
+                />
+              );
+            })}
+            {methodCounts.length === 0 && (
+              <div className="text-sm text-muted-foreground">—</div>
+            )}
+          </FacetGroup>
+        </aside>
+
+        <div className="flex min-h-0 min-w-0 flex-col">
+          <div className="flex-none border-b p-2.5">
+            <div className="mb-1.5 flex gap-3 text-sm text-muted-foreground">
+              <span className="flex items-center gap-1">
+                <span
+                  className="size-2.5 rounded-[2px] bg-s-allow"
+                  aria-hidden
+                />
+                разрешено
+              </span>
+              <span className="flex items-center gap-1">
+                <span
+                  className="size-2.5 rounded-[2px] bg-s-deny"
+                  aria-hidden
+                />
+                отказ
+              </span>
+              <span>
+                {window.step === "1m"
+                  ? "по минутам"
+                  : window.step === "15m"
+                    ? "по 15 минут"
+                    : "по часам"}
+              </span>
+            </div>
+            <div
+              className="flex h-12 items-end gap-px"
+              role="img"
+              aria-label="Гистограмма запросов"
+            >
+              {hist.map((b) => {
+                const total = b.allowed + b.denied;
+                const h = total === 0 ? 0 : (total / maxBin) * 100;
+                const denyH = total === 0 ? 0 : (b.denied / total) * h;
+                const label =
+                  window.step === "1h"
+                    ? b.start.slice(0, 16)
+                    : b.start.slice(11, 16);
+                return (
+                  <div
+                    key={b.start}
+                    className="relative min-w-px flex-1 rounded-t-sm bg-s-allow/70"
+                    style={{ height: `${h}%` }}
+                    title={`${label}: ${b.allowed} разрешено, ${b.denied} отказ`}
+                  >
+                    <div
+                      className="absolute inset-x-0 top-0 rounded-t-sm bg-s-deny/95"
+                      style={{ height: `${denyH}%` }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto">
+            {loadError ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
+                <ErrorState
+                  title="Журнал недоступен"
+                  detail="Не удалось загрузить события. Повторяем запрос…"
+                  onRetry={() => void fetchFirst()}
+                />
+              </div>
+            ) : events.length === 0 ? (
+              <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
+                <EmptyState icon={<Search />} title="Запросов нет">
+                  По текущему фильтру нет событий. Как только машины обратятся к
+                  прокси, записи появятся здесь.
+                </EmptyState>
+              </div>
+            ) : (
+              <Table className="text-base">
+                <TableHeader>
+                  <TableRow className="hover:bg-transparent">
+                    <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                      Время
+                    </TableHead>
+                    <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                      Клиент
+                    </TableHead>
+                    <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                      Назначение
+                    </TableHead>
+                    <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
+                      Результат
+                    </TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {events.map((e) => {
+                    const denied = isDenied(e);
+                    return (
+                      <TableRow
+                        key={e.id}
+                        data-state={
+                          selectedID === e.id ? "selected" : undefined
+                        }
+                        className="cursor-pointer data-[state=selected]:bg-sel data-[state=selected]:shadow-[inset_2px_0_0_var(--accent)]"
+                        onClick={() => setSelectedID(e.id)}
+                      >
+                        <TableCell className="px-3 py-2 tabular-nums text-sm text-muted-foreground">
+                          {e.timestamp.slice(11, 19)}
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <div className="font-medium">
+                            {e.client_name ?? "не описан"}
+                          </div>
+                          <div className="font-mono text-sm text-muted-foreground">
+                            {e.source_ip}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-3 py-2 font-mono [overflow-wrap:anywhere]">
+                          {e.method !== "CONNECT" && (
+                            <span className="text-muted-foreground">
+                              {e.method}{" "}
+                            </span>
+                          )}
+                          {e.destination}
+                        </TableCell>
+                        <TableCell className="px-3 py-2">
+                          <Badge variant={denied ? "bad" : "ok"}>
+                            {resultCode(e)}
+                            {denied ? " отказ" : ""}
+                          </Badge>
+                          {e.count && e.count > 1 ? (
+                            <span className="ml-1 tabular-nums text-sm text-muted-foreground">
+                              ×{e.count}
+                            </span>
+                          ) : null}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            )}
+            {cursor && !loadError && (
+              <div className="flex justify-center p-3">
+                <Button size="xs" variant="ghost" onClick={loadMore}>
+                  Ещё
+                </Button>
+              </div>
+            )}
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">
-          {loadError ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
-              <ErrorState
-                title="Журнал недоступен"
-                detail="Не удалось загрузить события. Повторяем запрос…"
-                onRetry={() => void fetchFirst()}
-              />
-            </div>
-          ) : events.length === 0 ? (
-            <div className="flex min-h-0 flex-1 flex-col gap-3.5 overflow-y-auto p-5">
-              <EmptyState icon={<Search />} title="Запросов нет">
-                По текущему фильтру нет событий. Как только машины обратятся к
-                прокси, записи появятся здесь.
-              </EmptyState>
-            </div>
-          ) : (
-            <Table className="text-base">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
-                    Время
-                  </TableHead>
-                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
-                    Клиент
-                  </TableHead>
-                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
-                    Назначение
-                  </TableHead>
-                  <TableHead className="sticky top-0 h-auto bg-card px-3 py-2 text-sm text-muted-foreground">
-                    Результат
-                  </TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {events.map((e) => {
-                  const denied = isDenied(e);
-                  return (
-                    <TableRow
-                      key={e.id}
-                      data-state={selectedID === e.id ? "selected" : undefined}
-                      className="cursor-pointer data-[state=selected]:bg-sel data-[state=selected]:shadow-[inset_2px_0_0_var(--accent)]"
-                      onClick={() => setSelectedID(e.id)}
-                    >
-                      <TableCell className="px-3 py-2 tabular-nums text-sm text-muted-foreground">
-                        {e.timestamp.slice(11, 19)}
-                      </TableCell>
-                      <TableCell className="px-3 py-2">
-                        <div className="font-medium">
-                          {e.client_name ?? "не описан"}
-                        </div>
-                        <div className="font-mono text-sm text-muted-foreground">
-                          {e.source_ip}
-                        </div>
-                      </TableCell>
-                      <TableCell className="px-3 py-2 font-mono [overflow-wrap:anywhere]">
-                        {e.method !== "CONNECT" && (
-                          <span className="text-muted-foreground">
-                            {e.method}{" "}
-                          </span>
-                        )}
-                        {e.destination}
-                      </TableCell>
-                      <TableCell className="px-3 py-2">
-                        <Badge variant={denied ? "bad" : "ok"}>
-                          {resultCode(e)}
-                          {denied ? " отказ" : ""}
-                        </Badge>
-                        {e.count && e.count > 1 ? (
-                          <span className="ml-1 tabular-nums text-sm text-muted-foreground">
-                            ×{e.count}
-                          </span>
-                        ) : null}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-            </Table>
-          )}
-          {cursor && !loadError && (
-            <div className="flex justify-center p-3">
-              <Button size="xs" variant="ghost" onClick={loadMore}>
-                Ещё
-              </Button>
-            </div>
-          )}
-        </div>
-      </div>
-
-      <aside className="log-detail-pane">
-        <PaneResizer
-          kind="detail"
-          direction="left"
-          onDrag={detail.onDrag}
-          onCommit={detail.onCommit}
-          onReset={detail.reset}
-        />
-        {selected ? (
-          <LogDetail
-            event={selected}
-            snap={snap}
-            session={session}
-            request={request}
-            onCommit={onCommit}
-            onToast={onToast}
-            onNavigate={onNavigate}
+        <aside className="log-detail-pane">
+          <PaneResizer
+            kind="detail"
+            direction="left"
+            onDrag={detail.onDrag}
+            onCommit={detail.onCommit}
+            onReset={detail.reset}
           />
-        ) : (
-          <div className="text-sm text-muted-foreground">
-            Выберите запрос, чтобы увидеть детали и действия.
-          </div>
-        )}
-      </aside>
+          {selected ? (
+            <LogDetail
+              event={selected}
+              snap={snap}
+              session={session}
+              request={request}
+              onCommit={onCommit}
+              onToast={onToast}
+              onNavigate={onNavigate}
+            />
+          ) : (
+            <div className="text-sm text-muted-foreground">
+              Выберите запрос, чтобы увидеть детали и действия.
+            </div>
+          )}
+        </aside>
+      </div>
     </section>
   );
 }

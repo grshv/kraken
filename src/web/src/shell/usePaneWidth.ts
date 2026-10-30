@@ -4,14 +4,10 @@ import { clampPane, type PaneKind } from "./layout";
 const storageKey = (kind: PaneKind) => `kraken-pane-${kind}`;
 
 // Persisted pane width with try/catch around localStorage so private mode,
-// quota errors and disabled storage never break the resizer. Defaults sit in
-// the middle of each range, matching the prototype.
+// quota errors and disabled storage never break the resizer. Defaults are
+// the prototype's values.
 function defaultWidth(kind: PaneKind): number {
-  const { min, max } = {
-    list: { min: 220, max: 440 },
-    detail: { min: 280, max: 520 },
-  }[kind];
-  return Math.round((min + max) / 2);
+  return { list: 300, detail: 340 }[kind];
 }
 
 function readWidth(kind: PaneKind): number {

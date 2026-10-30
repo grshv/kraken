@@ -36,7 +36,7 @@ export function ListPaneHeader({
 }) {
   return (
     <div className="flex flex-col gap-2 border-b px-3 pt-3 pb-2.5">
-      <div className="flex min-h-8 items-center gap-2">
+      <div className="flex min-h-[26px] items-center gap-2">
         <span className="grow text-lg font-semibold">{title}</span>
         {action}
       </div>

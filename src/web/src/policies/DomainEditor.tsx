@@ -37,6 +37,8 @@ export function DomainEditor({
   onChange: (next: Destination[]) => void;
 }) {
   const [draft, setDraft] = useState("");
+  // Applies to plain names; "*.x" input always includes subdomains.
+  const [withSubdomains, setWithSubdomains] = useState(true);
   const max = Math.max(
     1,
     ...destinations.map((d) => hits?.[d.domain]?.hits_24h ?? 0),
@@ -48,7 +50,11 @@ export function DomainEditor({
       .filter(Boolean);
     const parsed = tokens
       .map((t) => parseDomainInput(t))
-      .filter((d): d is NonNullable<typeof d> => d !== null);
+      .filter((d): d is NonNullable<typeof d> => d !== null)
+      .map((d) => ({
+        ...d,
+        include_subdomains: d.include_subdomains || withSubdomains,
+      }));
     if (parsed.length === 0) {
       setDraft("введите домен, например registry.npmjs.org");
       return;
@@ -58,25 +64,6 @@ export function DomainEditor({
   };
   return (
     <div className="flex flex-col gap-2">
-      {!readOnly && (
-        <div className="mt-2 flex items-center gap-2">
-          <Input
-            className="font-mono text-sm"
-            placeholder="домен; несколько через пробел или с новой строки"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                add();
-              }
-            }}
-          />
-          <Button size="sm" onClick={add}>
-            <Plus aria-hidden /> Добавить
-          </Button>
-        </div>
-      )}
       {readOnly && readOnlyReason && (
         <Callout tone="info" icon={<Lock aria-hidden />} className="my-2">
           <div className="text-sm">{readOnlyReason}</div>
@@ -87,7 +74,7 @@ export function DomainEditor({
           <TableRow>
             <TableHead>Домен</TableHead>
             <TableHead>Поддомены</TableHead>
-            <TableHead className="text-right">Запросов, 24 ч</TableHead>
+            <TableHead>Запросов, 24 ч</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -129,7 +116,7 @@ export function DomainEditor({
                         style={{ width: `${(h / max) * 100}%` }}
                       />
                     </div>
-                    <span className="w-[52px] text-right tabular-nums text-sm">
+                    <span className="w-[52px] text-right tabular-nums">
                       {h ? h : "—"}
                     </span>
                   </div>
@@ -162,6 +149,29 @@ export function DomainEditor({
           )}
         </TableBody>
       </Table>
+      {!readOnly && (
+        <div className="mt-1 flex items-center gap-2">
+          <Input
+            className="font-mono text-sm"
+            placeholder="домен; несколько через пробел или с новой строки"
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault();
+                add();
+              }
+            }}
+          />
+          <label className="flex items-center gap-1.5 text-sm whitespace-nowrap">
+            <Switch checked={withSubdomains} onCheckedChange={setWithSubdomains} />
+            с поддоменами
+          </label>
+          <Button variant="outline" onClick={add}>
+            <Plus aria-hidden /> Добавить
+          </Button>
+        </div>
+      )}
       {!readOnly && (
         <div className="text-sm text-muted-foreground">
           Вставьте список из README или pip/npm-ошибки: домены извлекутся, дубли
