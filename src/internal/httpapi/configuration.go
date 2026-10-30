@@ -299,9 +299,27 @@ func sortedDestinations(in []policy.Destination) []policy.Destination {
 	return out
 }
 
-func semanticDiff(a, b policy.Snapshot) []string {
+// Change is one user-visible difference between two snapshots.
+type Change struct {
+	Entity string  `json:"entity"` // client | policy | settings | configuration | tls_profiles
+	ID     *string `json:"id"`     // client or policy id; nil for the others
+	Action string  `json:"action"` // add | mod | del
+	Text   string  `json:"text"`
+}
+
+func semanticChanges(a, b policy.Snapshot) []Change {
+	out := semanticChangesAll(a, b)
+	if len(out) > 100 {
+		out = out[:100]
+	}
+	return out
+}
+
+// semanticChangesAll builds the full change list without the 100-entry cap so
+// semanticDiff can append its truncation marker.
+func semanticChangesAll(a, b policy.Snapshot) []Change {
 	a, b = comparisonSnapshot(a), comparisonSnapshot(b)
-	out := []string{}
+	out := []Change{}
 	old := map[string]policy.Client{}
 	for _, c := range a.Clients {
 		old[c.ID] = c
@@ -309,38 +327,70 @@ func semanticDiff(a, b policy.Snapshot) []string {
 	for _, c := range b.Clients {
 		previous, exists := old[c.ID]
 		if !exists {
-			out = append(out, "Добавлен клиент: "+c.Name)
+			id := c.ID
+			out = append(out, Change{Entity: "client", ID: &id, Action: "add", Text: "Добавлен клиент: " + c.Name})
 		} else {
 			aa, _ := json.Marshal(previous)
 			bb, _ := json.Marshal(c)
 			if string(aa) != string(bb) {
-				out = append(out, "Изменён клиент: "+c.Name)
+				id := c.ID
+				out = append(out, Change{Entity: "client", ID: &id, Action: "mod", Text: "Изменён клиент: " + c.Name})
 			}
 		}
 		delete(old, c.ID)
 	}
 	for _, c := range a.Clients {
 		if _, ok := old[c.ID]; ok {
-			out = append(out, "Удалён клиент: "+c.Name)
+			id := c.ID
+			out = append(out, Change{Entity: "client", ID: &id, Action: "del", Text: "Удалён клиент: " + c.Name})
 		}
 	}
-	pa, _ := json.Marshal(a.Policies)
-	pb, _ := json.Marshal(b.Policies)
-	if string(pa) != string(pb) {
-		out = append(out, "Изменены политики доступа")
+	pold := map[string]policy.Policy{}
+	for _, p := range a.Policies {
+		pold[p.ID] = p
+	}
+	for _, p := range b.Policies {
+		previous, exists := pold[p.ID]
+		if !exists {
+			id := p.ID
+			out = append(out, Change{Entity: "policy", ID: &id, Action: "add", Text: "Добавлена политика: " + p.Name})
+		} else {
+			aa, _ := json.Marshal(previous)
+			bb, _ := json.Marshal(p)
+			if string(aa) != string(bb) {
+				id := p.ID
+				out = append(out, Change{Entity: "policy", ID: &id, Action: "mod", Text: "Изменена политика: " + p.Name})
+			}
+		}
+		delete(pold, p.ID)
+	}
+	for _, p := range a.Policies {
+		if _, ok := pold[p.ID]; ok {
+			id := p.ID
+			out = append(out, Change{Entity: "policy", ID: &id, Action: "del", Text: "Удалена политика: " + p.Name})
+		}
 	}
 	sa, _ := json.Marshal(policy.EffectiveSettings(a))
 	sb, _ := json.Marshal(policy.EffectiveSettings(b))
 	if string(sa) != string(sb) {
-		out = append(out, "Изменены настройки Squid")
+		out = append(out, Change{Entity: "settings", ID: nil, Action: "mod", Text: "Изменены настройки Squid"})
 	}
 	if a.Mode != b.Mode || a.Expert != b.Expert {
-		out = append(out, "Изменён режим конфигурации или экспертный squid.conf")
+		out = append(out, Change{Entity: "configuration", ID: nil, Action: "mod", Text: "Изменён режим конфигурации или экспертный squid.conf"})
 	}
 	ta, _ := json.Marshal(a.TLSProfiles)
 	tb, _ := json.Marshal(b.TLSProfiles)
 	if string(ta) != string(tb) {
-		out = append(out, "Изменены TLS-профили")
+		out = append(out, Change{Entity: "tls_profiles", ID: nil, Action: "mod", Text: "Изменены TLS-профили"})
+	}
+	return out
+}
+
+func semanticDiff(a, b policy.Snapshot) []string {
+	all := semanticChangesAll(a, b)
+	out := make([]string, 0, len(all))
+	for _, c := range all {
+		out = append(out, c.Text)
 	}
 	if len(out) > 100 {
 		out = append(out[:100], "… остальные изменения показаны в diff")
@@ -379,6 +429,7 @@ func (s *Server) previewSnapshot(snapshot policy.Snapshot) (map[string]any, erro
 		return nil, errPreviewRuntime
 	}
 	summary := semanticDiff(manifest.Snapshot, snapshot)
+	changes := semanticChanges(manifest.Snapshot, snapshot)
 	userChanges := len(summary) > 0
 	appliedConfig, renderErr := policy.Render(manifest.Snapshot, s.Runtime.Options)
 	runtimeChanges := renderErr != nil || appliedConfig != manifest.Config
@@ -390,7 +441,7 @@ func (s *Server) previewSnapshot(snapshot policy.Snapshot) (map[string]any, erro
 	if userChanges || runtimeChanges {
 		lines = configDiff(manifest.Config, config)
 	}
-	return map[string]any{"summary": summary, "user_changes": userChanges, "runtime_changes": runtimeChanges, "config_diff": lines, "generated_config": config, "warnings": []string{}, "expected_applied_revision": previous}, nil
+	return map[string]any{"summary": summary, "changes": changes, "user_changes": userChanges, "runtime_changes": runtimeChanges, "config_diff": lines, "generated_config": config, "warnings": []string{}, "expected_applied_revision": previous}, nil
 }
 
 func sameInstallationPorts(a, b policy.Snapshot) bool {

@@ -33,6 +33,14 @@ export type Policy = {
   name: string;
   destinations: Destination[];
 };
+// Change is one user-visible difference between two snapshots, as returned by
+// the preview endpoint alongside summary.
+export type Change = {
+  entity: "client" | "policy" | "settings" | "configuration" | "tls_profiles";
+  id: string | null;
+  action: "add" | "mod" | "del";
+  text: string;
+};
 export type Snapshot = {
   settings?: Settings;
   configuration_mode?: "structured" | "expert";
@@ -97,6 +105,7 @@ export type Preview = {
   user_changes: boolean;
   runtime_changes: boolean;
   summary: string[];
+  changes?: Change[];
   config_diff: { kind: string; text: string }[];
   revision_id?: string;
   revision_number?: number;

@@ -3854,6 +3854,47 @@
           }
         }
       },
+      "Change": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "entity",
+          "id",
+          "action",
+          "text"
+        ],
+        "properties": {
+          "entity": {
+            "type": "string",
+            "enum": [
+              "client",
+              "policy",
+              "settings",
+              "configuration",
+              "tls_profiles"
+            ]
+          },
+          "id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Client or policy id; null for settings, configuration and tls_profiles."
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "add",
+              "mod",
+              "del"
+            ]
+          },
+          "text": {
+            "type": "string",
+            "description": "Short user-visible change description. Untrusted display text (contains object names)."
+          }
+        }
+      },
       "Preview": {
         "type": "object",
         "additionalProperties": false,
@@ -3886,6 +3927,13 @@
               "type": "string"
             },
             "description": "User changes only. Empty when effective user settings match, including runtime-only updates."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "description": "Structured change list parallel to summary: one entry per added, modified or removed client/policy, plus settings/configuration/tls_profiles changes. Empty array when there are no user changes."
           },
           "generated_config": {
             "type": "string"
@@ -5028,6 +5076,13 @@
               "type": "string"
             },
             "description": "User changes only. Empty when effective user settings match, including runtime-only updates."
+          },
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Change"
+            },
+            "description": "Structured change list parallel to summary: one entry per added, modified or removed client/policy, plus settings/configuration/tls_profiles changes. Empty array when there are no user changes."
           },
           "generated_config": {
             "type": "string"

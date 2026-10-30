@@ -1,4 +1,5 @@
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 
 // changeKind picks the change marker from a summary line of semanticDiff or an
 // audit detail ("Добавлен клиент: x", "Политика «x» удалена"; anything else is
@@ -12,14 +13,27 @@ export function changeKind(line: string): "add" | "del" | "mod" {
 const MARK = { add: "+", del: "−", mod: "~" } as const;
 
 // ChangeList renders change lines with a +/−/~ marker, as in the prototype's
-// review sheet and audit detail.
-export function ChangeList({ items }: { items: string[] }) {
+// review sheet and audit detail. When onUndo is provided, undoable rows get a
+// "Отменить" button and the grid gains a third auto column.
+export function ChangeList({
+  items,
+  onUndo,
+  undoable,
+}: {
+  items: string[];
+  onUndo?: (index: number) => void;
+  undoable?: boolean[];
+}) {
+  const hasUndo = !!onUndo;
+  const cols = hasUndo
+    ? "grid-cols-[22px_minmax(0,1fr)_auto]"
+    : "grid-cols-[22px_minmax(0,1fr)]";
   return (
     <ul className="m-0 flex list-none flex-col p-0">
       {items.map((s, i) => (
         <li
           key={i}
-          className="grid grid-cols-[22px_minmax(0,1fr)] items-start gap-2.5 border-b py-2.5 last:border-b-0"
+          className={`grid ${cols} items-start gap-2.5 border-b py-2.5 last:border-b-0`}
         >
           <Badge
             variant={changeKind(s)}
@@ -28,6 +42,16 @@ export function ChangeList({ items }: { items: string[] }) {
             {MARK[changeKind(s)]}
           </Badge>
           <span>{s}</span>
+          {hasUndo && undoable?.[i] && (
+            <Button
+              size="xs"
+              variant="ghost"
+              aria-label={`Отменить: ${s}`}
+              onClick={() => onUndo!(i)}
+            >
+              Отменить
+            </Button>
+          )}
         </li>
       ))}
     </ul>

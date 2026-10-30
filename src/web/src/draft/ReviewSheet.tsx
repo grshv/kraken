@@ -13,10 +13,12 @@ import { Callout } from "@/components/kraken/blocks";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "cn";
-import type { Draft, Operation, Preview, Status } from "../model";
+import type { Draft, Operation, Preview, Snapshot, Status } from "../model";
 import { revisionLabel } from "../model";
 import type { Request } from "../api";
+import type { CommitResult } from "../sections/sectionProps";
 import { ChangeList } from "./ChangeList";
+import { canRevert, revertChange } from "./revert";
 import type { ApplyRun } from "./useApplyFlow";
 
 export type DraftImpact = {
@@ -60,6 +62,8 @@ export function ReviewSheet({
   run,
   request,
   onRefreshDraft,
+  active,
+  onCommit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -69,6 +73,8 @@ export function ReviewSheet({
   run: ApplyRun;
   request?: Request;
   onRefreshDraft: () => void;
+  active?: Snapshot | null;
+  onCommit?: (next: Snapshot) => Promise<CommitResult>;
 }) {
   // The sheet loads a fresh preview (admin; a manager gets 403 and keeps the
   // prop) and the 24 h traffic impact each time it opens.
@@ -116,10 +122,25 @@ export function ReviewSheet({
         ? pv.summary
         : ["Черновик относительно текущей ревизии"]
       : ["Изменений нет"];
-  const active = revisionLabel(
+  const activeLabel = revisionLabel(
     status?.applied_revision ?? "",
     status?.applied_revision_number,
   );
+  // When the preview carries structured changes and the shell wired undo,
+  // render the change list from changes with per-row "Отменить" buttons.
+  // Otherwise fall back to the summary texts (audit/manager/running cases).
+  const useChanges =
+    !running && !!draft && !!active && !!onCommit && !!pv?.changes?.length;
+  const changeItems = useChanges ? pv!.changes!.map((c) => c.text) : summary;
+  const undoable = useChanges
+    ? pv!.changes!.map((c) => canRevert(c))
+    : undefined;
+  const onUndo = useChanges
+    ? (i: number) => {
+        const change = pv!.changes![i];
+        void onCommit!(revertChange(draft!.snapshot, active!, change));
+      }
+    : undefined;
   const hunks = diffHunks(pv?.config_diff ?? []);
   const clientName = (id: string) =>
     draft?.snapshot.clients.find((c) => c.id === id)?.name ?? id;
@@ -142,7 +163,7 @@ export function ReviewSheet({
             </SheetTitle>
             <SheetDescription id="review-desc">
               {status?.applied_revision
-                ? `Черновик против работающей ревизии ${active}`
+                ? `Черновик против работающей ревизии ${activeLabel}`
                 : "Черновик против пустой конфигурации"}
             </SheetDescription>
           </div>
@@ -188,7 +209,11 @@ export function ReviewSheet({
           )}
           <Card className="gap-0 py-0">
             <CardContent className="py-0.5">
-              <ChangeList items={summary} />
+              <ChangeList
+                items={changeItems}
+                onUndo={onUndo}
+                undoable={undoable}
+              />
             </CardContent>
           </Card>
           <section className="flex flex-col gap-2">
@@ -318,7 +343,7 @@ export function ReviewSheet({
             <>
               <span className="grow text-sm text-muted-foreground">
                 При ошибке Squid автоматически вернётся к{" "}
-                {status?.applied_revision ? active : "прежней ревизии"}
+                {status?.applied_revision ? activeLabel : "прежней ревизии"}
               </span>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Закрыть

@@ -34,7 +34,7 @@ func TestAuditDetail(t *testing.T) {
 		t.Fatalf("no %s row for %s", action, entity)
 		return ""
 	}
-	if got := byEntity("update_draft", "draft"); !strings.Contains(got, "Добавлен клиент: mine") || !strings.Contains(got, "Добавлен клиент: foreign") || !strings.Contains(got, "Изменены политики доступа") {
+	if got := byEntity("update_draft", "draft"); !strings.Contains(got, "Добавлен клиент: mine") || !strings.Contains(got, "Добавлен клиент: foreign") || !strings.Contains(got, "Добавлена политика: scoped") {
 		t.Fatalf("draft summary: %q", got)
 	}
 	if got := byEntity("update_draft", myCID); got != "Клиент «mine» добавлен" {

@@ -22,10 +22,11 @@ import type {
   Preview,
   Session,
   Settings,
+  Snapshot,
   Status,
 } from "../model";
 import type { Request } from "../api";
-import type { SectionIntent } from "../sections/sectionProps";
+import type { CommitResult, SectionIntent } from "../sections/sectionProps";
 import type { ApplyRun } from "../draft/useApplyFlow";
 
 export type ShellHandlers = {
@@ -62,6 +63,8 @@ export function InspectorShell({
   onConfirm,
   onConfirmCancel,
   banner,
+  active,
+  onCommit,
   children,
 }: {
   session: Session;
@@ -87,6 +90,8 @@ export function InspectorShell({
   onConfirmCancel: () => void;
   // Connection/error strip above the panes; never a pane itself.
   banner?: React.ReactNode;
+  active?: Snapshot | null;
+  onCommit?: (next: Snapshot) => Promise<CommitResult>;
   children: React.ReactNode;
 }) {
   const role: Role = session.role === "manager" ? "manager" : "admin";
@@ -292,6 +297,8 @@ export function InspectorShell({
         run={applyRun}
         request={request}
         onRefreshDraft={handlers.onRefreshDraft}
+        active={active}
+        onCommit={onCommit}
       />
       <ConfirmDialog
         options={confirm}

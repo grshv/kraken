@@ -153,13 +153,14 @@ func TestDraftPreviewDoesNotCreateRevisionAndSeparatesRuntimeUpdate(t *testing.T
 		User    bool       `json:"user_changes"`
 		Runtime bool       `json:"runtime_changes"`
 		Summary []string   `json:"summary"`
+		Changes []Change   `json:"changes"`
 		Config  string     `json:"generated_config"`
 		Diff    []DiffLine `json:"config_diff"`
 	}
 	if e := json.Unmarshal(w.Body.Bytes(), &result); e != nil {
 		t.Fatal(e)
 	}
-	if result.User || result.Runtime || len(result.Summary) != 0 || len(result.Diff) != 0 || !strings.Contains(result.Config, "http_access deny sc_r_no_rule all") {
+	if result.User || result.Runtime || len(result.Summary) != 0 || len(result.Diff) != 0 || result.Changes == nil || len(result.Changes) != 0 || !strings.Contains(result.Config, "http_access deny sc_r_no_rule all") {
 		t.Fatalf("unexpected empty preview: %+v", result)
 	}
 	rows, e := s.Store.ListRevisions(context.Background())

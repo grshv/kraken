@@ -653,6 +653,8 @@ function App() {
         setConfirm(null);
         setPendingAction(null);
       }}
+      active={active}
+      onCommit={commitDraft}
       banner={
         <>
           {connectionError && (
