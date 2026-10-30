@@ -50,6 +50,7 @@ import {
 } from "./rules";
 import { parseNetwork } from "../clients/networks";
 import { SessionsCard } from "./SessionsCard";
+import { ProxyKpis, ProxySources, useProxyActivity } from "./ProxyActivity";
 import type { SectionProps } from "../sections/sectionProps";
 import type { NavId } from "../shell/nav";
 
@@ -1001,6 +1002,7 @@ function ProxyAccountDetail({
   const owner = account.owner ?? "";
   const ownerIsSelf = session.role === "manager" && owner === session.username;
   const [pwd, setPwd] = useState("");
+  const activity = useProxyActivity(request, account.username);
   const pwdRef = useRef<HTMLInputElement>(null);
 
   async function patch(payload: Record<string, unknown>, ok: string) {
@@ -1046,6 +1048,8 @@ function ProxyAccountDetail({
             <span className="text-sm">{error}</span>
           </Callout>
         )}
+        <ProxyKpis activity={activity} />
+        <ProxySources activity={activity} />
         <Card>
           <CardHeader>
             <CardTitle>Где используется</CardTitle>

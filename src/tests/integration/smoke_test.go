@@ -808,6 +808,18 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	if st := proxyRequest("admin", replacement, "http://allowed.test/", false); st != 407 {
 		t.Fatalf("admin as proxy login: %d", st)
 	}
+	// Squid logs the supplied name on a wrong password (TCP_DENIED/407), so the
+	// login activity counts it next to the successful requests.
+	waitFor(t, 60, func() error {
+		a := inst.panel.apiOK(t, "GET", "/proxy-accounts/REQUIRED/activity", nil, "")
+		if n, _ := a["failed_logins"].(float64); n < 1 {
+			return errf("failed_logins: %v", a)
+		}
+		if n, _ := a["requests"].(float64); n < 1 {
+			return errf("requests: %v", a)
+		}
+		return nil
+	})
 	// New panel user with manager scope; revoked when blocked.
 	managerPassword := randPassword(24)
 	inst.panel.apiOK(t, "POST", "/users", map[string]string{"username": "observer", "password": managerPassword, "role": "manager"}, "")

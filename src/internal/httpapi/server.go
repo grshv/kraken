@@ -337,6 +337,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/v1/proxy-accounts", s.authorized("configure", s.listProxyAccounts))
 	mux.HandleFunc("POST /api/v1/proxy-accounts", s.authorized("proxy_accounts", s.createProxyAccount))
 	mux.HandleFunc("PATCH /api/v1/proxy-accounts/{username}", s.authorized("proxy_accounts", s.updateProxyAccount))
+	mux.HandleFunc("GET /api/v1/proxy-accounts/{username}/activity", s.authorized("proxy_accounts", s.proxyAccountActivity))
 	mux.HandleFunc("GET /api/v1/certificates", s.authorized("read", s.certificates))
 	mux.HandleFunc("GET /api/v1/help", s.authorized("read", s.helpIndex))
 	mux.HandleFunc("GET /api/v1/help/{slug}", s.authorized("read", s.helpArticle))

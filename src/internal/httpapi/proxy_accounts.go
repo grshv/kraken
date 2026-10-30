@@ -184,54 +184,8 @@ func (s *Server) updateProxyAccount(w http.ResponseWriter, r *http.Request, v se
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
-	// Manager may only touch accounts he owns or that are used solely by his
-	// clients. A foreign-owned account is reported as 404.
-	if v.Role == "manager" {
-		account, e := s.Store.ProxyAccount(ctx, username)
-		if errors.Is(e, sql.ErrNoRows) {
-			fail(w, 404, "not_found", "Учётная запись не найдена")
-			return
-		}
-		if e != nil {
-			if s.failStorageBusy(w, e) {
-				return
-			}
-			fail(w, 503, "storage_unavailable", "Учётная запись недоступна")
-			return
-		}
-		owner := ""
-		if account.Owner != nil {
-			owner = *account.Owner
-		}
-		if owner != v.User {
-			scope, se := s.managerScope(ctx, v)
-			if se != nil {
-				if s.failStorageBusy(w, se) {
-					return
-				}
-				fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-				return
-			}
-			snap, _, se := s.draftSnapshot(ctx)
-			if se != nil {
-				if s.failStorageBusy(w, se) {
-					return
-				}
-				fail(w, 503, "storage_unavailable", "Черновик недоступен")
-				return
-			}
-			usedByMine := false
-			for _, c := range snap.Clients {
-				if inScope(scope, c.ID) && c.ProxyUsername == username {
-					usedByMine = true
-					break
-				}
-			}
-			if !usedByMine {
-				fail(w, 404, "not_found", "Учётная запись не найдена")
-				return
-			}
-		}
+	if !s.proxyAccountVisible(ctx, w, v, username) {
+		return
 	}
 	var hash *string
 	if input.Password != nil {
@@ -286,4 +240,102 @@ func (s *Server) passwordWorkSlot(w http.ResponseWriter) (func(), bool) {
 		fail(w, 429, "rate_limited", "Повторите операцию позже")
 		return nil, false
 	}
+}
+
+// proxyAccountVisible lets an admin reach any proxy account and a manager only
+// accounts he owns or that his clients use. Otherwise it writes 404 (or 503)
+// and returns false.
+func (s *Server) proxyAccountVisible(ctx context.Context, w http.ResponseWriter, v session, username string) bool {
+	if v.Role != "manager" {
+		return true
+	}
+	account, e := s.Store.ProxyAccount(ctx, username)
+	if errors.Is(e, sql.ErrNoRows) {
+		fail(w, 404, "not_found", "Учётная запись не найдена")
+		return false
+	}
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return false
+		}
+		fail(w, 503, "storage_unavailable", "Учётная запись недоступна")
+		return false
+	}
+	if account.Owner != nil && *account.Owner == v.User {
+		return true
+	}
+	scope, e := s.managerScope(ctx, v)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return false
+		}
+		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+		return false
+	}
+	snap, _, e := s.draftSnapshot(ctx)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return false
+		}
+		fail(w, 503, "storage_unavailable", "Черновик недоступен")
+		return false
+	}
+	for _, c := range snap.Clients {
+		if inScope(scope, c.ID) && c.ProxyUsername == username {
+			return true
+		}
+	}
+	fail(w, 404, "not_found", "Учётная запись не найдена")
+	return false
+}
+
+// proxyLoginWindow is the period of the proxy login activity card.
+const proxyLoginWindow = 24 * time.Hour
+
+type loginSource struct {
+	SourceIP string `json:"source_ip"`
+	Requests int64  `json:"requests"`
+	Failed   int64  `json:"failed_logins"`
+	LastSeen string `json:"last_seen"`
+}
+
+// proxyAccountActivity reports how a proxy login was used over 24 hours:
+// requests, policy denials, wrong passwords (TCP_DENIED/407 with this name)
+// and the source addresses. Same visibility as updating the account.
+func (s *Server) proxyAccountActivity(w http.ResponseWriter, r *http.Request, v session) {
+	username := r.PathValue("username")
+	if !usernamePattern.MatchString(username) {
+		fail(w, 400, "invalid_username", "Некорректный логин")
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
+	defer cancel()
+	if !s.proxyAccountVisible(ctx, w, v, username) {
+		return
+	}
+	now := s.now().UTC()
+	a, e := s.Telemetry.ProxyLoginActivity(ctx, username, now.Add(-proxyLoginWindow), now)
+	if e != nil {
+		if s.failStorageBusy(w, e) {
+			return
+		}
+		fail(w, 503, "storage_unavailable", "Статистика логина недоступна")
+		return
+	}
+	sources := []loginSource{}
+	for _, src := range a.Sources {
+		sources = append(sources, loginSource{SourceIP: src.SourceIP, Requests: src.Requests, Failed: src.Failed, LastSeen: src.LastSeen.Format(time.RFC3339)})
+	}
+	var lastUsed *string
+	if a.LastUsed != nil {
+		lastUsed = strPtr(a.LastUsed.Format(time.RFC3339))
+	}
+	respond(w, 200, map[string]any{
+		"window_hours":  int(proxyLoginWindow / time.Hour),
+		"requests":      a.Requests,
+		"denied":        a.Denied,
+		"failed_logins": a.Failed,
+		"last_used_at":  lastUsed,
+		"sources":       sources,
+	})
 }

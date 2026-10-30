@@ -1940,6 +1940,81 @@
         }
       }
     },
+    "/proxy-accounts/{username}/activity": {
+      "get": {
+        "operationId": "getProxyAccountActivity",
+        "summary": "Proxy login usage over 24 hours",
+        "description": "Aggregated from access-log events with this proxy_username. Squid logs the supplied name on TCP_DENIED/407, so failed_logins counts wrong passwords; requests counts every other event and denied its 403 subset. sources lists up to 50 addresses, newest first. Admin sees any login; a manager only logins he owns or his clients use (otherwise 404).",
+        "parameters": [
+          {
+            "name": "username",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128,
+              "pattern": "^[A-Za-z0-9._-]+$"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Activity",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProxyAccountActivity"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_username",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthenticated"
+          },
+          "404": {
+            "description": "Unknown or out-of-scope login",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or telemetry unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/configuration/preview": {
       "get": {
         "operationId": "previewDraft",
@@ -5204,6 +5279,74 @@
           "current": {
             "type": "boolean",
             "description": "The caller's own session"
+          }
+        }
+      },
+      "ProxyAccountActivity": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "window_hours",
+          "requests",
+          "denied",
+          "failed_logins",
+          "last_used_at",
+          "sources"
+        ],
+        "properties": {
+          "window_hours": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "denied": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "failed_logins": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time",
+            "description": "Last request that was not a wrong password"
+          },
+          "sources": {
+            "type": "array",
+            "maxItems": 50,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "source_ip",
+                "requests",
+                "failed_logins",
+                "last_seen"
+              ],
+              "properties": {
+                "source_ip": {
+                  "type": "string"
+                },
+                "requests": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "failed_logins": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "last_seen": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            }
           }
         }
       },
