@@ -77,9 +77,9 @@ func baseTree(t *testing.T) string {
 }
 `)
 	write(t, root, "examples/policy.json", `{
-  "schema_version": 1,
-  "clients": [{"id":"c1","policy_id":"p1","source_networks":["10.0.0.0/24"],"enabled":true}],
-  "policies": [{"id":"p1","mode":"all_web","tls_profile_id":"t1","destinations":[]}],
+  "schema_version": 2,
+  "clients": [{"id":"c1","access":"list","tls_profile_id":"t1","policy_ids":["p1"],"destinations":[],"source_networks":["10.0.0.0/24"],"enabled":true}],
+  "policies": [{"id":"p1","name":"repos","destinations":[{"domain":"example.test","include_subdomains":false}]}],
   "tls_profiles": [{"id":"t1","mode":"tunnel","proxy_transport":"http"}]
 }
 `)
@@ -205,33 +205,47 @@ func TestPolicyMissingExample(t *testing.T) {
 	mustHave(t, runCheck(t, root), "missing example")
 }
 
-func TestPolicyBadMode(t *testing.T) {
+func TestPolicyBadAccess(t *testing.T) {
 	root := baseTree(t)
-	write(t, root, "examples/policy.json", `{"schema_version":1,"clients":[],"policies":[{"id":"p1","mode":"open","tls_profile_id":"t1","destinations":[]}],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
-	mustHave(t, runCheck(t, root), "invalid policy mode")
+	write(t, root, "examples/policy.json", `{"schema_version":2,"clients":[{"id":"c1","access":"open","tls_profile_id":"t1","policy_ids":[],"destinations":[],"source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
+	mustHave(t, runCheck(t, root), "invalid access mode")
+}
+
+func TestPolicyMissingAttached(t *testing.T) {
+	root := baseTree(t)
+	write(t, root, "examples/policy.json", `{"schema_version":2,"clients":[{"id":"c1","access":"list","tls_profile_id":"t1","policy_ids":["p9"],"destinations":[],"source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
+	mustHave(t, runCheck(t, root), "missing policy")
+}
+
+func TestPolicyLegacySchema(t *testing.T) {
+	root := baseTree(t)
+	write(t, root, "examples/policy.json", `{"schema_version":1,"clients":[],"policies":[],"tls_profiles":[]}`)
+	mustHave(t, runCheck(t, root), "unknown schema version")
+	write(t, root, "examples/policy.json", `{"schema_version":2,"clients":[],"policies":[{"id":"p1","name":"x","mode":"all_web","destinations":[]}],"tls_profiles":[]}`)
+	mustHave(t, runCheck(t, root), "policy mode belongs to the client")
 }
 
 func TestPolicyOverlappingClients(t *testing.T) {
 	root := baseTree(t)
-	write(t, root, "examples/policy.json", `{"schema_version":1,"clients":[{"id":"c1","policy_id":"p1","source_networks":["10.0.0.0/24"],"enabled":true},{"id":"c2","policy_id":"p1","source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[{"id":"p1","mode":"all_web","tls_profile_id":"t1","destinations":[]}],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
+	write(t, root, "examples/policy.json", `{"schema_version":2,"clients":[{"id":"c1","access":"all_web","tls_profile_id":"t1","policy_ids":[],"destinations":[],"source_networks":["10.0.0.0/24"],"enabled":true},{"id":"c2","access":"all_web","tls_profile_id":"t1","policy_ids":[],"destinations":[],"source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
 	mustHave(t, runCheck(t, root), "overlapping clients")
 }
 
 func TestPolicyDefaultRouteForbidden(t *testing.T) {
 	root := baseTree(t)
-	write(t, root, "examples/policy.json", `{"schema_version":1,"clients":[{"id":"c1","policy_id":"p1","source_networks":["0.0.0.0/0"],"enabled":true}],"policies":[{"id":"p1","mode":"all_web","tls_profile_id":"t1","destinations":[]}],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
+	write(t, root, "examples/policy.json", `{"schema_version":2,"clients":[{"id":"c1","access":"all_web","tls_profile_id":"t1","policy_ids":[],"destinations":[],"source_networks":["0.0.0.0/0"],"enabled":true}],"policies":[],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
 	mustHave(t, runCheck(t, root), "default source route forbidden")
 }
 
 func TestPolicyNoncanonicalDomain(t *testing.T) {
 	root := baseTree(t)
-	write(t, root, "examples/policy.json", `{"schema_version":1,"clients":[{"id":"c1","policy_id":"p1","source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[{"id":"p1","mode":"allowlist","tls_profile_id":"t1","destinations":[{"domain":"UPPER","include_subdomains":false}]}],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
+	write(t, root, "examples/policy.json", `{"schema_version":2,"clients":[{"id":"c1","access":"list","tls_profile_id":"t1","policy_ids":[],"destinations":[{"domain":"UPPER","include_subdomains":false}],"source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"http"}]}`)
 	mustHave(t, runCheck(t, root), "noncanonical example domain")
 }
 
 func TestPolicyTLSWithoutCert(t *testing.T) {
 	root := baseTree(t)
-	write(t, root, "examples/policy.json", `{"schema_version":1,"clients":[{"id":"c1","policy_id":"p1","source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[{"id":"p1","mode":"all_web","tls_profile_id":"t1","destinations":[]}],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"tls"}]}`)
+	write(t, root, "examples/policy.json", `{"schema_version":2,"clients":[{"id":"c1","access":"all_web","tls_profile_id":"t1","policy_ids":[],"destinations":[],"source_networks":["10.0.0.0/24"],"enabled":true}],"policies":[],"tls_profiles":[{"id":"t1","mode":"tunnel","proxy_transport":"tls"}]}`)
 	mustHave(t, runCheck(t, root), "TLS transport requires certificate reference")
 }
 

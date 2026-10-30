@@ -36,7 +36,7 @@ import {
 } from "../components/kraken/layout";
 import { explainSteps, type Explain } from "./explain";
 import { mergeDestinations, parseDomainInput } from "../policies/domains";
-import { addDomainToClientPolicy } from "../draft/edits";
+import { addDomainToClient } from "../draft/edits";
 import type { Destination, Event, Session, Snapshot } from "../model";
 import { localTime } from "../model";
 import type { NavId } from "../shell/nav";
@@ -824,10 +824,8 @@ function LogDetail({
 
   async function allowHost() {
     if (!snap || !event.client_id) return;
-    const res = await onCommit(
-      addDomainToClientPolicy(snap, event.client_id, host),
-    );
-    if (res.ok) onToast(`Домен ${host} добавлен в политику`);
+    const res = await onCommit(addDomainToClient(snap, event.client_id, host));
+    if (res.ok) onToast(`Домен ${host} добавлен клиенту`);
     else if (res.code !== "revision_conflict")
       onToast(res.message ?? "Не удалось изменить черновик");
   }
@@ -1005,10 +1003,7 @@ function LogDetail({
                 <Plus aria-hidden /> Разрешить домен
               </Button>
               <span className="text-sm text-muted-foreground">
-                Добавится в политику «
-                {snap?.policies.find((p) => p.id === explain?.policy_id)
-                  ?.name ?? "клиента"}
-                »
+                Добавится в свои домены клиента
               </span>
             </div>
           )}

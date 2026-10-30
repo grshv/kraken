@@ -98,8 +98,8 @@ func TestNetwork(t *testing.T) {
 	snap := policySnap(t, inst.panel)
 	profile := snap.TLSProfiles[0].ID
 	allID := randID()
-	snap.Policies = []policy.Policy{{ID: allID, Name: "All web network", Mode: "all_web", Destinations: nil, TLSProfileID: profile}}
-	snap.Clients = []policy.Client{{ID: randID(), Name: "network client", Networks: []string{base + ".20"}, Enabled: true, PolicyID: allID}}
+	snap.Policies = []policy.Policy{{ID: allID, Name: "All web network", LegacyMode: "all_web", Destinations: nil, LegacyTLSProfileID: profile}}
+	snap.Clients = []policy.Client{{ID: randID(), Name: "network client", Networks: []string{base + ".20"}, Enabled: true, LegacyPolicyID: allID}}
 	s := *snap.Settings
 	s.DNSNameservers = []string{base + ".53"}
 	s.PositiveDNSTTL = 2

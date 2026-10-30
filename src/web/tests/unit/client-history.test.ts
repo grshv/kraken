@@ -7,33 +7,33 @@ import { missingDomains } from "../../src/clients/missing";
 function snap(over: {
   networks?: string[];
   domains?: [string, boolean][];
-  mode?: "allowlist" | "all_web";
-  policyID?: string;
+  access?: "list" | "all_web" | "none";
+  policyIDs?: string[];
   enabled?: boolean;
   login?: string;
 }): Snapshot {
-  const policyID = over.policyID ?? "p-1";
   return {
-    schema_version: 1,
+    schema_version: 2,
     clients: [
       {
         id: "c-1",
         name: "ci-01",
         source_networks: over.networks ?? ["10.20.0.14/32"],
         enabled: over.enabled ?? true,
-        policy_id: policyID,
+        access: over.access ?? "list",
+        tls_profile_id: "tls",
+        policy_ids: over.policyIDs ?? [],
+        destinations: (over.domains ?? [["pypi.org", false]]).map(
+          ([domain, include_subdomains]) => ({ domain, include_subdomains }),
+        ),
         proxy_username: over.login,
       },
     ],
     policies: [
       {
-        id: policyID,
-        name: policyID === "p-1" ? "ci-01" : "Сборка",
-        mode: over.mode ?? "allowlist",
-        destinations: (over.domains ?? [["pypi.org", false]]).map(
-          ([domain, include_subdomains]) => ({ domain, include_subdomains }),
-        ),
-        tls_profile_id: "tls",
+        id: "p-build",
+        name: "Сборка",
+        destinations: [{ domain: "debian.org", include_subdomains: true }],
       },
     ],
     tls_profiles: [],
@@ -41,9 +41,12 @@ function snap(over: {
 }
 
 describe("clientChanges", () => {
-  it("describes a new client with its domains", () => {
+  it("describes a new client with its final list", () => {
     expect(clientChanges(null, snap({}), "c-1")).toEqual([
-      "Создан клиент, политика: pypi.org",
+      "Создан клиент, домены: pypi.org",
+    ]);
+    expect(clientChanges(null, snap({ access: "all_web" }), "c-1")).toEqual([
+      "Создан клиент, весь веб",
     ]);
   });
 
@@ -71,11 +74,22 @@ describe("clientChanges", () => {
     ]);
   });
 
-  it("reports a policy switch instead of domain diffs", () => {
-    const after = snap({ policyID: "p-2", domains: [["x.org", false]] });
+  it("reports an attached policy and the domains it brings", () => {
+    const after = snap({ policyIDs: ["p-build"] });
     expect(clientChanges(snap({}), after, "c-1")).toEqual([
-      "Политика: ci-01 → Сборка",
+      "Подключена политика «Сборка»",
+      "Добавлен *.debian.org",
     ]);
+    expect(clientChanges(after, snap({}), "c-1")).toEqual([
+      "Отключена политика «Сборка»",
+      "Удалён *.debian.org",
+    ]);
+  });
+
+  it("reports an access mode change without list diffs", () => {
+    expect(clientChanges(snap({}), snap({ access: "all_web" }), "c-1")).toEqual(
+      ["Доступ: весь веб"],
+    );
   });
 
   it("is empty when nothing about the client changed", () => {
@@ -93,26 +107,29 @@ describe("clientChanges", () => {
 });
 
 describe("missingDomains", () => {
-  const policy = snap({
-    domains: [
-      ["example.com", false],
-      ["debian.org", true],
-    ],
-  }).policies[0];
+  const s = snap({
+    domains: [["example.com", false]],
+    policyIDs: ["p-build"],
+  });
   const top = [
     { host: "example.com", requests: 5, denied: 5 },
     { host: "deb.debian.org", requests: 3, denied: 3 },
     { host: "www.example.com", requests: 2, denied: 2 },
     { host: "pypi.org", requests: 4, denied: 0 },
   ];
-  it("keeps only denied hosts the allowlist does not cover", () => {
-    expect(missingDomains(top, policy).map((d) => d.host)).toEqual([
+  it("keeps only denied hosts the final list does not cover", () => {
+    expect(missingDomains(top, s, s.clients[0]).map((d) => d.host)).toEqual([
       "www.example.com",
     ]);
   });
-  it("offers nothing for all-web or missing policies", () => {
-    expect(missingDomains(top, { ...policy, mode: "all_web" })).toEqual([]);
-    expect(missingDomains(top, null)).toEqual([]);
+  it("offers nothing for all-web or a missing client", () => {
+    const web = snap({ access: "all_web" });
+    expect(missingDomains(top, web, web.clients[0])).toEqual([]);
+    expect(missingDomains(top, s, null)).toEqual([]);
+  });
+  it("offers every denied host to a client without access", () => {
+    const none = snap({ access: "none" });
+    expect(missingDomains(top, none, none.clients[0])).toHaveLength(3);
   });
 });
 

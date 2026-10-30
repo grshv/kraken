@@ -30,12 +30,12 @@ func seedDraftWithTwoClients(t *testing.T, h http.Handler, cookie *http.Cookie, 
 	}
 	policyID = "p-scope-test"
 	profile := d.Snapshot.TLSProfiles[0].ID
-	d.Snapshot.Policies = append(d.Snapshot.Policies, policy.Policy{ID: policyID, Name: "scoped", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test", IncludeSubdomains: false}}, TLSProfileID: profile})
+	d.Snapshot.Policies = append(d.Snapshot.Policies, policy.Policy{ID: policyID, Name: "scoped", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test", IncludeSubdomains: false}}, LegacyTLSProfileID: profile})
 	myClientID = "c-mine"
 	foreignClientID = "c-foreign"
 	d.Snapshot.Clients = append(d.Snapshot.Clients,
-		policy.Client{ID: myClientID, Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, PolicyID: policyID},
-		policy.Client{ID: foreignClientID, Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, PolicyID: policyID},
+		policy.Client{ID: myClientID, Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, LegacyPolicyID: policyID},
+		policy.Client{ID: foreignClientID, Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, LegacyPolicyID: policyID},
 	)
 	if w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": d.Version, "snapshot": d.Snapshot}, cookie, csrf, "https://panel.test"); w.Code != 200 {
 		t.Fatal(w.Body.String())
@@ -342,8 +342,8 @@ func TestManagerNewClientAutoAssigned(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &view)
 	profile := view.Snapshot.TLSProfiles[0].ID
 	polID := "p-auto-test"
-	view.Snapshot.Policies = append(view.Snapshot.Policies, policy.Policy{ID: polID, Name: "auto", Mode: "all_web", Destinations: []policy.Destination{}, TLSProfileID: profile})
-	view.Snapshot.Clients = append(view.Snapshot.Clients, policy.Client{ID: "c-auto-new", Name: "auto", Networks: []string{"10.1.0.5/32"}, Enabled: true, PolicyID: polID})
+	view.Snapshot.Policies = append(view.Snapshot.Policies, policy.Policy{ID: polID, Name: "auto", LegacyMode: "all_web", Destinations: []policy.Destination{}, LegacyTLSProfileID: profile})
+	view.Snapshot.Clients = append(view.Snapshot.Clients, policy.Client{ID: "c-auto-new", Name: "auto", Networks: []string{"10.1.0.5/32"}, Enabled: true, LegacyPolicyID: polID})
 	if w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": view.Version, "snapshot": view.Snapshot}, mgr, mgrCSRF, "https://panel.test"); w.Code != 200 {
 		t.Fatal(w.Code, w.Body.String())
 	}

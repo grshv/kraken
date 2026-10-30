@@ -41,12 +41,12 @@ func TestFlows(t *testing.T) {
 	polA, polB := randID(), randID()
 	clientAID, clientBID := randID(), randID()
 	snap.Policies = []policy.Policy{
-		{ID: polA, Name: "A allowlist", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "denied.test"}}, TLSProfileID: profile},
-		{ID: polB, Name: "B allowlist", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "denied.test"}}, TLSProfileID: profile},
+		{ID: polA, Name: "A allowlist", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "denied.test"}}, LegacyTLSProfileID: profile},
+		{ID: polB, Name: "B allowlist", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "denied.test"}}, LegacyTLSProfileID: profile},
 	}
 	snap.Clients = []policy.Client{
-		{ID: clientAID, Name: "client A", Networks: []string{base + ".20"}, Enabled: true, PolicyID: polA},
-		{ID: clientBID, Name: "client B", Networks: []string{base + ".30"}, Enabled: true, PolicyID: polB},
+		{ID: clientAID, Name: "client A", Networks: []string{base + ".20"}, Enabled: true, LegacyPolicyID: polA},
+		{ID: clientBID, Name: "client B", Networks: []string{base + ".30"}, Enabled: true, LegacyPolicyID: polB},
 	}
 	inst.panel.apply(t, snap, inst.panel.draftVersion())
 	// U becomes a client in flow 2.
@@ -157,8 +157,8 @@ func TestFlows(t *testing.T) {
 		draft := deepCopySnap(policySnap(t, inst.panel))
 		allWebID := randID()
 		clientUID = randID()
-		draft.Policies = append(draft.Policies, policy.Policy{ID: allWebID, Name: "U all_web", Mode: "all_web", TLSProfileID: draft.TLSProfiles[0].ID})
-		draft.Clients = append(draft.Clients, policy.Client{ID: clientUID, Name: "client U", Networks: []string{uIP}, Enabled: true, PolicyID: allWebID})
+		draft.Policies = append(draft.Policies, policy.Policy{ID: allWebID, Name: "U all_web", LegacyMode: "all_web", LegacyTLSProfileID: draft.TLSProfiles[0].ID})
+		draft.Clients = append(draft.Clients, policy.Client{ID: clientUID, Name: "client U", Networks: []string{uIP}, Enabled: true, LegacyPolicyID: allWebID})
 		inst.panel.apply(t, draft, inst.panel.draftVersion())
 		waitFor(t, 30, func() error {
 			if flFetch(clientU, "http://allowed.test/", false, false) != 200 {

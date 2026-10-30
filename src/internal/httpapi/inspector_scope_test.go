@@ -33,16 +33,16 @@ func inspectorScopeSnapshot() policy.Snapshot {
 			{ID: tls, Name: "TLS proxy / CONNECT", Mode: "tunnel", Transport: "tls", CertRef: &tlsRef},
 		},
 		Policies: []policy.Policy{
-			{ID: "p-own", Name: "own", Mode: "allowlist", TLSProfileID: tls, Destinations: []policy.Destination{{Domain: "own.example"}}},
-			{ID: "p-shared", Name: "shared", Mode: "allowlist", TLSProfileID: tls, Destinations: []policy.Destination{{Domain: "shared.example"}}},
-			{ID: "p-foreign", Name: "foreign", Mode: "allowlist", TLSProfileID: tls, Destinations: []policy.Destination{{Domain: "foreign.example"}}},
-			{ID: "p-orphan", Name: "orphan", Mode: "allowlist", TLSProfileID: tls, Destinations: []policy.Destination{{Domain: "orphan.example"}}},
+			{ID: "p-own", Name: "own", LegacyMode: "allowlist", LegacyTLSProfileID: tls, Destinations: []policy.Destination{{Domain: "own.example"}}},
+			{ID: "p-shared", Name: "shared", LegacyMode: "allowlist", LegacyTLSProfileID: tls, Destinations: []policy.Destination{{Domain: "shared.example"}}},
+			{ID: "p-foreign", Name: "foreign", LegacyMode: "allowlist", LegacyTLSProfileID: tls, Destinations: []policy.Destination{{Domain: "foreign.example"}}},
+			{ID: "p-orphan", Name: "orphan", LegacyMode: "allowlist", LegacyTLSProfileID: tls, Destinations: []policy.Destination{{Domain: "orphan.example"}}},
 		},
 		Clients: []policy.Client{
-			{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, PolicyID: "p-own"},
-			{ID: "c-a2", Name: "alpha2", Kind: "host", Networks: []string{"10.1.0.6/32"}, Enabled: true, PolicyID: "p-shared"},
-			{ID: "c-b", Name: "bravo", Kind: "host", Networks: []string{"10.2.0.5/32"}, Enabled: true, PolicyID: "p-shared"},
-			{ID: "c-d", Name: "delta", Kind: "host", Networks: []string{"10.1.0.9/32"}, Enabled: true, PolicyID: "p-foreign"},
+			{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, LegacyPolicyID: "p-own"},
+			{ID: "c-a2", Name: "alpha2", Kind: "host", Networks: []string{"10.1.0.6/32"}, Enabled: true, LegacyPolicyID: "p-shared"},
+			{ID: "c-b", Name: "bravo", Kind: "host", Networks: []string{"10.2.0.5/32"}, Enabled: true, LegacyPolicyID: "p-shared"},
+			{ID: "c-d", Name: "delta", Kind: "host", Networks: []string{"10.1.0.9/32"}, Enabled: true, LegacyPolicyID: "p-foreign"},
 		},
 	}
 }

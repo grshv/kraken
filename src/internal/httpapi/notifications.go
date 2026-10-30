@@ -55,8 +55,8 @@ func sourceDescribed(snap policy.Snapshot, source string) bool {
 
 // missingFromPolicy reports whether a denial of host for client is the kind a
 // user can fix by allowing the domain: not a protection or blocked-for-all
-// denial, the client is enabled, and its policy neither allows all web nor
-// lists the host.
+// denial, the client is enabled, and its access (all web, own domains or an
+// attached policy) does not already allow the host.
 func missingFromPolicy(snap policy.Snapshot, settings policy.Settings, c *policy.Client, host string) bool {
 	if !c.Enabled || policy.ProtectionDenial(host, 0, false, settings) {
 		return false
@@ -69,21 +69,7 @@ func missingFromPolicy(snap policy.Snapshot, settings policy.Settings, c *policy
 			return false
 		}
 	}
-	for i := range snap.Policies {
-		p := &snap.Policies[i]
-		if p.ID != c.PolicyID {
-			continue
-		}
-		if p.Mode == "all_web" {
-			return false
-		}
-		for _, d := range p.Destinations {
-			if policy.DomainMatches(host, d.Domain, d.IncludeSubdomains) {
-				return false
-			}
-		}
-	}
-	return true
+	return !policy.ClientAllows(snap, *c, host)
 }
 
 // computeNotifications builds the current list from rollups and the active

@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"kraken.local/kraken/internal/policy"
 	"kraken.local/kraken/internal/telemetry"
 )
 
@@ -184,14 +185,11 @@ func (s *Server) activity(w http.ResponseWriter, r *http.Request, v session) {
 		for _, c := range manifest.Snapshot.Clients {
 			if c.Enabled {
 				enabled++
-				for _, p := range manifest.Snapshot.Policies {
-					if p.ID == c.PolicyID {
-						if p.Mode == "all_web" {
-							allweb++
-						} else {
-							allowlist++
-						}
-					}
+				switch c.Access {
+				case policy.AccessAllWeb:
+					allweb++
+				case policy.AccessList:
+					allowlist++
 				}
 			}
 		}

@@ -50,10 +50,10 @@ func TestSquidParseMatrix(t *testing.T) {
 			{ID: tlsProfile, Name: "TLS proxy", Mode: "tunnel", Transport: "tls", CertRef: strPtr("proxy-server")},
 		}
 		s.Policies = []policy.Policy{
-			{ID: "p-allow", Name: "Allowlist", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, TLSProfileID: httpProfile},
+			{ID: "p-allow", Name: "Allowlist", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, LegacyTLSProfileID: httpProfile},
 		}
 		s.Clients = []policy.Client{
-			{ID: "c-host", Name: "host client", Networks: []string{"192.0.2.10/32"}, Enabled: true, PolicyID: "p-allow"},
+			{ID: "c-host", Name: "host client", Networks: []string{"192.0.2.10/32"}, Enabled: true, LegacyPolicyID: "p-allow"},
 		}
 		return s
 	}
@@ -67,14 +67,14 @@ func TestSquidParseMatrix(t *testing.T) {
 	cases := []matCase{
 		{"01-allowlist", func(*policy.Snapshot) {}},
 		{"02-all_web", func(s *policy.Snapshot) {
-			s.Policies[0].Mode = "all_web"
+			s.Policies[0].LegacyMode = "all_web"
 			s.Policies[0].Destinations = nil
 		}},
 		{"03-networks-and-single-hosts", func(s *policy.Snapshot) {
 			s.Clients = append(s.Clients,
-				policy.Client{ID: "c-net", Name: "network client", Kind: "network", Networks: []string{"198.51.100.0/24"}, Enabled: true, PolicyID: "p-allow"},
-				policy.Client{ID: "c-group", Name: "group client", Kind: "group", Networks: []string{"203.0.113.5/32"}, Enabled: true, PolicyID: "p-allow"},
-				policy.Client{ID: "c-v6", Name: "v6 client", Networks: []string{"2001:db8::1/128"}, Enabled: true, PolicyID: "p-allow"},
+				policy.Client{ID: "c-net", Name: "network client", Kind: "network", Networks: []string{"198.51.100.0/24"}, Enabled: true, LegacyPolicyID: "p-allow"},
+				policy.Client{ID: "c-group", Name: "group client", Kind: "group", Networks: []string{"203.0.113.5/32"}, Enabled: true, LegacyPolicyID: "p-allow"},
+				policy.Client{ID: "c-v6", Name: "v6 client", Networks: []string{"2001:db8::1/128"}, Enabled: true, LegacyPolicyID: "p-allow"},
 			)
 		}},
 		{"04-allow_private_on", func(s *policy.Snapshot) {
@@ -83,15 +83,15 @@ func TestSquidParseMatrix(t *testing.T) {
 			s.Settings = &st
 		}},
 		{"05-tls-proxy-profile", func(s *policy.Snapshot) {
-			s.Policies[0].TLSProfileID = tlsProfile
+			s.Policies[0].LegacyTLSProfileID = tlsProfile
 		}},
 		{"06-proxy-auth-required", func(s *policy.Snapshot) {
-			s.Policies[0].TLSProfileID = tlsProfile
+			s.Policies[0].LegacyTLSProfileID = tlsProfile
 			s.Clients[0].ProxyUsername = "REQUIRED"
 		}},
 		{"07-proxy-auth-absent", func(s *policy.Snapshot) {
 			// Explicit: TLS transport but no proxy username, so no auth_param.
-			s.Policies[0].TLSProfileID = tlsProfile
+			s.Policies[0].LegacyTLSProfileID = tlsProfile
 		}},
 		{"08-expert-allowlist", func(s *policy.Snapshot) {
 			s.Mode = "expert"

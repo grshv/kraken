@@ -63,8 +63,8 @@ func seedManifestClients(t *testing.T, s *Server) {
 		t.Fatal(e)
 	}
 	m.Snapshot.Clients = []policy.Client{
-		{ID: "c-mine", Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, PolicyID: "p"},
-		{ID: "c-foreign", Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, PolicyID: "p"},
+		{ID: "c-mine", Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, LegacyPolicyID: "p"},
+		{ID: "c-foreign", Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, LegacyPolicyID: "p"},
 	}
 	if e = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", m); e != nil {
 		t.Fatal(e)

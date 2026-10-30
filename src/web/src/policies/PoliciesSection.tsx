@@ -1,16 +1,8 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import {
-  Copy,
-  Globe,
-  Pencil,
-  Plus,
-  ShieldCheck,
-  TriangleAlert,
-} from "lucide-react";
+import { Copy, Pencil, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Card,
   CardAction,
@@ -23,14 +15,12 @@ import {
   ListPane,
   ListPaneBody,
   ListPaneHeader,
-  ListGroupLabel,
   ListRow,
   InspectorPane,
   InspectorHeader,
   InspectorBody,
 } from "@/components/kraken/layout";
 import { Callout, Field } from "@/components/kraken/blocks";
-import { cn } from "cn";
 import { EmptyState } from "../shell/EmptyState";
 import { DomainEditor, type DomainHits } from "./DomainEditor";
 import { missingDomains, type HostCount } from "../clients/missing";
@@ -45,14 +35,14 @@ import {
   deletePolicy,
   newEntityID,
   renamePolicy,
-  setPolicyMode,
 } from "../draft/edits";
-import type { Policy, Session, Snapshot } from "../model";
+import type { Client, Policy, Session, Snapshot } from "../model";
 import { pluralRu } from "../model";
 
-// PoliciesSection: list of named allowlists with client/domain counts and a
-// detail editor (mode, domains, 24h/7d hits, clients). Delete is allowed only
-// when no client references the policy; a manager cannot change a shared policy
+// PoliciesSection: named domain sets with client/domain counts and a detail
+// editor (domains, 24h/7d hits, clients). A client attaches any number of
+// sets; access mode and transport belong to the client. Delete is allowed
+// only when no client attaches the policy; a manager cannot change a policy
 // used by foreign clients.
 export function PoliciesSection(props: SectionProps) {
   const {
@@ -80,7 +70,7 @@ export function PoliciesSection(props: SectionProps) {
     [active, policies],
   );
   const clientsOf = (id: string) =>
-    (snap?.clients ?? []).filter((c) => c.policy_id === id);
+    (snap?.clients ?? []).filter((c) => c.policy_ids.includes(id));
 
   const selectedPolicy = policies.find((p) => p.id === selected) ?? null;
 
@@ -118,10 +108,7 @@ export function PoliciesSection(props: SectionProps) {
 
   useEffect(() => {
     let live = true;
-    const ids = policies
-      .filter((p) => p.mode === "allowlist")
-      .map((p) => p.id)
-      .slice(0, 50);
+    const ids = policies.map((p) => p.id).slice(0, 50);
     Promise.all(
       ids.map((id) =>
         request<{ domains: { hits_24h: number }[] }>(
@@ -169,8 +156,8 @@ export function PoliciesSection(props: SectionProps) {
         <InspectorPane>
           <InspectorBody>
             <EmptyState icon={<ShieldCheck />} title="Нет политик">
-              Создайте первую политику с набором доменов, затем назначьте её
-              клиенту.
+              Политика — именованный набор доменов. Создайте её и подключите
+              клиентам, которым нужны одни и те же сайты.
             </EmptyState>
           </InspectorBody>
         </InspectorPane>
@@ -191,14 +178,7 @@ export function PoliciesSection(props: SectionProps) {
           return;
         }
         const id = newEntityID(snap!, "p-");
-        const tlsID = snap!.tls_profiles[0]?.id ?? "";
-        const p: Policy = {
-          id,
-          name,
-          mode: "allowlist",
-          destinations: [],
-          tls_profile_id: tlsID,
-        };
+        const p: Policy = { id, name, destinations: [] };
         const res = await onCommit({
           ...snap!,
           policies: [...snap!.policies, p],
@@ -213,9 +193,6 @@ export function PoliciesSection(props: SectionProps) {
     />
   );
 
-  const shared = policies.filter((p) => clientsOf(p.id).length !== 1);
-  const own = policies.filter((p) => clientsOf(p.id).length === 1);
-
   return (
     <div className="flex w-full min-h-0">
       <ListPane>
@@ -226,33 +203,16 @@ export function PoliciesSection(props: SectionProps) {
               <Plus aria-hidden /> Новая
             </Button>
           }
-          description="Именованные списки доменов. Клиент ссылается на одну политику."
+          description="Именованные наборы доменов. Клиент подключает любое число наборов."
         />
         <ListPaneBody>
-          {shared.length > 0 && <ListGroupLabel>Общие</ListGroupLabel>}
-          {shared.map((p) => (
+          {policies.map((p) => (
             <PolicyRow
               key={p.id}
               policy={p}
               clients={clientsOf(p.id).length}
               domains={p.destinations.length}
               total={totals[p.id]}
-              mark={marks[p.id]}
-              active={!creating && selected === p.id}
-              onClick={() => {
-                setCreating(false);
-                setSelected(p.id);
-              }}
-            />
-          ))}
-          {own.length > 0 && <ListGroupLabel>Свои у клиентов</ListGroupLabel>}
-          {own.map((p) => (
-            <PolicyRow
-              key={p.id}
-              policy={p}
-              clients={clientsOf(p.id).length}
-              domains={p.destinations.length}
-              own
               mark={marks[p.id]}
               active={!creating && selected === p.id}
               onClick={() => {
@@ -284,7 +244,7 @@ export function PoliciesSection(props: SectionProps) {
               onToast={onToast}
               onDelete={async () => {
                 if (clientsOf(selectedPolicy.id).length > 0) {
-                  onToast("Сначала переназначьте клиентов");
+                  onToast("Сначала отключите политику у клиентов");
                   return;
                 }
                 const res = await onCommit(
@@ -300,11 +260,9 @@ export function PoliciesSection(props: SectionProps) {
                 const copy: Policy = {
                   id,
                   name: selectedPolicy.name + "-копия",
-                  mode: selectedPolicy.mode,
                   destinations: selectedPolicy.destinations.map((d) => ({
                     ...d,
                   })),
-                  tls_profile_id: selectedPolicy.tls_profile_id,
                 };
                 const res = await onCommit({
                   ...snap!,
@@ -334,7 +292,6 @@ function PolicyRow({
   clients,
   domains,
   total,
-  own,
   mark,
   active,
   onClick,
@@ -343,7 +300,6 @@ function PolicyRow({
   clients: number;
   domains: number;
   total?: number;
-  own?: boolean;
   mark?: Mark;
   active: boolean;
   onClick: () => void;
@@ -361,16 +317,14 @@ function PolicyRow({
       }
       meta={
         <span className="text-muted-foreground">
-          {own ? "своя" : pluralRu(clients, "клиент", "клиента", "клиентов")}
+          {clients
+            ? pluralRu(clients, "клиент", "клиента", "клиентов")
+            : "не подключена"}
         </span>
       }
-      subtitle={
-        policy.mode === "all_web"
-          ? "весь веб"
-          : pluralRu(domains, "домен", "домена", "доменов")
-      }
+      subtitle={pluralRu(domains, "домен", "домена", "доменов")}
       aside={
-        !own && total ? (
+        total ? (
           <span className="text-muted-foreground">
             {total.toLocaleString("ru-RU")}
           </span>
@@ -396,7 +350,7 @@ function PolicyDetail({
 }: {
   policy: Policy;
   snap: Snapshot;
-  clients: { id: string; name: string }[];
+  clients: Client[];
   hits: DomainHits;
   mark?: Mark;
   session: Session;
@@ -451,14 +405,7 @@ function PolicyDetail({
         }
         status={
           <Badge variant="secondary">
-            {policy.mode === "all_web"
-              ? "весь веб"
-              : pluralRu(
-                  policy.destinations.length,
-                  "домен",
-                  "домена",
-                  "доменов",
-                )}
+            {pluralRu(policy.destinations.length, "домен", "домена", "доменов")}
           </Badge>
         }
         actions={
@@ -486,7 +433,7 @@ function PolicyDetail({
               disabled={hasClients || !editable}
               title={
                 hasClients
-                  ? "Сначала переназначьте клиентов"
+                  ? "Сначала отключите политику у клиентов"
                   : !editable
                     ? "Политика используется чужими клиентами"
                     : undefined
@@ -498,7 +445,7 @@ function PolicyDetail({
         }
         meta={
           <>
-            <span>Используют:</span>
+            <span>Подключена у:</span>
             {hasClients ? (
               clients.map((c) => (
                 <Button
@@ -528,105 +475,59 @@ function PolicyDetail({
         )}
         <Card>
           <CardHeader>
-            <CardTitle className="flex-1 min-w-0">Режим</CardTitle>
+            <div>
+              <CardTitle>Домены</CardTitle>
+              <CardDescription>
+                «Не используется»: ни одного запроса за 7 дней
+              </CardDescription>
+            </div>
           </CardHeader>
           <CardContent>
-            <RadioGroup
-              value={policy.mode}
-              onValueChange={async (v) => {
-                if (!editable || v === policy.mode) return;
-                const res = await onCommit(
-                  setPolicyMode(snap, policy.id, v as Policy["mode"]),
-                );
+            <DomainEditor
+              destinations={policy.destinations}
+              hits={hits}
+              readOnly={!editable}
+              readOnlyReason="Политика используется чужими клиентами. Изменить её может администратор."
+              onChange={async (next) => {
+                const res = await onCommit({
+                  ...snap,
+                  policies: snap.policies.map((p) =>
+                    p.id === policy.id ? { ...p, destinations: next } : p,
+                  ),
+                });
                 if (!res.ok && res.code !== "revision_conflict")
                   onToast(res.message ?? "Ошибка");
               }}
-              className="grid grid-cols-1 gap-2 min-[1180px]:grid-cols-2"
-            >
-              <ModeCard
-                value="allowlist"
-                active={policy.mode === "allowlist"}
-                title="Список доменов"
-                hint="Только перечисленные сайты"
-                disabled={!editable}
-              />
-              <ModeCard
-                value="all_web"
-                active={policy.mode === "all_web"}
-                title="Весь веб"
-                hint="Кроме запрещённого для всех"
-                disabled={!editable}
-              />
-            </RadioGroup>
-          </CardContent>
-        </Card>
-        {policy.mode === "allowlist" && (
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle>Домены</CardTitle>
-                <CardDescription>
-                  «Не используется»: ни одного запроса за 7 дней
-                </CardDescription>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <DomainEditor
-                destinations={policy.destinations}
-                hits={hits}
-                readOnly={!editable}
-                readOnlyReason="Политика используется чужими клиентами. Изменить её может администратор."
-                onChange={async (next) => {
-                  const res = await onCommit({
-                    ...snap,
-                    policies: snap.policies.map((p) =>
-                      p.id === policy.id ? { ...p, destinations: next } : p,
-                    ),
-                  });
-                  if (!res.ok && res.code !== "revision_conflict")
-                    onToast(res.message ?? "Ошибка");
+            />
+            <div className="mt-2.5 flex items-center gap-1.5">
+              <TemplateButtons
+                request={request}
+                onAdd={async (doms) => {
+                  const res = await onCommit(
+                    addDomainsToPolicy(snap, policy.id, doms),
+                  );
+                  if (res.ok) onToast("Шаблон добавлен");
                 }}
               />
-              <div className="mt-2.5 flex items-center gap-1.5">
-                <TemplateButtons
-                  request={request}
-                  onAdd={async (doms) => {
-                    const res = await onCommit(
-                      addDomainsToPolicy(snap, policy.id, doms),
-                    );
-                    if (res.ok) onToast("Шаблон добавлен");
-                  }}
-                />
-              </div>
-            </CardContent>
-          </Card>
-        )}
-        {policy.mode === "allowlist" && (
-          <MissingCard
-            policy={policy}
-            clients={clients}
-            snap={snap}
-            request={request}
-            editable={editable}
-            onCommit={onCommit}
-            onToast={onToast}
-          />
-        )}
-        {policy.mode === "all_web" && (
-          <Callout tone="info" icon={<Globe aria-hidden />}>
-            <div className="text-sm">
-              Разрешены любые внешние сайты. Действуют запреты для всех и
-              встроенная защита, они описаны в «Настройках».
             </div>
-          </Callout>
-        )}
+          </CardContent>
+        </Card>
+        <MissingCard
+          policy={policy}
+          clients={clients}
+          snap={snap}
+          request={request}
+          editable={editable}
+          onCommit={onCommit}
+          onToast={onToast}
+        />
       </InspectorBody>
     </>
   );
 }
 
-// MissingCard: denied domains of this policy's clients over 24 h that the
-// policy does not cover, each with "Добавить".
+// MissingCard: denied domains of this policy's list-access clients over 24 h
+// that their final list does not cover, each with "Добавить" into this policy.
 function MissingCard({
   policy,
   clients,
@@ -637,7 +538,7 @@ function MissingCard({
   onToast,
 }: {
   policy: Policy;
-  clients: { id: string; name: string }[];
+  clients: Client[];
   snap: Snapshot;
   request: SectionProps["request"];
   editable: boolean;
@@ -651,19 +552,22 @@ function MissingCard({
   useEffect(() => {
     let live = true;
     Promise.all(
-      clients.slice(0, 20).map((c) =>
-        request<{ top_destinations: HostCount[] }>(
-          `/inspector/clients/${c.id}/stats`,
-        )
-          .then((st) =>
-            missingDomains(st.top_destinations, policy).map((d) => ({
-              host: d.host,
-              denied: d.denied,
-              client: c.name,
-            })),
+      clients
+        .filter((c) => c.access === "list")
+        .slice(0, 20)
+        .map((c) =>
+          request<{ top_destinations: HostCount[] }>(
+            `/inspector/clients/${c.id}/stats`,
           )
-          .catch(() => []),
-      ),
+            .then((st) =>
+              missingDomains(st.top_destinations, snap, c).map((d) => ({
+                host: d.host,
+                denied: d.denied,
+                client: c.name,
+              })),
+            )
+            .catch(() => []),
+        ),
     ).then((all) => {
       if (live) setRows(all.flat().sort((a, b) => b.denied - a.denied));
     });
@@ -671,7 +575,7 @@ function MissingCard({
       live = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request, ids, policy.destinations]);
+  }, [request, ids, snap]);
   return (
     <Card>
       <CardHeader>
@@ -714,46 +618,6 @@ function MissingCard({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-// Mode option card: RadioGroupItem inside a label styled like .opt.
-function ModeCard({
-  value,
-  active,
-  title,
-  hint,
-  disabled,
-}: {
-  value: string;
-  active: boolean;
-  title: string;
-  hint: string;
-  disabled?: boolean;
-}) {
-  const id = useId();
-  return (
-    <label
-      htmlFor={id}
-      className={cn(
-        "grid grid-cols-[18px_minmax(0,1fr)] gap-2.5 rounded-lg border px-3 py-2.5 items-start",
-        active
-          ? "border-muted-foreground/45 bg-hover"
-          : "border-border",
-        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
-      )}
-    >
-      <RadioGroupItem
-        id={id}
-        value={value}
-        disabled={disabled}
-        className="mt-px"
-      />
-      <span className="min-w-0">
-        <div className="font-medium">{title}</div>
-        <div className="text-sm text-muted-foreground">{hint}</div>
-      </span>
-    </label>
   );
 }
 

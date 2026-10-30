@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Globe, Lock, Plus, Undo, X } from "lucide-react";
+import { Lock, Plus, Undo, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -192,11 +192,6 @@ export function DomainEditor({
         <div className="text-sm text-muted-foreground">
           Вставьте список из README или pip/npm-ошибки: домены извлекутся, дубли
           и пересечения подсветятся до сохранения.
-        </div>
-      )}
-      {readOnly && destinations.length === 0 && (
-        <div className="text-sm text-muted-foreground">
-          <Globe aria-hidden /> Разрешены любые внешние сайты.
         </div>
       )}
     </div>

@@ -3471,7 +3471,10 @@
           "name",
           "source_networks",
           "enabled",
-          "policy_id"
+          "access",
+          "tls_profile_id",
+          "policy_ids",
+          "destinations"
         ],
         "properties": {
           "id": {
@@ -3498,9 +3501,35 @@
           "enabled": {
             "type": "boolean"
           },
-          "policy_id": {
+          "access": {
             "type": "string",
-            "format": "uuid"
+            "enum": [
+              "list",
+              "all_web",
+              "none"
+            ],
+            "description": "list: the union of own destinations and attached policies; all_web: any external site (protections and blocked_domains still apply); none: everything denied."
+          },
+          "tls_profile_id": {
+            "type": "string",
+            "description": "Listener: a TLS profile with proxy_transport http or tls. proxy_username requires tls."
+          },
+          "policy_ids": {
+            "type": "array",
+            "maxItems": 64,
+            "uniqueItems": true,
+            "items": {
+              "type": "string"
+            },
+            "description": "Attached shared domain sets."
+          },
+          "destinations": {
+            "type": "array",
+            "maxItems": 1024,
+            "items": {
+              "$ref": "#/components/schemas/Destination"
+            },
+            "description": "The client's own allowed domains."
           },
           "kind": {
             "type": "string",
@@ -3525,9 +3554,7 @@
         "required": [
           "id",
           "name",
-          "mode",
-          "destinations",
-          "tls_profile_id"
+          "destinations"
         ],
         "properties": {
           "id": {
@@ -3539,24 +3566,15 @@
             "minLength": 1,
             "maxLength": 128
           },
-          "mode": {
-            "type": "string",
-            "enum": [
-              "all_web",
-              "allowlist"
-            ]
-          },
           "destinations": {
             "type": "array",
             "items": {
               "$ref": "#/components/schemas/Destination"
-            }
-          },
-          "tls_profile_id": {
-            "type": "string",
-            "format": "uuid"
+            },
+            "maxItems": 1024
           }
-        }
+        },
+        "description": "Named, shareable set of allowed domains; a client attaches any number of them."
       },
       "TLSProfile": {
         "type": "object",
@@ -3609,7 +3627,11 @@
         "properties": {
           "schema_version": {
             "type": "integer",
-            "const": 1
+            "enum": [
+              1,
+              2
+            ],
+            "description": "The server writes 2. A schema 1 snapshot (policy_id on the client, mode and tls_profile_id on the policy) is accepted and upgraded: the client takes the transport and access mode of its policy, an all_web policy is dropped."
           },
           "clients": {
             "type": "array",
@@ -6010,7 +6032,8 @@
             "type": [
               "string",
               "null"
-            ]
+            ],
+            "description": "allowed_by_policy: the attached policy that lists the host, null when the client's own destinations do."
           }
         },
         "description": "Re-evaluation of a completed request against the active policy. No URL path/query, credentials or Squid output."

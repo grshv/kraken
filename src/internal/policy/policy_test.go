@@ -7,14 +7,14 @@ import (
 
 func fixture() Snapshot {
 	s := Empty()
-	s.Policies = []Policy{{ID: "p", Name: "Packages", Mode: "allowlist", Destinations: []Destination{{Domain: "example.org"}}, TLSProfileID: s.TLSProfiles[0].ID}}
-	s.Clients = []Client{{ID: "c", Name: "Build", Networks: []string{"192.0.2.1/32"}, Enabled: true, PolicyID: "p"}}
+	s.Policies = []Policy{{ID: "p", Name: "Packages", LegacyMode: "allowlist", Destinations: []Destination{{Domain: "example.org"}}, LegacyTLSProfileID: s.TLSProfiles[0].ID}}
+	s.Clients = []Client{{ID: "c", Name: "Build", Networks: []string{"192.0.2.1/32"}, Enabled: true, LegacyPolicyID: "p"}}
 	return s
 }
 func TestPolicyBoundaries(t *testing.T) {
 	cases := map[string]func(*Snapshot){"CRLF injection": func(s *Snapshot) { s.Policies[0].Destinations[0].Domain = "example.org\nhttp_access allow all" }, "raw IP": func(s *Snapshot) { s.Policies[0].Destinations[0].Domain = "1.1.1.1" }, "overlap": func(s *Snapshot) {
-		s.Clients = append(s.Clients, Client{ID: "d", Name: "Other", Networks: []string{"192.0.2.0/24"}, Enabled: true, PolicyID: "p"})
-	}, "IPv6 overlap": func(s *Snapshot) { s.Clients[0].Networks = []string{"2001:db8::1/128", "2001:db8::/64"} }, "default route": func(s *Snapshot) { s.Clients[0].Networks = []string{"0.0.0.0/0"} }, "mapped IPv6": func(s *Snapshot) { s.Clients[0].Networks = []string{"::ffff:192.0.2.1/128"} }, "unknown profile": func(s *Snapshot) { s.Policies[0].TLSProfileID = "missing" }, "invalid TLS mode": func(s *Snapshot) { s.TLSProfiles[0].Mode = "invalid-mode" }, "overlapping domains": func(s *Snapshot) {
+		s.Clients = append(s.Clients, Client{ID: "d", Name: "Other", Networks: []string{"192.0.2.0/24"}, Enabled: true, LegacyPolicyID: "p"})
+	}, "IPv6 overlap": func(s *Snapshot) { s.Clients[0].Networks = []string{"2001:db8::1/128", "2001:db8::/64"} }, "default route": func(s *Snapshot) { s.Clients[0].Networks = []string{"0.0.0.0/0"} }, "mapped IPv6": func(s *Snapshot) { s.Clients[0].Networks = []string{"::ffff:192.0.2.1/128"} }, "unknown profile": func(s *Snapshot) { s.Policies[0].LegacyTLSProfileID = "missing" }, "invalid TLS mode": func(s *Snapshot) { s.TLSProfiles[0].Mode = "invalid-mode" }, "overlapping domains": func(s *Snapshot) {
 		s.Policies[0].Destinations = []Destination{{Domain: "example.org", IncludeSubdomains: true}, {Domain: "repo.example.org"}}
 	}}
 	for name, mutate := range cases {
@@ -80,10 +80,10 @@ func TestDenyReasonsAnnotateRules(t *testing.T) {
 	st := EffectiveSettings(s)
 	st.BlockedDomains = []Destination{{Domain: "x.example"}}
 	s.Settings = &st
-	s.Clients = []Client{{ID: "c", Name: "c", Networks: []string{"10.0.0.0/8"}, Enabled: true, PolicyID: "p", ProxyUsername: "u"}}
+	s.Clients = []Client{{ID: "c", Name: "c", Networks: []string{"10.0.0.0/8"}, Enabled: true, LegacyPolicyID: "p", ProxyUsername: "u"}}
 	cert := "proxy-server"
 	s.TLSProfiles = append(s.TLSProfiles, TLSProfile{ID: "tls", Name: "tls", Mode: s.TLSProfiles[0].Mode, Transport: "tls", CertRef: &cert})
-	s.Policies = []Policy{{ID: "p", Name: "p", Mode: "all_web", TLSProfileID: "tls"}}
+	s.Policies = []Policy{{ID: "p", Name: "p", LegacyMode: "all_web", LegacyTLSProfileID: "tls"}}
 	c, e := Render(s, Options{StateDir: "/data", SquidDir: "/data/squid", LogPath: "/data/access.log", ProxyAccounts: "/run/a.json", ProxyCert: "/certs/p.crt", ProxyKey: "/certs/p.key"})
 	if e != nil {
 		t.Fatal(e)

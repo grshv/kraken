@@ -4,7 +4,6 @@ import {
   Ban,
   Check,
   Info,
-  TriangleAlert,
   Copy,
   Eye,
   Globe,
@@ -21,6 +20,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -104,15 +104,21 @@ import {
 } from "./notifications";
 import { DeniedDomains } from "./DeniedDomains";
 import {
-  addDomainToClientPolicy,
-  changeClientPolicy,
+  addDomainToClient,
+  addDomainsToClient,
+  attachPolicy,
+  clientTransport,
   createClientFromIP,
   deleteClient,
-  newEntityID,
+  detachPolicy,
+  effectiveDestinations,
+  setClientAccess,
+  setClientConnection,
   setClientEnabled,
   setClientNetworks,
+  shareClientDomains,
 } from "../draft/edits";
-import type { Client, Event, Policy, Session, Snapshot } from "../model";
+import type { Access, Client, Event, Session, Snapshot } from "../model";
 import { ago, pluralRu, revisionLabel } from "../model";
 import type { NavId } from "../shell/nav";
 
@@ -159,6 +165,7 @@ export function ClientsSection(props: SectionProps) {
     onCommit,
     onToast,
     onNavigate,
+    onOpen,
     intent,
     onIntentHandled,
   } = props;
@@ -171,6 +178,9 @@ export function ClientsSection(props: SectionProps) {
     name: string;
     src: string;
     domains: string[];
+    access?: Access;
+    policyIDs?: string[];
+    proxyUsername?: string;
   } | null>(null);
   const [confirm, setConfirm] = useState<ConfirmOptions | null>(null);
   const [confirmFn, setConfirmFn] = useState<(() => void) | null>(null);
@@ -271,9 +281,11 @@ export function ClientsSection(props: SectionProps) {
     if (q) {
       const inName = c.name.toLowerCase().includes(q);
       const inNet = c.source_networks.some((n) => n.includes(q));
-      const pol = snap?.policies.find((p) => p.id === c.policy_id);
       const inDom =
-        pol?.destinations.some((d) => d.domain.includes(q)) ?? false;
+        !!snap &&
+        effectiveDestinations(snap, c).some((e) =>
+          e.destination.domain.includes(q),
+        );
       if (!inName && !inNet && !inDom) return false;
     }
     if (filter === "denied" && !(stats[c.id]?.denied > 0)) return false;
@@ -370,6 +382,9 @@ export function ClientsSection(props: SectionProps) {
       initialName={creating.name}
       initialSrc={creating.src}
       initialDomains={creating.domains}
+      initialAccess={creating.access}
+      initialPolicyIDs={creating.policyIDs}
+      initialLogin={creating.proxyUsername}
       onCancel={() => setCreating(null)}
       onSubmit={async (input) => {
         const r = createClientFromIP(
@@ -382,30 +397,25 @@ export function ClientsSection(props: SectionProps) {
           onToast("Проверьте адрес источника и имя");
           return;
         }
-        let next = r.snapshot;
-        const usePolicy =
-          input.mode === "shared" ? input.sharedPolicyID : r.policyID;
-        next = {
-          ...next,
-          clients: next.clients.map((c) =>
+        let next: Snapshot = {
+          ...r.snapshot,
+          clients: r.snapshot.clients.map((c) =>
             c.id === r.clientID
               ? {
                   ...c,
                   kind: input.kind,
                   source_networks: input.networks,
-                  policy_id: usePolicy,
-                  proxy_username: input.proxyUsername || undefined,
+                  access: input.access,
+                  policy_ids: input.policyIDs,
                 }
               : c,
           ),
-          policies: next.policies
-            .filter((p) => input.mode !== "shared" || p.id !== r.policyID)
-            .map((p) =>
-              p.id === r.policyID && input.mode === "all"
-                ? { ...p, mode: "all_web" as const, destinations: [] }
-                : p,
-            ),
         };
+        next = setClientConnection(
+          next,
+          r.clientID,
+          input.proxyUsername || undefined,
+        );
         const res = await onCommit(next);
         if (res.ok) {
           setSelected(r.clientID);
@@ -581,6 +591,7 @@ export function ClientsSection(props: SectionProps) {
               marks={clientMarks}
               request={request}
               session={session}
+              onOpen={onOpen}
               onCommit={commit}
               onToast={onToast}
               onNavigate={onNavigate}
@@ -608,11 +619,11 @@ export function ClientsSection(props: SectionProps) {
                 setCreating({
                   name: selectedClient.name + "-копия",
                   src: selectedClient.source_networks[0] ?? "",
-                  domains: (
-                    snap!.policies.find(
-                      (p) => p.id === selectedClient.policy_id,
-                    )?.destinations ?? []
-                  ).map((d) => (d.include_subdomains ? "*." : "") + d.domain),
+                  domains: selectedClient.destinations.map(
+                    (d) => (d.include_subdomains ? "*." : "") + d.domain,
+                  ),
+                  access: selectedClient.access,
+                  policyIDs: selectedClient.policy_ids,
                 });
               }}
             />
@@ -716,6 +727,7 @@ function ClientDetail({
   onCommit,
   onToast,
   onNavigate,
+  onOpen,
   onConfirm,
   setConfirmFn,
   onDelete,
@@ -734,20 +746,14 @@ function ClientDetail({
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
   onNavigate: (id: NavId) => void;
+  onOpen?: SectionProps["onOpen"];
   onConfirm: (o: ConfirmOptions) => void;
   setConfirmFn: (fn: (() => void) | null) => void;
   onDelete: () => Promise<void>;
   onToggleEnabled: () => Promise<void>;
   onDuplicate: () => void;
 }) {
-  const policy = snap.policies.find((p) => p.id === client.policy_id) ?? null;
-  const sharedWith = policy
-    ? snap.clients.filter((c) => c.policy_id === policy.id)
-    : [];
   const scope = managerScope(session);
-  // Manager may not edit a policy referenced by a foreign client.
-  const policyEditable =
-    !scope || sharedWith.every((c) => scope.clientIDs.includes(c.id));
   const [recent, setRecent] = useState<Event[] | null>(null);
   useEffect(() => {
     let live = true;
@@ -862,12 +868,8 @@ function ClientDetail({
             <span className="font-mono text-sm">
               {client.source_networks.join(", ")}
             </span>
-            ·<span>{connectionLabel(client)}</span>·
-            <PolicyBadge
-              client={client}
-              policy={policy}
-              sharedCount={sharedWith.length}
-            />
+            ·<span>{connectionLabel(snap, client)}</span>·
+            <AccessBadge client={client} snap={snap} />
           </>
         }
       />
@@ -900,7 +902,6 @@ function ClientDetail({
         {tab === "overview" && (
           <OverviewTab
             client={client}
-            policy={policy}
             stats={stats}
             recent={recent}
             snap={snap}
@@ -914,17 +915,15 @@ function ClientDetail({
         {tab === "access" && (
           <AccessTab
             client={client}
-            policy={policy}
             snap={snap}
-            sharedWith={sharedWith}
-            policyEditable={policyEditable}
+            scope={scope}
             notices={notices.items}
             onMark={notices.mark}
             canBlock={!scope}
             request={request}
             onCommit={onCommit}
             onToast={onToast}
-            onNavigate={onNavigate}
+            onOpen={onOpen}
           />
         )}
         {tab === "source" && (
@@ -963,50 +962,46 @@ function kindLabel(kind?: string): string {
   return "Устройство";
 }
 
-// The model has no transport field; a proxy login implies TLS in the prototype.
-function connectionLabel(client: Client): string {
-  if (client.proxy_username) return `TLS, логин ${client.proxy_username}`;
+// connectionLabel: the client's listener and proxy login.
+function connectionLabel(snap: Snapshot, client: Client): string {
+  if (clientTransport(snap, client) === "tls")
+    return client.proxy_username
+      ? `TLS, логин ${client.proxy_username}`
+      : "TLS без логина";
   return "HTTP без логина";
 }
 
-function PolicyBadge({
-  client,
-  policy,
-  sharedCount,
-}: {
-  client: Client;
-  policy: Policy | null;
-  sharedCount: number;
-}) {
+// AccessBadge: the access mode and, for a list, the size of the final list.
+function AccessBadge({ client, snap }: { client: Client; snap: Snapshot }) {
   if (!client.enabled)
     return (
       <Badge variant="secondary">
         <Ban className="size-3.5" /> выключен
       </Badge>
     );
-  if (!policy) return <Badge variant="secondary">нет доступа</Badge>;
-  if (policy.mode === "all_web")
+  if (client.access === "all_web")
     return (
       <Badge variant="secondary">
         <Globe className="size-3.5" /> Весь веб
       </Badge>
     );
+  const n = effectiveDestinations(snap, client).length;
+  if (client.access === "none" || n === 0)
+    return <Badge variant="secondary">нет доступа</Badge>;
   return (
     <Badge variant="secondary">
       <ShieldCheck className="size-3.5" />
-      {sharedCount > 1 ? `${policy.name} (общая)` : "своя политика"} ·{" "}
-      {pluralRu(policy.destinations.length, "домен", "домена", "доменов")}
+      {pluralRu(n, "домен", "домена", "доменов")}
     </Badge>
   );
 }
 
 // OverviewTab follows the prototype: a callout with the new denied domains
-// missing from the policy (notifications; "Просмотрено" marks them seen for
+// the client may not reach (notifications; "Просмотрено" marks them seen for
 // everyone), KPIs, then traffic and top destinations on the left and rules
 // and recent requests on the right.
 function OverviewTab({
   client,
-  policy,
   stats,
   recent,
   snap,
@@ -1017,7 +1012,6 @@ function OverviewTab({
   onTab,
 }: {
   client: Client;
-  policy: Policy | null;
   stats?: ClientStats;
   recent: Event[] | null;
   snap: Snapshot;
@@ -1028,19 +1022,19 @@ function OverviewTab({
   onTab: (t: Tab) => void;
 }) {
   const top = stats?.top_destinations ?? [];
-  const deniedTop = missingDomains(stats?.top_destinations, policy);
+  const deniedTop = missingDomains(stats?.top_destinations, snap, client);
   const isMissing = (host: string) => deniedTop.some((d) => d.host === host);
   const fresh = (notices ?? []).filter((n) => n.status === "new");
   const shown = fresh.slice(0, 5);
   const rest = fresh.length - shown.length;
-  const policyName = policy ? policy.name : "";
-  const shared = policy
-    ? snap.clients.filter((c) => c.policy_id === policy.id).length
-    : 0;
+  const list = effectiveDestinations(snap, client).map((e) => e.destination);
+  const attached = snap.policies.filter((p) =>
+    client.policy_ids.includes(p.id),
+  );
   const blocked = snap.settings?.blocked_domains?.length ?? 0;
   const allow = async (host: string) => {
-    const res = await onCommit(addDomainToClientPolicy(snap, client.id, host));
-    if (res.ok) onToast(`Домен ${host} добавлен в политику`);
+    const res = await onCommit(addDomainToClient(snap, client.id, host));
+    if (res.ok) onToast(`Домен ${host} добавлен клиенту`);
   };
   const max = Math.max(1, ...top.map((d) => d.requests));
   return (
@@ -1053,7 +1047,7 @@ function OverviewTab({
                 {fresh.length === 1
                   ? "Новый домен, которого нет"
                   : `${pluralRu(fresh.length, "новый домен", "новых домена", "новых доменов")}, которых нет`}{" "}
-                в политике «{policyName}» ·{" "}
+                в списке клиента ·{" "}
                 {pluralRu(
                   fresh.reduce((n, d) => n + d.denied, 0),
                   "отказ",
@@ -1104,7 +1098,7 @@ function OverviewTab({
           hint={
             stats?.denied
               ? deniedTop.length
-                ? "нет в политике клиента"
+                ? "нет в списке клиента"
                 : "запрещено правилами"
               : "нет"
           }
@@ -1165,7 +1159,7 @@ function OverviewTab({
                           {d.denied > 0 && (
                             <div className="truncate text-sm text-muted-foreground">
                               {isMissing(d.host)
-                                ? "нет в политике"
+                                ? "нет в списке клиента"
                                 : "запрещено защитой или для всех"}
                             </div>
                           )}
@@ -1218,11 +1212,11 @@ function OverviewTab({
               <div>
                 <CardTitle>Правила</CardTitle>
                 <CardDescription>
-                  {!policy
-                    ? "Нет доступа"
-                    : policy.mode === "all_web"
-                      ? "Любые внешние сайты, кроме запрещённых для всех"
-                      : "Только домены политики"}
+                  {client.access === "all_web"
+                    ? "Любые внешние сайты, кроме запрещённых для всех"
+                    : client.access === "none" || list.length === 0
+                      ? "Нет доступа"
+                      : "Только домены из итогового списка"}
                 </CardDescription>
               </div>
               <CardAction>
@@ -1236,37 +1230,45 @@ function OverviewTab({
               </CardAction>
             </CardHeader>
             <CardContent className="flex flex-col gap-2.5">
-              {policy?.mode === "allowlist" &&
-                policy.destinations.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {policy.destinations.slice(0, 8).map((d) => (
-                      <Chip key={d.domain}>
-                        {d.include_subdomains ? "*." : ""}
-                        {d.domain}
-                      </Chip>
-                    ))}
-                    {policy.destinations.length > 8 && (
-                      <Chip className="text-muted-foreground">
-                        +{policy.destinations.length - 8}
-                      </Chip>
-                    )}
-                  </div>
-                )}
+              {client.access === "list" && list.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {list.slice(0, 8).map((d) => (
+                    <Chip key={d.domain + d.include_subdomains}>
+                      {d.include_subdomains ? "*." : ""}
+                      {d.domain}
+                    </Chip>
+                  ))}
+                  {list.length > 8 && (
+                    <Chip className="text-muted-foreground">
+                      +{list.length - 8}
+                    </Chip>
+                  )}
+                </div>
+              )}
               <KeyValue
                 items={[
                   [
-                    "Политика",
-                    !policy
+                    "Политики",
+                    client.access !== "list" || attached.length === 0
                       ? "—"
-                      : shared > 1
-                        ? `${policy.name}, общая: ${pluralRu(shared, "клиент", "клиента", "клиентов")}`
-                        : "своя у клиента",
+                      : attached.map((p) => p.name).join(", "),
+                  ],
+                  [
+                    "Свои домены",
+                    client.access !== "list" || client.destinations.length === 0
+                      ? "—"
+                      : pluralRu(
+                          client.destinations.length,
+                          "домен",
+                          "домена",
+                          "доменов",
+                        ),
                   ],
                   [
                     "Поверх неё",
                     `${blocked ? pluralRu(blocked, "запрещённый домен", "запрещённых домена", "запрещённых доменов") + ", " : ""}встроенная защита`,
                   ],
-                  ["Подключение", connectionLabel(client)],
+                  ["Подключение", connectionLabel(snap, client)],
                 ]}
               />
             </CardContent>
@@ -1323,173 +1325,143 @@ function OverviewTab({
   );
 }
 
+// AccessTab: the client's access mode; for a list, the denied domains to
+// review, attached policies (shared domain sets), the client's own domains
+// and the final list with the source of each line. The client may reach the
+// union of its own domains and the attached policies.
 function AccessTab({
   client,
-  policy,
   snap,
-  sharedWith,
-  policyEditable,
+  scope,
   notices,
   onMark,
   canBlock,
   request,
   onCommit,
   onToast,
-  onNavigate,
+  onOpen,
 }: {
   client: Client;
-  policy: Policy | null;
   snap: Snapshot;
-  sharedWith: Client[];
-  policyEditable: boolean;
+  scope: ReturnType<typeof managerScope>;
   notices: Notice[] | null;
   onMark: (ids: string[], status: NoticeStatus) => Promise<void>;
   canBlock: boolean;
   request: SectionProps["request"];
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
-  onNavigate: (id: NavId) => void;
+  onOpen?: SectionProps["onOpen"];
 }) {
-  const [hits, setHits] = useState<DomainHits>({});
-  useEffect(() => {
-    if (!policy) return;
-    let live = true;
-    request<{
-      domains: {
-        domain: string;
-        include_subdomains: boolean;
-        hits_24h: number;
-        hits_7d: number;
-      }[];
-    }>(`/inspector/policies/${policy.id}/hits`)
-      .then((r) => {
-        if (!live) return;
-        const next: DomainHits = {};
-        for (const d of r.domains ?? [])
-          next[d.domain] = { hits_24h: d.hits_24h, hits_7d: d.hits_7d };
-        setHits(next);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [policy?.id]);
-  // Policies another client could share: allowlists not owned by this client.
-  const sharable = snap.policies.filter(
-    (p) => p.mode === "allowlist" && p.id !== policy?.id,
+  const [shareName, setShareName] = useState<string | null>(null);
+  const attached = client.policy_ids
+    .map((id) => snap.policies.find((p) => p.id === id))
+    .filter((p): p is NonNullable<typeof p> => !!p);
+  const available = snap.policies.filter(
+    (p) => !client.policy_ids.includes(p.id),
   );
-  if (!policy) {
-    return (
-      <Callout tone="info" icon={<Eye aria-hidden />}>
-        <div>Клиенту не назначена политика, доступа нет.</div>
-      </Callout>
-    );
-  }
-  const others = sharedWith.filter((c) => c.id !== client.id);
-  // Derive the radio value from the current policy state.
-  const activeMode =
-    policy.mode === "all_web"
-      ? "all"
-      : sharedWith.length > 1
-        ? "shared"
-        : policy.destinations.length === 0
-          ? "none"
-          : "own";
-  const ownPolicy = (destinations: Policy["destinations"]): Snapshot => {
-    if (sharedWith.length <= 1)
-      return {
-        ...snap,
-        policies: snap.policies.map((p) =>
-          p.id === policy.id ? { ...p, mode: "allowlist", destinations } : p,
-        ),
-      };
-    const ownID = newEntityID(snap, "p-");
-    return {
-      ...snap,
-      policies: [
-        ...snap.policies,
-        {
-          id: ownID,
-          name: client.name,
-          mode: "allowlist",
-          destinations,
-          tls_profile_id: snap.tls_profiles[0]?.id ?? "",
-        },
-      ],
-      clients: snap.clients.map((c) =>
-        c.id === client.id ? { ...c, policy_id: ownID } : c,
-      ),
-    };
-  };
+  const usersOf = (id: string) =>
+    snap.clients.filter((c) => c.policy_ids.includes(id));
+  // A manager may not edit a policy attached by a foreign client.
+  const editableBy = (id: string) =>
+    !scope || usersOf(id).every((c) => scope.clientIDs.includes(c.id));
+  const final = effectiveDestinations(snap, client);
+  const policyName = (id: string) =>
+    snap.policies.find((p) => p.id === id)?.name ?? id;
   const select = async (v: string) => {
-    if (v === activeMode) return;
-    if (v === "own") {
-      await onCommit(
-        ownPolicy(policy.mode === "allowlist" ? policy.destinations : []),
-      );
-    } else if (v === "none") {
-      await onCommit(ownPolicy([]));
-    } else if (v === "shared") {
-      if (sharable[0])
-        await onCommit(changeClientPolicy(snap, client.id, sharable[0].id));
-    } else if (v === "all") {
-      await onCommit({
-        ...snap,
-        policies: snap.policies.map((p) =>
-          p.id === policy.id ? { ...p, mode: "all_web", destinations: [] } : p,
-        ),
-      });
-    }
+    if (v !== client.access)
+      await onCommit(setClientAccess(snap, client.id, v as Access));
   };
   return (
     <>
       <Card>
         <CardHeader>
           <div>
-            <CardTitle>Политика</CardTitle>
+            <CardTitle>Доступ</CardTitle>
             <CardDescription>
-              Список доменов можно держать у клиента или подключить общую: тогда
-              правка действует на всех её клиентов
+              Встроенная защита и «запрещено для всех» действуют в любом режиме
             </CardDescription>
           </div>
         </CardHeader>
-        <CardContent className="flex flex-col gap-2.5">
+        <CardContent>
           <RadioGroup
-            value={activeMode}
+            value={client.access}
             onValueChange={select}
-            className="grid grid-cols-1 gap-2 min-[1180px]:grid-cols-2"
+            className="grid grid-cols-1 gap-2 min-[1180px]:grid-cols-3"
           >
             <RadioCard
-              value="own"
-              active={activeMode === "own"}
-              title="Своя политика"
-              hint={`Только для ${client.name}`}
+              value="list"
+              active={client.access === "list"}
+              title="Список доменов"
+              hint="Свои домены и подключённые политики"
             />
             <RadioCard
-              value="shared"
-              active={activeMode === "shared"}
-              title="Общая политика"
-              hint={sharable.length ? undefined : "Других политик пока нет"}
-              disabled={!sharable.length}
-            >
-              {sharable.length > 0 && (
+              value="all_web"
+              active={client.access === "all_web"}
+              title="Весь веб"
+              hint="Кроме запрещённого для всех"
+            />
+            <RadioCard
+              value="none"
+              active={client.access === "none"}
+              title="Нет доступа"
+              hint="Клиент описан, но всё закрыто"
+            />
+          </RadioGroup>
+        </CardContent>
+      </Card>
+      {client.access === "all_web" && (
+        <Callout tone="info" icon={<Globe aria-hidden />}>
+          <div className="text-sm">
+            Разрешены любые внешние сайты. Списки клиента сохранены и снова
+            действуют, если вернуть режим «Список доменов».
+          </div>
+        </Callout>
+      )}
+      {client.access === "none" && (
+        <Callout tone="info" icon={<Eye aria-hidden />}>
+          <div className="text-sm">
+            Все запросы клиента получают отказ. Добавленный домен или
+            подключённая политика включат режим «Список доменов».
+          </div>
+        </Callout>
+      )}
+      {client.access !== "all_web" && (
+        <DeniedDomains
+          client={client}
+          snap={snap}
+          items={notices}
+          canBlock={canBlock}
+          onMark={onMark}
+          onCommit={onCommit}
+          onToast={onToast}
+        />
+      )}
+      {client.access !== "all_web" && (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Политики</CardTitle>
+              <CardDescription>
+                Общие наборы доменов. Правка политики действует на всех её
+                клиентов
+              </CardDescription>
+            </div>
+            {available.length > 0 && (
+              <CardAction>
                 <Select
-                  value={activeMode === "shared" ? policy.id : ""}
+                  value=""
                   onValueChange={(id) =>
-                    onCommit(changeClientPolicy(snap, client.id, id))
+                    onCommit(attachPolicy(snap, client.id, id))
                   }
                 >
                   <SelectTrigger
-                    className="mt-1.5 h-7"
-                    aria-label="Общая политика"
+                    className="h-7"
+                    aria-label="Подключить политику"
                   >
-                    <SelectValue placeholder="Выберите…" />
+                    <SelectValue placeholder="Подключить…" />
                   </SelectTrigger>
                   <SelectContent>
-                    {[
-                      ...(activeMode === "shared" ? [policy] : []),
-                      ...sharable,
-                    ].map((p) => (
+                    {available.map((p) => (
                       <SelectItem key={p.id} value={p.id}>
                         {p.name}:{" "}
                         {pluralRu(
@@ -1502,92 +1474,210 @@ function AccessTab({
                     ))}
                   </SelectContent>
                 </Select>
-              )}
-            </RadioCard>
-            <RadioCard
-              value="all"
-              active={activeMode === "all"}
-              title="Весь веб"
-              hint="Кроме запрещённого для всех"
-            />
-            <RadioCard
-              value="none"
-              active={activeMode === "none"}
-              title="Нет доступа"
-              hint="Клиент описан, но всё закрыто"
-            />
-          </RadioGroup>
-          {activeMode === "own" && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Info aria-hidden className="size-3.5" />
-              Тот же список нужен другим?
-              <Button
-                size="xs"
-                variant="outline"
-                onClick={() => onNavigate("policies")}
-              >
-                Сделать общей…
-              </Button>
-            </div>
-          )}
-          {others.length > 0 && (
-            <Callout tone="warn" icon={<ShieldCheck aria-hidden />}>
-              <div className="text-sm">
-                Общая политика: правка затронет также{" "}
-                {others.map((c) => c.name).join(", ")}.
+              </CardAction>
+            )}
+          </CardHeader>
+          <CardContent>
+            {attached.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                {snap.policies.length
+                  ? "Не подключено ни одной политики"
+                  : "Политик пока нет. Их создают в разделе «Политики» или из своих доменов клиента"}
               </div>
-            </Callout>
-          )}
-        </CardContent>
-      </Card>
-      {policy.mode === "allowlist" && policyEditable && (
-        <DeniedDomains
-          clientID={client.id}
-          policy={policy}
-          snap={snap}
-          items={notices}
-          canBlock={canBlock}
-          onMark={onMark}
-          onCommit={onCommit}
-          onToast={onToast}
-        />
+            ) : (
+              attached.map((p) => {
+                const others = usersOf(p.id).filter((c) => c.id !== client.id);
+                return (
+                  <div
+                    key={p.id}
+                    className="flex items-center gap-2.5 border-b py-1.5 last:border-b-0"
+                  >
+                    <ShieldCheck
+                      aria-hidden
+                      className="size-4 text-muted-foreground"
+                    />
+                    <span className="min-w-0 grow">
+                      <span className="font-medium">{p.name}</span>
+                      <span className="ml-2 text-sm text-muted-foreground">
+                        {pluralRu(
+                          p.destinations.length,
+                          "домен",
+                          "домена",
+                          "доменов",
+                        )}
+                        {others.length > 0 &&
+                          ` · ещё у ${others.map((c) => c.name).join(", ")}`}
+                        {!editableBy(p.id) && " · правит администратор"}
+                      </span>
+                    </span>
+                    <Button
+                      size="xs"
+                      variant="ghost"
+                      onClick={() => onOpen?.("policies", `policy:${p.id}`)}
+                    >
+                      Открыть
+                    </Button>
+                    <Button
+                      size="icon-xs"
+                      variant="ghost"
+                      aria-label={`Отключить ${p.name}`}
+                      onClick={() =>
+                        onCommit(detachPolicy(snap, client.id, p.id))
+                      }
+                    >
+                      <X aria-hidden />
+                    </Button>
+                  </div>
+                );
+              })
+            )}
+          </CardContent>
+        </Card>
       )}
-      {policy.mode === "allowlist" && (
+      {client.access !== "all_web" && (
         <Card>
           <CardHeader>
             <div>
-              <CardTitle>Разрешённые домены</CardTitle>
+              <CardTitle>Свои домены</CardTitle>
               <CardDescription>
-                {others.length
-                  ? `Действует для ${pluralRu(sharedWith.length, "клиента", "клиентов", "клиентов")}`
-                  : "Действует только для этого клиента"}
+                Действуют только для этого клиента
               </CardDescription>
             </div>
-            <CardAction>
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() => onNavigate("policies")}
-              >
-                Открыть политику
-              </Button>
-            </CardAction>
+            {client.destinations.length > 0 && shareName === null && (
+              <CardAction>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => setShareName(client.name)}
+                >
+                  Сделать политикой…
+                </Button>
+              </CardAction>
+            )}
           </CardHeader>
           <CardContent>
+            {shareName !== null && (
+              <form
+                className="mb-2.5 flex flex-wrap items-center gap-2"
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const r = shareClientDomains(snap, client.id, shareName);
+                  if (!r) {
+                    onToast("Укажите имя политики");
+                    return;
+                  }
+                  const res = await onCommit(r.snapshot);
+                  if (res.ok) {
+                    setShareName(null);
+                    onToast("Свои домены перенесены в новую политику");
+                  }
+                }}
+              >
+                <Input
+                  autoFocus
+                  aria-label="Имя новой политики"
+                  className="max-w-[260px]"
+                  value={shareName}
+                  onChange={(e) => setShareName(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") setShareName(null);
+                  }}
+                />
+                <Button size="xs" type="submit">
+                  Создать политику
+                </Button>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  type="button"
+                  onClick={() => setShareName(null)}
+                >
+                  Отмена
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  Домены станут политикой, которую можно подключить другим
+                  клиентам
+                </span>
+              </form>
+            )}
             <DomainEditor
-              destinations={policy.destinations}
-              hits={hits}
-              readOnly={!policyEditable}
-              readOnlyReason="Политика общая ещё с клиентами вне ваших прав. Изменить её может администратор."
+              destinations={client.destinations}
               onChange={async (next) => {
                 await onCommit({
                   ...snap,
-                  policies: snap.policies.map((p) =>
-                    p.id === policy.id ? { ...p, destinations: next } : p,
+                  clients: snap.clients.map((c) =>
+                    c.id === client.id
+                      ? {
+                          ...c,
+                          access: next.length ? "list" : c.access,
+                          destinations: next,
+                        }
+                      : c,
                   ),
                 });
               }}
             />
+            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+              <TemplateButtons
+                request={request}
+                onAdd={async (doms) => {
+                  const res = await onCommit(
+                    addDomainsToClient(snap, client.id, doms),
+                  );
+                  if (res.ok) onToast("Шаблон добавлен");
+                }}
+              />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {client.access === "list" && (
+        <Card>
+          <CardHeader>
+            <div>
+              <CardTitle>Итоговый список</CardTitle>
+              <CardDescription>
+                Что открыто клиенту: свои домены и политики без повторов
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
+            {final.length === 0 ? (
+              <div className="text-sm text-muted-foreground">
+                Список пуст: клиенту ничего не открыто
+              </div>
+            ) : (
+              <Table className="table-fixed">
+                <TableHeader>
+                  <TableRow>
+                    <TableHead className="pl-0">Домен</TableHead>
+                    <TableHead className="pr-0">Откуда</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {final.map((e) => (
+                    <TableRow
+                      key={
+                        e.destination.domain + e.destination.include_subdomains
+                      }
+                    >
+                      <TableCell className="pl-0">
+                        <Chip>
+                          {e.destination.include_subdomains ? "*." : ""}
+                          {e.destination.domain}
+                        </Chip>
+                      </TableCell>
+                      <TableCell className="truncate pr-0 text-sm text-muted-foreground">
+                        {[
+                          ...(e.own ? ["свой"] : []),
+                          ...e.policyIDs.map((id) => `«${policyName(id)}»`),
+                        ].join(", ")}
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
           </CardContent>
         </Card>
       )}
@@ -1612,8 +1702,8 @@ function addressCount(net: string): string {
 }
 
 // SourceTab: who the client is, its source addresses (one row each, saved
-// when a row loses focus) and how it connects. A proxy login means the TLS
-// port, as policies-and-tls requires.
+// when a row loses focus) and how it connects: HTTP without a login, or the
+// TLS listener with a proxy login (tls_profile_id and proxy_username).
 function SourceTab({
   client,
   snap,
@@ -1699,6 +1789,11 @@ function SourceTab({
       setFieldError("Адрес пересекается с чужим клиентом.");
     else if (!res.ok && res.code !== "revision_conflict")
       onToast(res.message ?? "Ошибка сохранения");
+  };
+  const transport = clientTransport(snap, client);
+  const connect = async (username: string | undefined) => {
+    const res = await onCommit(setClientConnection(snap, client.id, username));
+    if (!res.ok && res.code === "username_taken") onToast("Логин уже занят");
   };
   const allowedOverlaps = client.source_networks
     .map((n) => [n, overlapOf(n)] as const)
@@ -1845,39 +1940,34 @@ function SourceTab({
         </CardHeader>
         <CardContent className="flex flex-col gap-3">
           <RadioGroup
-            value={client.proxy_username ? "tls" : "http"}
+            value={transport}
             onValueChange={(v) => {
-              if (v === "http") void patch({ proxy_username: undefined });
-              else if (accounts[0])
-                void patch({ proxy_username: accounts[0].username });
+              if (v === "http") void connect(undefined);
+              else if (accounts[0]) void connect(accounts[0].username);
             }}
             className="grid grid-cols-1 gap-2 @[700px]:grid-cols-2"
           >
             <RadioCard
               value="http"
-              active={!client.proxy_username}
+              active={transport === "http"}
               title={`HTTP, порт ${settings?.http_port ?? 3128}`}
               hint="Без шифрования до прокси. Логин недоступен"
             />
             <RadioCard
               value="tls"
-              active={!!client.proxy_username}
+              active={transport === "tls"}
               title={`TLS, порт ${settings?.tls_port ?? 3129}`}
               hint={
                 accounts.length
                   ? "Шифрование до прокси, вход по логину прокси"
                   : "Сначала создайте логин прокси в разделе «Аккаунты»"
               }
-              disabled={!accounts.length && !client.proxy_username}
+              disabled={!accounts.length && transport !== "tls"}
             >
-              {client.proxy_username && (
+              {transport === "tls" && (
                 <Select
-                  value={client.proxy_username}
-                  onValueChange={async (v) => {
-                    const res = await patch({ proxy_username: v });
-                    if (!res.ok && res.code === "username_taken")
-                      onToast("Логин уже занят");
-                  }}
+                  value={client.proxy_username ?? ""}
+                  onValueChange={(v) => void connect(v)}
                 >
                   <SelectTrigger
                     className="mt-1.5 h-7"
@@ -2165,8 +2255,8 @@ export type NewClientInput = {
   kind: "host" | "network" | "group";
   networks: string[];
   domains: string[];
-  mode: "own" | "shared" | "all" | "none";
-  sharedPolicyID: string;
+  access: Access;
+  policyIDs: string[];
   proxyUsername: string;
 };
 
@@ -2180,8 +2270,8 @@ function Step({ n }: { n: number }) {
 }
 
 // NewClientForm follows the prototype's three steps: who (name, type,
-// source addresses), where to (own list, shared policy, all web or nothing
-// yet) and how it connects (no login or a proxy login).
+// source addresses), where to (own domains and attached policies, all web or
+// nothing yet) and how it connects (HTTP, or TLS with a proxy login).
 function NewClientForm({
   draft,
   request,
@@ -2192,6 +2282,9 @@ function NewClientForm({
   initialName,
   initialSrc,
   initialDomains,
+  initialAccess,
+  initialPolicyIDs,
+  initialLogin,
   onCancel,
   onSubmit,
 }: {
@@ -2204,6 +2297,9 @@ function NewClientForm({
   initialName: string;
   initialSrc: string;
   initialDomains: string[];
+  initialAccess?: Access;
+  initialPolicyIDs?: string[];
+  initialLogin?: string;
   onCancel: () => void;
   onSubmit: (input: NewClientInput) => Promise<void>;
 }) {
@@ -2211,16 +2307,11 @@ function NewClientForm({
   const [kind, setKind] = useState<NewClientInput["kind"]>("host");
   const [src, setSrc] = useState(initialSrc);
   const [domains, setDomains] = useState(initialDomains.join("\n"));
-  const [mode, setMode] = useState<NewClientInput["mode"]>("own");
+  const [access, setAccess] = useState<Access>(initialAccess ?? "list");
+  const [policyIDs, setPolicyIDs] = useState<string[]>(initialPolicyIDs ?? []);
   const [err, setErr] = useState("");
-  const [login, setLogin] = useState("");
+  const [login, setLogin] = useState(initialLogin ?? "");
   const [accounts, setAccounts] = useState<ProxyAccount[]>([]);
-  // Shared policies: allowlists already used by at least one client.
-  const shared = draft.policies.filter(
-    (p) =>
-      p.mode === "allowlist" && draft.clients.some((c) => c.policy_id === p.id),
-  );
-  const [sharedID, setSharedID] = useState(shared[0]?.id ?? "");
   useEffect(() => {
     let live = true;
     request<{ items: ProxyAccount[] }>("/proxy-accounts")
@@ -2369,43 +2460,73 @@ function NewClientForm({
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
             <RadioGroup
-              value={mode}
-              onValueChange={(v) => setMode(v as NewClientInput["mode"])}
-              className="grid grid-cols-1 gap-2 @[700px]:grid-cols-2"
+              value={access}
+              onValueChange={(v) => setAccess(v as Access)}
+              className="grid grid-cols-1 gap-2 @[700px]:grid-cols-3"
             >
               <RadioCard
-                value="own"
-                active={mode === "own"}
-                title="Свой список доменов"
-                hint="Только перечисленные сайты"
+                value="list"
+                active={access === "list"}
+                title="Список доменов"
+                hint="Свои домены и политики"
               />
               <RadioCard
-                value="shared"
-                active={mode === "shared"}
-                title="Общая политика"
-                hint={
-                  shared.length
-                    ? "Как у похожих клиентов"
-                    : "Общих политик пока нет"
-                }
-                disabled={!shared.length}
-              />
-              <RadioCard
-                value="all"
-                active={mode === "all"}
+                value="all_web"
+                active={access === "all_web"}
                 title="Весь веб"
                 hint="Кроме запрещённого для всех"
               />
               <RadioCard
                 value="none"
-                active={mode === "none"}
+                active={access === "none"}
                 title="Пока без доступа"
                 hint="Описать и решить позже"
               />
             </RadioGroup>
-            {mode === "own" && (
+            {access === "list" && draft.policies.length > 0 && (
+              <Field label="Политики">
+                <div className="flex flex-col gap-1.5">
+                  {draft.policies.map((p) => (
+                    <label
+                      key={p.id}
+                      className="flex items-center gap-2 text-sm"
+                    >
+                      <Checkbox
+                        checked={policyIDs.includes(p.id)}
+                        onCheckedChange={(on) =>
+                          setPolicyIDs((cur) =>
+                            on
+                              ? [...cur, p.id]
+                              : cur.filter((id) => id !== p.id),
+                          )
+                        }
+                      />
+                      <span className="font-medium">{p.name}</span>
+                      <span className="text-muted-foreground">
+                        {pluralRu(
+                          p.destinations.length,
+                          "домен",
+                          "домена",
+                          "доменов",
+                        )}
+                        ,{" "}
+                        {pluralRu(
+                          draft.clients.filter((c) =>
+                            c.policy_ids.includes(p.id),
+                          ).length,
+                          "клиент",
+                          "клиента",
+                          "клиентов",
+                        )}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </Field>
+            )}
+            {access === "list" && (
               <Field
-                label="Домены"
+                label="Свои домены"
                 htmlFor="f-nc-domains"
                 help={
                   <span className="flex flex-wrap items-center gap-1.5">
@@ -2437,36 +2558,6 @@ function NewClientForm({
                 />
               </Field>
             )}
-            {mode === "shared" && (
-              <Field label="Политика" htmlFor="f-nc-policy">
-                <Select value={sharedID} onValueChange={setSharedID}>
-                  <SelectTrigger id="f-nc-policy" className="max-w-[320px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {shared.map((p) => (
-                      <SelectItem key={p.id} value={p.id}>
-                        {p.name}:{" "}
-                        {pluralRu(
-                          p.destinations.length,
-                          "домен",
-                          "домена",
-                          "доменов",
-                        )}
-                        ,{" "}
-                        {pluralRu(
-                          draft.clients.filter((c) => c.policy_id === p.id)
-                            .length,
-                          "клиент",
-                          "клиента",
-                          "клиентов",
-                        )}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Field>
-            )}
           </CardContent>
         </Card>
         <Card>
@@ -2485,13 +2576,13 @@ function NewClientForm({
               <RadioCard
                 value="plain"
                 active={!login}
-                title="Без логина"
+                title="HTTP без логина"
                 hint="Клиент узнаётся по адресу источника"
               />
               <RadioCard
                 value="login"
                 active={!!login}
-                title="С логином прокси"
+                title="TLS с логином прокси"
                 hint={
                   accounts.length
                     ? "Можно требовать логин и пароль"
@@ -2539,9 +2630,11 @@ function NewClientForm({
                 kind,
                 networks: lines.map((l) => parseNetwork(l)!),
                 domains:
-                  mode === "own" ? domains.split(/[\s,]+/).filter(Boolean) : [],
-                mode,
-                sharedPolicyID: sharedID,
+                  access === "list"
+                    ? domains.split(/[\s,]+/).filter(Boolean)
+                    : [],
+                access,
+                policyIDs: access === "list" ? policyIDs : [],
                 proxyUsername: login,
               });
             }}

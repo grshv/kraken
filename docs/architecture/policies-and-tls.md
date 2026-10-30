@@ -3,7 +3,8 @@
 ## Идентичность клиента
 
 Базовая идентичность — source IP, который **видит Squid**. Запись клиента содержит
-ID, понятное имя, описание, IP/CIDR, enabled и policy. Обычно используется точный
+ID, понятное имя, описание, IP/CIDR, enabled, режим доступа, подключение
+(TLS profile), подключённые политики и свои домены. Обычно используется точный
 адрес `/32` или `/128`. Для сетевой группы допустим CIDR, но это уже доверие всем
 адресам группы, что UI должен объяснять.
 
@@ -17,22 +18,38 @@ NAT, скрывающий всех клиентов за одним IP, дела
 ## Модель политики
 
 ```text
-Client: id, name, kind(host|network|group), source_networks[], enabled, policy_id
-Policy: id, name, mode(all_web|allowlist), destinations[], tls_profile_id
-Destination: kind(domain), value, include_subdomains
+Client: id, name, kind(host|network|group), source_networks[], enabled,
+        access(list|all_web|none), tls_profile_id, policy_ids[], destinations[]
+Policy: id, name, destinations[]
+Destination: domain, include_subdomains
 TLSProfile: mode(tunnel), proxy_transport(http|tls), cert_ref
 ```
 
-- `all_web`: внешние HTTP/HTTPS назначения на разрешённых web-портах.
-- `allowlist`: только нормализованные домены и явно выбранные поддомены.
-- Общие защитные ограничения применяются к обоим режимам.
+Политика — именованный набор доменов без режима и подключения; клиент
+подключает до 64 наборов и держит до 1024 своих доменов.
+
+- `list`: объединение своих доменов клиента и подключённых политик
+  (`policy.EffectiveDestinations`): без повторов, без записей, покрытых
+  `*.parent`. Пустое объединение — отказ во всём.
+- `all_web`: внешние HTTP/HTTPS назначения на разрешённых web-портах; списки
+  клиента сохраняются, но не действуют.
+- `none`: клиент описан, всё закрыто.
+- Общие защитные ограничения и `blocked_domains` применяются к любому режиму.
 - `*.example.org` не хранится как glob: UI сохраняет `example.org` и отдельный
   флаг поддоменов, compiler переводит его в ACL.
 - Запрещены CR/LF, пробелы/директивы, схемы URL, userinfo и произвольные regex.
   Принимаются canonical ASCII domains; IDN вводится в punycode.
-- В allowlist raw IP назначения по умолчанию не разрешается. PTR lookup не должен
+- В списке доменов raw IP назначения по умолчанию не разрешается. PTR lookup не должен
   превратить чужой IP в разрешённый домен; точное поведение проверяется fixture.
-- Пустой allowlist означает отсутствие разрешённых ресурсов, а не весь интернет.
+- Пустой список означает отсутствие разрешённых ресурсов, а не весь интернет.
+
+Схема snapshot — версия 2. Снимок версии 1 (`policy_id` у клиента, `mode` и
+`tls_profile_id` у политики) переводится при чтении (`policy.Upgrade`, вызывается
+из `Snapshot.UnmarshalJSON`, `Validate`, `Hash`, `Fingerprint`, `Render`):
+клиент берёт TLS profile и режим своей политики; allowlist-политика остаётся
+набором и подключается клиенту, пустая даёт `none`, `all_web`-политика исчезает,
+а клиент получает `all_web`. Так старые черновики, ревизии и manifests читаются
+без отдельной миграции БД; fingerprint включает `CompilerVersion` 13.
 
 ## Порядок ACL
 
@@ -43,7 +60,8 @@ TLSProfile: mode(tunnel), proxy_transport(http|tls), cert_ref
    IPv6 ULA и соответствующие специальные диапазоны согласно политике сети.
 4. Разрешить узкую локальную diagnostic identity только для фиксированных probes;
    не разрешать широкую bridge subnet «для удобства healthcheck».
-5. Применить enabled source client и его режим/назначения.
+5. Применить enabled source client и его режим: `all_web` или один
+   `dstdomain` ACL с итоговым списком `list`.
 6. Завершить явным `http_access deny all`.
 
 Каждое защитное и финальное `http_access deny` помечает транзакцию ACL
@@ -152,7 +170,7 @@ name=sc_upstream`, при `exclusive` ещё `never_direct allow all`, без н
 он не открывает. Защитные запреты проверяются по адресу назначения запроса и
 действуют до выбора peer.
 
-`blocked_domains` — список доменов (те же правила, что у allowlist политики:
+`blocked_domains` — список доменов (те же правила, что у доменов политики:
 канонический вид, без IP, дублей и перекрытий, до 1024), закрытых для всех
 клиентов: `acl sc_blocked_dst dstdomain -n …` и `http_access deny sc_blocked_dst`
 рендерятся сразу после защитных запретов, до пользовательского блока, поэтому

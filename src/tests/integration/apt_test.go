@@ -172,8 +172,8 @@ Acquire::AllowDowngradeToInsecureRepositories "false";
 	snap := policySnap(t, inst.panel)
 	profile := snap.TLSProfiles[0].ID
 	allowID := randID()
-	snap.Policies = []policy.Policy{{ID: allowID, Name: "Repo allowlist", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "repo.test", IncludeSubdomains: false}}, TLSProfileID: profile}}
-	snap.Clients = []policy.Client{{ID: randID(), Name: "apt client", Networks: []string{base + ".20"}, Enabled: true, PolicyID: allowID}}
+	snap.Policies = []policy.Policy{{ID: allowID, Name: "Repo allowlist", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "repo.test", IncludeSubdomains: false}}, LegacyTLSProfileID: profile}}
+	snap.Clients = []policy.Client{{ID: randID(), Name: "apt client", Networks: []string{base + ".20"}, Enabled: true, LegacyPolicyID: allowID}}
 	inst.panel.apply(t, snap, inst.panel.draftVersion())
 
 	t.Run("allowlist policy with repo.test applied", func(t *testing.T) {
@@ -233,7 +233,7 @@ Acquire::AllowDowngradeToInsecureRepositories "false";
 	t.Run("4. allowlist without repo.test blocks update", func(t *testing.T) {
 		docker(t, "exec", client, "sh", "-c", "rm -rf /var/lib/apt/lists/*")
 		snap2 := snap
-		snap2.Policies = []policy.Policy{{ID: allowID, Name: "Repo allowlist", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "other.test"}}, TLSProfileID: profile}}
+		snap2.Policies = []policy.Policy{{ID: allowID, Name: "Repo allowlist", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "other.test"}}, LegacyTLSProfileID: profile}}
 		snap2.Clients = snap.Clients
 		inst.panel.apply(t, snap2, inst.panel.draftVersion())
 		if rc, _, _ := aptRun(client, "apt-get", "update"); rc == 0 {
@@ -259,11 +259,11 @@ Acquire::AllowDowngradeToInsecureRepositories "false";
 			docker(t, "cp", filepath.Join(fixtures, "sources-ubuntu.list"), client+":/etc/apt/sources.list")
 			docker(t, "exec", client, "sh", "-c", "rm -rf /var/lib/apt/lists/*")
 			snap3 := snap
-			snap3.Policies = []policy.Policy{{ID: allowID, Name: "Repo allowlist", Mode: "allowlist", Destinations: []policy.Destination{
+			snap3.Policies = []policy.Policy{{ID: allowID, Name: "Repo allowlist", LegacyMode: "allowlist", Destinations: []policy.Destination{
 				{Domain: "archive.ubuntu.com", IncludeSubdomains: true},
 				{Domain: "security.ubuntu.com", IncludeSubdomains: true},
 				{Domain: "ports.ubuntu.com", IncludeSubdomains: true},
-			}, TLSProfileID: profile}}
+			}, LegacyTLSProfileID: profile}}
 			snap3.Clients = snap.Clients
 			s := *snap3.Settings
 			s.DNSNameservers = []string{"1.1.1.1", "8.8.8.8"}

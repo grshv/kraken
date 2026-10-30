@@ -62,9 +62,9 @@ func inspectorAcceptFixture(t *testing.T) (*Server, http.Handler, *http.Cookie) 
 	var d Draft
 	json.Unmarshal(w.Body.Bytes(), &d)
 	tls := d.Snapshot.TLSProfiles[0].ID
-	d.Snapshot.Policies = append(d.Snapshot.Policies, policy.Policy{ID: "p-apt", Name: "apt", Mode: "allowlist", TLSProfileID: tls,
+	d.Snapshot.Policies = append(d.Snapshot.Policies, policy.Policy{ID: "p-apt", Name: "apt", LegacyMode: "allowlist", LegacyTLSProfileID: tls,
 		Destinations: []policy.Destination{{Domain: "archive.ubuntu.com"}, {Domain: "pypi.org"}, {Domain: "unused.example"}}})
-	d.Snapshot.Clients = append(d.Snapshot.Clients, policy.Client{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, PolicyID: "p-apt"})
+	d.Snapshot.Clients = append(d.Snapshot.Clients, policy.Client{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, LegacyPolicyID: "p-apt"})
 	if w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": d.Version, "snapshot": d.Snapshot}, admin, csrf, "https://panel.test"); w.Code != 200 {
 		t.Fatal(w.Body.String())
 	}

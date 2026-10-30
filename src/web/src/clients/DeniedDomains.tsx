@@ -36,24 +36,26 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
-import type { Policy, Snapshot } from "../model";
+import type { Client, Snapshot } from "../model";
 import { ago, pluralRu } from "../model";
 import type { CommitResult } from "../sections/sectionProps";
-import { addDomainsToClientPolicy, blockDomainsForAll } from "../draft/edits";
-import { policyCovers } from "./missing";
+import {
+  addDomainsToClient,
+  blockDomainsForAll,
+  clientAllows,
+} from "../draft/edits";
 import { countNotices, type Notice, type NoticeStatus } from "./notifications";
 
 type Filter = NoticeStatus | "all";
 const PAGE = 50;
 
-// DeniedDomains is the "Доступ" tab table of denied domains missing from the
-// client policy (7 days, computed on the server). It scales to hundreds of
-// rows: search, status filter, select-all, bulk allow / mark / block for all.
-// Hosts already added to the draft policy stay listed until the draft is
-// applied and are marked "в черновике".
+// DeniedDomains is the "Доступ" tab table of denied domains the client may
+// not reach (7 days, computed on the server). It scales to hundreds of rows:
+// search, status filter, select-all, bulk allow (into the client's own
+// domains) / mark / block for all. Hosts already allowed in the draft stay
+// listed until the draft is applied and are marked "в черновике".
 export function DeniedDomains({
-  clientID,
-  policy,
+  client,
   snap,
   items,
   canBlock,
@@ -61,8 +63,7 @@ export function DeniedDomains({
   onCommit,
   onToast,
 }: {
-  clientID: string;
-  policy: Policy;
+  client: Client;
   snap: Snapshot;
   items: Notice[] | null;
   canBlock: boolean;
@@ -89,7 +90,7 @@ export function DeniedDomains({
   const picked = rows.filter((n) => selected.has(n.id));
   const allPicked = shown.length > 0 && shown.every((n) => selected.has(n.id));
   const inDraft = (host: string) =>
-    policyCovers(policy, host) || blocked.some((b) => b.domain === host);
+    clientAllows(snap, client, host) || blocked.some((b) => b.domain === host);
   const hostsOf = (list: Notice[]) =>
     list.map((n) => n.host).filter((h): h is string => !!h);
   const clear = () => setSelected(new Set());
@@ -102,7 +103,7 @@ export function DeniedDomains({
     });
   const allow = async (list: Notice[]) => {
     const hosts = hostsOf(list);
-    const res = await onCommit(addDomainsToClientPolicy(snap, clientID, hosts));
+    const res = await onCommit(addDomainsToClient(snap, client.id, hosts));
     if (!res.ok) return;
     await onMark(
       list.filter((n) => n.status === "new").map((n) => n.id),
@@ -110,8 +111,8 @@ export function DeniedDomains({
     );
     onToast(
       hosts.length === 1
-        ? `Домен ${hosts[0]} добавлен в политику`
-        : `${pluralRu(hosts.length, "домен", "домена", "доменов")} добавлено в политику`,
+        ? `Домен ${hosts[0]} добавлен клиенту`
+        : `${pluralRu(hosts.length, "домен", "домена", "доменов")} добавлено клиенту`,
     );
     clear();
   };
@@ -152,8 +153,8 @@ export function DeniedDomains({
         <div>
           <CardTitle>Отказанные домены</CardTitle>
           <CardDescription>
-            За 7 дней; доменов нет в политике «{policy.name}». Отказы защиты и
-            запрещённые для всех сюда не попадают.
+            За 7 дней; домены, которых нет в итоговом списке клиента. Отказы
+            защиты и запрещённые для всех сюда не попадают.
           </CardDescription>
         </div>
         <CardAction>

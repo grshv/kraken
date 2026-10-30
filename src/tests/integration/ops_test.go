@@ -35,12 +35,12 @@ func opsAllWebAllowlist(t *testing.T, p *Panel, base string) (policy.Snapshot, s
 	profile := snap.TLSProfiles[0].ID
 	allID, allowID := randID(), randID()
 	snap.Policies = []policy.Policy{
-		{ID: allID, Name: "All web ops", Mode: "all_web", Destinations: nil, TLSProfileID: profile},
-		{ID: allowID, Name: "Allowlist ops", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, TLSProfileID: profile},
+		{ID: allID, Name: "All web ops", LegacyMode: "all_web", Destinations: nil, LegacyTLSProfileID: profile},
+		{ID: allowID, Name: "Allowlist ops", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, LegacyTLSProfileID: profile},
 	}
 	snap.Clients = []policy.Client{
-		{ID: randID(), Name: "source ops", Networks: []string{base + ".10/32"}, Enabled: true, PolicyID: allID},
-		{ID: randID(), Name: "client ops", Networks: []string{base + ".20"}, Enabled: true, PolicyID: allowID},
+		{ID: randID(), Name: "source ops", Networks: []string{base + ".10/32"}, Enabled: true, LegacyPolicyID: allID},
+		{ID: randID(), Name: "client ops", Networks: []string{base + ".20"}, Enabled: true, LegacyPolicyID: allowID},
 	}
 	return snap, allID, allowID
 }
@@ -302,8 +302,8 @@ func TestOpsImageUpdate(t *testing.T) {
 	snap := policySnap(t, inst.panel)
 	profile := snap.TLSProfiles[0].ID
 	allowID, cid := randID(), randID()
-	snap.Policies = []policy.Policy{{ID: allowID, Name: "Allowlist ops", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, TLSProfileID: profile}}
-	snap.Clients = []policy.Client{{ID: cid, Name: "client ops", Networks: []string{base + ".20"}, Enabled: true, PolicyID: allowID}}
+	snap.Policies = []policy.Policy{{ID: allowID, Name: "Allowlist ops", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, LegacyTLSProfileID: profile}}
+	snap.Clients = []policy.Client{{ID: cid, Name: "client ops", Networks: []string{base + ".20"}, Enabled: true, LegacyPolicyID: allowID}}
 	inst.panel.apply(t, snap, inst.panel.draftVersion())
 	appliedRev, _ := inst.panel.status()["applied_revision"].(string)
 

@@ -29,7 +29,8 @@ func inspectorSnapshot() policy.Snapshot {
 	http := "00000000-0000-4000-8000-000000000001"
 	tlsRef := "proxy-server"
 	tls := "00000000-0000-4000-8000-000000000002"
-	return policy.Snapshot{
+	// Written in the schema 1 shape; Upgrade gives the current one.
+	return policy.Upgrade(policy.Snapshot{
 		Version:  1,
 		Mode:     "structured",
 		Settings: &st,
@@ -38,16 +39,16 @@ func inspectorSnapshot() policy.Snapshot {
 			{ID: tls, Name: "TLS proxy / CONNECT", Mode: "tunnel", Transport: "tls", CertRef: &tlsRef},
 		},
 		Policies: []policy.Policy{
-			{ID: "p-allow", Name: "allow", Mode: "allowlist", TLSProfileID: tls, Destinations: []policy.Destination{{Domain: "archive.ubuntu.com"}, {Domain: "pypi.org"}}},
-			{ID: "p-all", Name: "all", Mode: "all_web", TLSProfileID: http},
+			{ID: "p-allow", Name: "allow", LegacyMode: "allowlist", LegacyTLSProfileID: tls, Destinations: []policy.Destination{{Domain: "archive.ubuntu.com"}, {Domain: "pypi.org"}}},
+			{ID: "p-all", Name: "all", LegacyMode: "all_web", LegacyTLSProfileID: http},
 		},
 		Clients: []policy.Client{
-			{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, PolicyID: "p-allow"},
-			{ID: "c-dis", Name: "dis", Kind: "host", Networks: []string{"10.2.0.5/32"}, Enabled: false, PolicyID: "p-allow"},
-			{ID: "c-auth", Name: "auth", Kind: "host", Networks: []string{"10.3.0.5/32"}, Enabled: true, PolicyID: "p-allow", ProxyUsername: "bob"},
-			{ID: "c-all", Name: "allc", Kind: "host", Networks: []string{"10.4.0.5/32"}, Enabled: true, PolicyID: "p-all"},
+			{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, LegacyPolicyID: "p-allow"},
+			{ID: "c-dis", Name: "dis", Kind: "host", Networks: []string{"10.2.0.5/32"}, Enabled: false, LegacyPolicyID: "p-allow"},
+			{ID: "c-auth", Name: "auth", Kind: "host", Networks: []string{"10.3.0.5/32"}, Enabled: true, LegacyPolicyID: "p-allow", ProxyUsername: "bob"},
+			{ID: "c-all", Name: "allc", Kind: "host", Networks: []string{"10.4.0.5/32"}, Enabled: true, LegacyPolicyID: "p-all"},
 		},
-	}
+	})
 }
 
 // applySnapshot puts a snapshot into the draft, creates a revision, validates
@@ -556,7 +557,7 @@ func TestInspectorDomainTemplates(t *testing.T) {
 func TestInspectorUnknownSourcesSkipsDescribed(t *testing.T) {
 	s, h, c, csrf := inspectorFixture(t)
 	snap := inspectorSnapshot()
-	snap.Clients = append(snap.Clients, policy.Client{ID: "c-new", Name: "new", Kind: "network", Networks: []string{"10.9.9.0/24"}, Enabled: true, PolicyID: "p-allow"})
+	snap.Clients = append(snap.Clients, policy.Client{ID: "c-new", Name: "new", Kind: "network", Networks: []string{"10.9.9.0/24"}, Enabled: true, LegacyPolicyID: "p-allow"})
 	applySnapshot(t, h, s, c, csrf, "described", snap)
 	var v struct {
 		Sources []struct {

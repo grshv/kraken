@@ -109,8 +109,8 @@ func TestComparisonIgnoresOmittedDefaultsAndSetOrdering(t *testing.T) {
 	if got := semanticDiff(old, current); len(got) != 0 {
 		t.Fatalf("defaults became changes: %v", got)
 	}
-	old.Clients = []policy.Client{{ID: "host", Name: "build", Kind: "", Networks: []string{"192.0.2.4"}, PolicyID: "allow"}}
-	current.Clients = []policy.Client{{ID: "host", Name: "build", Kind: "host", Networks: []string{"192.0.2.4/32"}, PolicyID: "allow"}}
+	old.Clients = []policy.Client{{ID: "host", Name: "build", Kind: "", Networks: []string{"192.0.2.4"}, LegacyPolicyID: "allow"}}
+	current.Clients = []policy.Client{{ID: "host", Name: "build", Kind: "host", Networks: []string{"192.0.2.4/32"}, LegacyPolicyID: "allow"}}
 	current.Settings.SafePorts = []int{443, 80}
 	if got := semanticDiff(old, current); len(got) != 0 {
 		t.Fatalf("equivalent values became changes: %v", got)

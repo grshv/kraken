@@ -25,15 +25,15 @@ func seedSharedPolicyScenario(t *testing.T, h http.Handler, admin *http.Cookie, 
 	}
 	profile := d.Snapshot.TLSProfiles[0].ID
 	d.Snapshot.Policies = append(d.Snapshot.Policies,
-		policy.Policy{ID: "p-own", Name: "own", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, TLSProfileID: profile},
-		policy.Policy{ID: "p-shared", Name: "shared", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "shared.test"}}, TLSProfileID: profile},
-		policy.Policy{ID: "p-foreign", Name: "foreign", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "foreign.test"}}, TLSProfileID: profile},
+		policy.Policy{ID: "p-own", Name: "own", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, LegacyTLSProfileID: profile},
+		policy.Policy{ID: "p-shared", Name: "shared", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "shared.test"}}, LegacyTLSProfileID: profile},
+		policy.Policy{ID: "p-foreign", Name: "foreign", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "foreign.test"}}, LegacyTLSProfileID: profile},
 	)
 	d.Snapshot.Clients = append(d.Snapshot.Clients,
-		policy.Client{ID: "c-a", Name: "mine-a", Networks: []string{"10.1.1.0/24"}, Enabled: true, PolicyID: "p-own"},
-		policy.Client{ID: "c-a2", Name: "mine-a2", Networks: []string{"10.1.2.0/24"}, Enabled: true, PolicyID: "p-shared"},
-		policy.Client{ID: "c-b", Name: "foreign-b", Networks: []string{"10.2.0.0/16"}, Enabled: true, PolicyID: "p-shared"},
-		policy.Client{ID: "c-d", Name: "foreign-d", Networks: []string{"10.1.0.9/32"}, Enabled: true, PolicyID: "p-foreign"},
+		policy.Client{ID: "c-a", Name: "mine-a", Networks: []string{"10.1.1.0/24"}, Enabled: true, LegacyPolicyID: "p-own"},
+		policy.Client{ID: "c-a2", Name: "mine-a2", Networks: []string{"10.1.2.0/24"}, Enabled: true, LegacyPolicyID: "p-shared"},
+		policy.Client{ID: "c-b", Name: "foreign-b", Networks: []string{"10.2.0.0/16"}, Enabled: true, LegacyPolicyID: "p-shared"},
+		policy.Client{ID: "c-d", Name: "foreign-d", Networks: []string{"10.1.0.9/32"}, Enabled: true, LegacyPolicyID: "p-foreign"},
 	)
 	if w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": d.Version, "snapshot": d.Snapshot}, admin, csrf, "https://panel.test"); w.Code != 200 {
 		t.Fatal(w.Body.String())
@@ -92,7 +92,7 @@ func TestManagerSourceOutsideScopeNotMaskedByPolicy(t *testing.T) {
 	json.Unmarshal(w.Body.Bytes(), &view)
 	// Add a new client with network outside scope (10.3.x is not in 10.1.0.0/16).
 	profile := view.Snapshot.TLSProfiles[0].ID
-	view.Snapshot.Clients = append(view.Snapshot.Clients, policy.Client{ID: "c-new-out", Name: "out", Networks: []string{"10.3.0.1/32"}, Enabled: true, PolicyID: "p-own"})
+	view.Snapshot.Clients = append(view.Snapshot.Clients, policy.Client{ID: "c-new-out", Name: "out", Networks: []string{"10.3.0.1/32"}, Enabled: true, LegacyPolicyID: "p-own"})
 	_ = profile
 	w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": view.Version, "snapshot": view.Snapshot}, mgr, mgrCSRF, "https://panel.test")
 	if w.Code != 422 {
@@ -117,7 +117,7 @@ func TestManagerSourceOverlapNotMaskedByPolicy(t *testing.T) {
 	var view Draft
 	json.Unmarshal(w.Body.Bytes(), &view)
 	// Add a client with 10.1.0.0/24 — within scope but overlaps c-d (10.1.0.9/32).
-	view.Snapshot.Clients = append(view.Snapshot.Clients, policy.Client{ID: "c-new-overlap", Name: "overlap", Networks: []string{"10.1.0.0/24"}, Enabled: true, PolicyID: "p-own"})
+	view.Snapshot.Clients = append(view.Snapshot.Clients, policy.Client{ID: "c-new-overlap", Name: "overlap", Networks: []string{"10.1.0.0/24"}, Enabled: true, LegacyPolicyID: "p-own"})
 	w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": view.Version, "snapshot": view.Snapshot}, mgr, mgrCSRF, "https://panel.test")
 	if w.Code != 422 {
 		t.Fatalf("expected 422, got %d %s", w.Code, w.Body.String())

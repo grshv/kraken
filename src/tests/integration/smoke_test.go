@@ -286,12 +286,12 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	profile := snap.TLSProfiles[0].ID
 	allID, allowID := randID(), randID()
 	snap.Policies = []policy.Policy{
-		{ID: allID, Name: "All web fixture", Mode: "all_web", Destinations: nil, TLSProfileID: profile},
-		{ID: allowID, Name: "Allowlist fixture", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, TLSProfileID: profile},
+		{ID: allID, Name: "All web fixture", LegacyMode: "all_web", Destinations: nil, LegacyTLSProfileID: profile},
+		{ID: allowID, Name: "Allowlist fixture", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, LegacyTLSProfileID: profile},
 	}
 	snap.Clients = []policy.Client{
-		{ID: randID(), Name: "source fixture", Networks: []string{base + ".10/32"}, Enabled: true, PolicyID: allID},
-		{ID: randID(), Name: "client fixture", Kind: "group", Networks: []string{base + ".20"}, Enabled: true, PolicyID: allowID},
+		{ID: randID(), Name: "source fixture", Networks: []string{base + ".10/32"}, Enabled: true, LegacyPolicyID: allID},
+		{ID: randID(), Name: "client fixture", Kind: "group", Networks: []string{base + ".20"}, Enabled: true, LegacyPolicyID: allowID},
 	}
 	inst.panel.apply(t, snap, inst.panel.draftVersion())
 	firstApplied, _ := inst.panel.status()["applied_revision"].(string)
@@ -378,7 +378,7 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 
 	t.Run("rejected injection leaves runtime unchanged", func(t *testing.T) {
 		invalid := deepCopySnap(snap)
-		invalid.Policies[1].Destinations[0].Domain = "allowed.test\nhttp_access allow all"
+		invalid.Policies[0].Destinations[0].Domain = "allowed.test\nhttp_access allow all" // the all_web policy was folded into its client
 		_, st := inst.panel.api("PUT", "/configuration/draft", map[string]any{"expected_version": inst.panel.draftVersion(), "snapshot": invalid}, "")
 		if st != 422 {
 			t.Fatalf("injection accepted: status %d", st)
@@ -392,7 +392,9 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	tlsID := randID()
 	snapTLS := deepCopySnap(snap)
 	snapTLS.TLSProfiles = append(snapTLS.TLSProfiles, policy.TLSProfile{ID: tlsID, Name: "TLS fixture", Mode: "tunnel", Transport: "tls", CertRef: strPtr("proxy-server")})
-	snapTLS.Policies[1].TLSProfileID = tlsID
+	// deepCopySnap round-trips JSON, so snapTLS is already in the current
+	// schema: the transport is the client's.
+	snapTLS.Clients[1].TLSProfileID = tlsID
 	inst.panel.apply(t, snapTLS, inst.panel.draftVersion())
 	t.Run("HTTPS proxy with verified certificate; plaintext downgrade denied", func(t *testing.T) {
 		if st := smFetch(client, "http://allowed.test/", false, false); st != 403 {
@@ -742,12 +744,12 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	authSnap := policySnapFromBytes(baselineManifestBytes)
 	tlsProfileID := randID()
 	authSnap.TLSProfiles = append(authSnap.TLSProfiles, policy.TLSProfile{ID: tlsProfileID, Name: "Proxy login TLS", Mode: "tunnel", Transport: "tls", CertRef: strPtr("proxy-server")})
-	authSnap.Policies[1].TLSProfileID = tlsProfileID
+	authSnap.Clients[1].TLSProfileID = tlsProfileID
 	authSnap.Clients[1].ProxyUsername = "REQUIRED"
 	secondPolicy := randID()
 	secondClient := randID()
-	authSnap.Policies = append(authSnap.Policies, policy.Policy{ID: secondPolicy, Name: "Other login", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "denied.test"}}, TLSProfileID: tlsProfileID})
-	authSnap.Clients = append(authSnap.Clients, policy.Client{ID: secondClient, Name: "shared-source identity", Kind: "host", Networks: []string{base + ".20/32"}, Enabled: true, PolicyID: secondPolicy, ProxyUsername: "Build.Agent"})
+	authSnap.Policies = append(authSnap.Policies, policy.Policy{ID: secondPolicy, Name: "Other login", Destinations: []policy.Destination{{Domain: "denied.test"}}})
+	authSnap.Clients = append(authSnap.Clients, policy.Client{ID: secondClient, Name: "shared-source identity", Kind: "host", Networks: []string{base + ".20/32"}, Enabled: true, Access: policy.AccessList, TLSProfileID: tlsProfileID, PolicyIDs: []string{secondPolicy}, Destinations: []policy.Destination{}, ProxyUsername: "Build.Agent"})
 	inst.panel.apply(t, authSnap, inst.panel.draftVersion())
 	// Write the TLS client script to the fixtures dir so the client container
 	// can run it as a file (avoids passing a very long -c argument).

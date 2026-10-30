@@ -28,10 +28,10 @@ func seedEventsForScope(t *testing.T, h http.Handler, s *Server, myClientID, for
 		t.Fatal(e)
 	}
 	prof := m.Snapshot.TLSProfiles[0].ID
-	m.Snapshot.Policies = append(m.Snapshot.Policies, policy.Policy{ID: "p-evt", Name: "evt", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, TLSProfileID: prof})
+	m.Snapshot.Policies = append(m.Snapshot.Policies, policy.Policy{ID: "p-evt", Name: "evt", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "allowed.test"}}, LegacyTLSProfileID: prof})
 	m.Snapshot.Clients = append(m.Snapshot.Clients,
-		policy.Client{ID: myClientID, Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, PolicyID: "p-evt"},
-		policy.Client{ID: foreignClientID, Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, PolicyID: "p-evt"},
+		policy.Client{ID: myClientID, Name: "mine", Networks: []string{"10.1.0.0/16"}, Enabled: true, LegacyPolicyID: "p-evt"},
+		policy.Client{ID: foreignClientID, Name: "foreign", Networks: []string{"10.2.0.0/16"}, Enabled: true, LegacyPolicyID: "p-evt"},
 	)
 	if e = s.Runtime.State.SaveState(context.Background(), "runtime.last_good", m); e != nil {
 		t.Fatal(e)

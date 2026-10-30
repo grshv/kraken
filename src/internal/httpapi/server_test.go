@@ -226,8 +226,8 @@ func TestOperationFindsTotalConfigParseLineWhenNotExpert(t *testing.T) {
 	// A structured client puts lines into the user section; they must still be
 	// reported as rendered-config lines because only expert text is user-authored.
 	snapshot := d.Snapshot
-	snapshot.Policies = append(snapshot.Policies, policy.Policy{ID: "p1", Name: "web", Mode: "all_web", Destinations: []policy.Destination{}, TLSProfileID: snapshot.TLSProfiles[0].ID})
-	snapshot.Clients = append(snapshot.Clients, policy.Client{ID: "c1", Name: "office", Networks: []string{"192.0.2.0/24"}, Enabled: true, PolicyID: "p1"})
+	snapshot.Policies = append(snapshot.Policies, policy.Policy{ID: "p1", Name: "web", LegacyMode: "all_web", Destinations: []policy.Destination{}, LegacyTLSProfileID: snapshot.TLSProfiles[0].ID})
+	snapshot.Clients = append(snapshot.Clients, policy.Client{ID: "c1", Name: "office", Networks: []string{"192.0.2.0/24"}, Enabled: true, LegacyPolicyID: "p1"})
 	rendered, e := policy.Render(snapshot, s.Runtime.Options)
 	if e != nil {
 		t.Fatal(e)

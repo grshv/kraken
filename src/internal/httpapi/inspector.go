@@ -69,25 +69,24 @@ func explainEvent(v events.Event, snap policy.Snapshot) explanation {
 		return explanation{"denied", "unknown_source", nil, nil}
 	}
 	if !client.Enabled {
-		return explanation{"denied", "client_disabled", strPtr(client.ID), strPtr(client.PolicyID)}
+		return explanation{"denied", "client_disabled", strPtr(client.ID), nil}
 	}
 	if authFailed {
-		return explanation{"denied", "auth_failed", strPtr(client.ID), strPtr(client.PolicyID)}
+		return explanation{"denied", "auth_failed", strPtr(client.ID), nil}
 	}
-	for i := range snap.Policies {
-		p := &snap.Policies[i]
-		if p.ID != client.PolicyID {
-			continue
-		}
-		if p.Mode == "all_web" {
-			return explanation{"allowed", "allowed_all_web", strPtr(client.ID), strPtr(p.ID)}
-		}
-		for _, d := range p.Destinations {
-			if policy.DomainMatches(host, d.Domain, d.IncludeSubdomains) {
-				return explanation{"allowed", "allowed_by_policy", strPtr(client.ID), strPtr(p.ID)}
+	switch client.Access {
+	case policy.AccessAllWeb:
+		return explanation{"allowed", "allowed_all_web", strPtr(client.ID), nil}
+	case policy.AccessList:
+		// policy_id names the set that allows the host; nil means the
+		// client's own domains.
+		if id, ok := policy.AllowingSource(snap, *client, host); ok {
+			var p *string
+			if id != "" {
+				p = strPtr(id)
 			}
+			return explanation{"allowed", "allowed_by_policy", strPtr(client.ID), p}
 		}
-		return explanation{"denied", "not_in_allowlist", strPtr(client.ID), strPtr(p.ID)}
 	}
 	return explanation{"denied", "not_in_allowlist", strPtr(client.ID), nil}
 }
@@ -298,7 +297,7 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 		active := s.loadActiveManifestOrDraft(r.Context())
 		refs, mine := 0, false
 		for _, c := range active.Clients {
-			if c.PolicyID == id {
+			if policy.UsesPolicy(c, id) {
 				refs++
 				if inScope(scope, c.ID) {
 					mine = true
@@ -312,7 +311,7 @@ func (s *Server) inspectorPolicyHits(w http.ResponseWriter, r *http.Request, v s
 	}
 	var clientIDs []string
 	for _, c := range snap.Clients {
-		if c.PolicyID == id {
+		if policy.UsesPolicy(c, id) {
 			clientIDs = append(clientIDs, c.ID)
 		}
 	}

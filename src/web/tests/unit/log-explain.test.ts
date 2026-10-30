@@ -16,7 +16,7 @@ describe("explainSteps", () => {
       { ok: true, text: "Порт 443 разрешён, адрес внешний" },
       { ok: true, text: "Не в «запрещено для всех»" },
       { ok: true, text: "Источник: клиент ci-01" },
-      { ok: false, text: "registry.npmjs.org нет в политике «Сборка»" },
+      { ok: false, text: "registry.npmjs.org нет в списке доменов клиента" },
     ]);
   });
 
@@ -43,6 +43,17 @@ describe("explainSteps", () => {
     expect(steps.every((s) => s.ok)).toBe(true);
     expect(steps.at(-1)?.text).toBe(
       "registry.npmjs.org есть в политике «Сборка»",
+    );
+  });
+
+  it("names the client's own domains when no policy allowed it", () => {
+    const steps = explainSteps(
+      { ...ex("allowed_by_policy", "allowed"), policy_id: null },
+      ev,
+      snap,
+    );
+    expect(steps.at(-1)?.text).toBe(
+      "registry.npmjs.org есть в своих доменах клиента",
     );
   });
 });

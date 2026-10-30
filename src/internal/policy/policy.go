@@ -13,7 +13,20 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "12"
+const CompilerVersion = "13"
+
+// SchemaVersion is the snapshot schema this build writes. Version 1 snapshots
+// (one policy per client, access mode and transport on the policy) are
+// upgraded on decode, see Upgrade.
+const SchemaVersion = 2
+
+// Client access modes: the union of attached policies and own domains, the
+// whole web (protections and blocked-for-all still apply) or nothing.
+const (
+	AccessList   = "list"
+	AccessAllWeb = "all_web"
+	AccessNone   = "none"
+)
 
 // DenyReasons are the values logged in %{sc_deny}note by the protective and
 // final http_access deny rules. A request denied elsewhere (expert rules)
@@ -35,15 +48,27 @@ type Client struct {
 	Kind          string   `json:"kind,omitempty"`
 	Networks      []string `json:"source_networks"`
 	Enabled       bool     `json:"enabled"`
-	PolicyID      string   `json:"policy_id"`
 	ProxyUsername string   `json:"proxy_username,omitempty"`
+	// Access is AccessList, AccessAllWeb or AccessNone.
+	Access string `json:"access"`
+	// TLSProfileID picks the listener (HTTP or TLS with login).
+	TLSProfileID string `json:"tls_profile_id"`
+	// PolicyIDs are the attached shared domain sets; Destinations are the
+	// client's own domains. With AccessList the client may reach their union.
+	PolicyIDs    []string      `json:"policy_ids"`
+	Destinations []Destination `json:"destinations"`
+	// LegacyPolicyID is the schema 1 single policy; Upgrade clears it.
+	LegacyPolicyID string `json:"policy_id,omitempty"`
 }
+
+// Policy is a named, shareable set of allowed domains.
 type Policy struct {
 	ID           string        `json:"id"`
 	Name         string        `json:"name"`
-	Mode         string        `json:"mode"`
 	Destinations []Destination `json:"destinations"`
-	TLSProfileID string        `json:"tls_profile_id"`
+	// Schema 1 fields moved to the client; Upgrade clears them.
+	LegacyMode         string `json:"mode,omitempty"`
+	LegacyTLSProfileID string `json:"tls_profile_id,omitempty"`
 }
 type TLSProfile struct {
 	ID        string  `json:"id"`
@@ -61,6 +86,162 @@ type Snapshot struct {
 	Policies    []Policy     `json:"policies"`
 	TLSProfiles []TLSProfile `json:"tls_profiles"`
 }
+
+// UnmarshalJSON decodes a snapshot and upgrades schema 1 to the current one,
+// so stored drafts, revisions and manifests of older builds stay readable.
+func (s *Snapshot) UnmarshalJSON(b []byte) error {
+	type plain Snapshot
+	var v plain
+	if e := json.Unmarshal(b, &v); e != nil {
+		return e
+	}
+	*s = Upgrade(Snapshot(v))
+	return nil
+}
+
+// Upgrade converts a schema 1 snapshot (or one still carrying schema 1
+// fields): each client takes the TLS profile and the access mode of its policy
+// and keeps an allowlist policy attached as its only set; "all web" policies
+// are dropped. Current snapshots are returned as they are.
+func Upgrade(s Snapshot) Snapshot {
+	if s.Version != 1 && !hasLegacyFields(s) {
+		return s
+	}
+	policies := map[string]Policy{}
+	for _, p := range s.Policies {
+		policies[p.ID] = p
+	}
+	clients := make([]Client, len(s.Clients))
+	for i, c := range s.Clients {
+		if c.LegacyPolicyID == "" && c.Access != "" {
+			// Already in the current shape (a mixed snapshot): keep it, but an
+			// attached schema 1 "all web" policy still means the whole web.
+			ids := []string{}
+			for _, id := range c.PolicyIDs {
+				if policies[id].LegacyMode == "all_web" {
+					c.Access = AccessAllWeb
+					continue
+				}
+				ids = append(ids, id)
+			}
+			c.PolicyIDs = ids
+			clients[i] = c
+			continue
+		}
+		p, ok := policies[c.LegacyPolicyID]
+		c.LegacyPolicyID = ""
+		c.TLSProfileID = p.LegacyTLSProfileID
+		c.Access = AccessList
+		c.PolicyIDs = []string{}
+		if c.Destinations == nil {
+			c.Destinations = []Destination{}
+		}
+		switch {
+		case !ok:
+			c.Access = AccessNone
+		case p.LegacyMode == "all_web":
+			c.Access = AccessAllWeb
+		case len(p.Destinations) == 0:
+			c.Access = AccessNone
+			c.PolicyIDs = []string{p.ID}
+		default:
+			c.PolicyIDs = []string{p.ID}
+		}
+		if c.TLSProfileID == "" && len(s.TLSProfiles) > 0 {
+			c.TLSProfileID = s.TLSProfiles[0].ID
+		}
+		clients[i] = c
+	}
+	kept := []Policy{}
+	for _, p := range s.Policies {
+		if p.LegacyMode == "all_web" {
+			continue
+		}
+		p.LegacyMode, p.LegacyTLSProfileID = "", ""
+		if p.Destinations == nil {
+			p.Destinations = []Destination{}
+		}
+		kept = append(kept, p)
+	}
+	s.Clients, s.Policies, s.Version = clients, kept, SchemaVersion
+	return s
+}
+
+func hasLegacyFields(s Snapshot) bool {
+	for _, c := range s.Clients {
+		if c.LegacyPolicyID != "" {
+			return true
+		}
+	}
+	for _, p := range s.Policies {
+		if p.LegacyMode != "" || p.LegacyTLSProfileID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// EffectiveDestinations is what a client with AccessList may reach: its own
+// domains and those of its attached policies, de-duplicated, without entries
+// already covered by a "*.parent" entry, sorted by domain. Unknown policy ids
+// are ignored (Validate rejects them).
+func EffectiveDestinations(s Snapshot, c Client) []Destination {
+	all := append([]Destination(nil), c.Destinations...)
+	for _, id := range c.PolicyIDs {
+		for _, p := range s.Policies {
+			if p.ID == id {
+				all = append(all, p.Destinations...)
+			}
+		}
+	}
+	wild := map[string]bool{}
+	for _, d := range all {
+		if d.IncludeSubdomains {
+			wild[d.Domain] = true
+		}
+	}
+	covered := func(d Destination) bool {
+		for parent := range wild {
+			if d.Domain != parent && strings.HasSuffix(d.Domain, "."+parent) {
+				return true
+			}
+		}
+		return !d.IncludeSubdomains && wild[d.Domain]
+	}
+	seen := map[Destination]bool{}
+	out := []Destination{}
+	for _, d := range all {
+		if seen[d] || covered(d) {
+			continue
+		}
+		seen[d] = true
+		out = append(out, d)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Domain != out[j].Domain {
+			return out[i].Domain < out[j].Domain
+		}
+		return !out[i].IncludeSubdomains
+	})
+	return out
+}
+
+// ClientAllows reports whether the client's own policy (not protections or
+// blocked-for-all) allows host.
+func ClientAllows(s Snapshot, c Client, host string) bool {
+	switch c.Access {
+	case AccessAllWeb:
+		return true
+	case AccessList:
+		for _, d := range EffectiveDestinations(s, c) {
+			if DomainMatches(host, d.Domain, d.IncludeSubdomains) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 type Options struct {
 	StateDir      string
 	SquidDir      string
@@ -72,7 +253,7 @@ type Options struct {
 
 func Empty() Snapshot {
 	v := DefaultSettings()
-	return Snapshot{Version: 1, Settings: &v, Mode: "structured", Clients: []Client{}, Policies: []Policy{}, TLSProfiles: []TLSProfile{{ID: "00000000-0000-4000-8000-000000000001", Name: "HTTP proxy / CONNECT", Mode: "tunnel", Transport: "http"}}}
+	return Snapshot{Version: SchemaVersion, Settings: &v, Mode: "structured", Clients: []Client{}, Policies: []Policy{}, TLSProfiles: []TLSProfile{{ID: "00000000-0000-4000-8000-000000000001", Name: "HTTP proxy / CONNECT", Mode: "tunnel", Transport: "http"}}}
 }
 
 var idPattern = regexp.MustCompile(`^[a-zA-Z0-9-]{1,64}$`)
@@ -106,7 +287,8 @@ func Validate(s Snapshot, o Options) error {
 	if (o.ProxyCert == "") != (o.ProxyKey == "") {
 		return errors.New("both proxy certificate and key are required")
 	}
-	if s.Version != 1 {
+	s = Upgrade(s)
+	if s.Version != SchemaVersion {
 		return errors.New("unsupported schema_version")
 	}
 	if e := validateSettings(EffectiveSettings(s)); e != nil {
@@ -143,16 +325,10 @@ func Validate(s Snapshot, o Options) error {
 		profiles[p.ID] = p
 	}
 	for _, p := range s.Policies {
-		if !idPattern.MatchString(p.ID) || policies[p.ID].ID != "" || strings.TrimSpace(p.Name) == "" {
+		if !idPattern.MatchString(p.ID) || policies[p.ID].ID != "" || strings.TrimSpace(p.Name) == "" || len(p.Name) > 128 {
 			return errors.New("invalid/duplicate policy")
 		}
-		if _, ok := profiles[p.TLSProfileID]; !ok {
-			return errors.New("missing TLS profile")
-		}
-		if p.Mode != "all_web" && p.Mode != "allowlist" {
-			return errors.New("invalid access mode")
-		}
-		if len(p.Destinations) > 1024 || p.Mode == "all_web" && len(p.Destinations) > 0 {
+		if len(p.Destinations) > 1024 {
 			return errors.New("invalid destination list")
 		}
 		if e := validateDomains(p.Destinations); e != nil {
@@ -174,8 +350,24 @@ func Validate(s Snapshot, o Options) error {
 			return errors.New("invalid/duplicate client")
 		}
 		clients[c.ID] = true
-		if _, ok := policies[c.PolicyID]; !ok {
-			return errors.New("missing client policy")
+		if c.Access != AccessList && c.Access != AccessAllWeb && c.Access != AccessNone {
+			return errors.New("invalid access mode")
+		}
+		if _, ok := profiles[c.TLSProfileID]; !ok {
+			return errors.New("missing TLS profile")
+		}
+		if len(c.PolicyIDs) > 64 || len(c.Destinations) > 1024 {
+			return errors.New("invalid destination list")
+		}
+		attached := map[string]bool{}
+		for _, id := range c.PolicyIDs {
+			if _, ok := policies[id]; !ok || attached[id] {
+				return errors.New("missing or duplicate client policy")
+			}
+			attached[id] = true
+		}
+		if e := validateDomains(c.Destinations); e != nil {
+			return e
 		}
 		if c.ProxyUsername != "" {
 			if !proxyUsernamePattern.MatchString(c.ProxyUsername) {
@@ -184,7 +376,7 @@ func Validate(s Snapshot, o Options) error {
 			if o.ProxyAccounts == "" || !strings.HasPrefix(o.ProxyAccounts, "/") {
 				return errors.New("proxy authentication requires installed database")
 			}
-			if profiles[policies[c.PolicyID].TLSProfileID].Transport != "tls" {
+			if profiles[c.TLSProfileID].Transport != "tls" {
 				return errors.New("password proxy authentication requires TLS transport")
 			}
 			if c.Enabled && s.Mode == "expert" {
@@ -218,7 +410,7 @@ func Validate(s Snapshot, o Options) error {
 	return nil
 }
 func Hash(s Snapshot) string {
-	b, _ := json.Marshal(s)
+	b, _ := json.Marshal(Upgrade(s))
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
@@ -229,11 +421,12 @@ func Fingerprint(s Snapshot, o Options) string {
 		Compiler string
 		Snapshot Snapshot
 		Options  Options
-	}{CompilerVersion, s, o})
+	}{CompilerVersion, Upgrade(s), o})
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
 }
 func Render(s Snapshot, o Options) (string, error) {
+	s = Upgrade(s)
 	if err := Validate(s, o); err != nil {
 		return "", err
 	}
@@ -306,18 +499,13 @@ func Render(s Snapshot, o Options) (string, error) {
 	for _, p := range s.TLSProfiles {
 		profiles[p.ID] = p
 	}
-	policies := map[string]Policy{}
-	for _, p := range s.Policies {
-		policies[p.ID] = p
-	}
 	cc := append([]Client(nil), s.Clients...)
 	sort.Slice(cc, func(i, j int) bool { return cc[i].ID < cc[j].ID })
 	for i, c := range cc {
 		if !c.Enabled {
 			continue
 		}
-		p := policies[c.PolicyID]
-		tp := profiles[p.TLSProfileID]
+		tp := profiles[c.TLSProfileID]
 		listener := "sc_http_listener"
 		if tp.Transport == "tls" {
 			listener = "sc_tls_listener"
@@ -328,15 +516,16 @@ func Render(s Snapshot, o Options) (string, error) {
 			fmt.Fprintf(&b, "acl sc_proxy_user_%d proxy_auth_regex ^%s$\n", i, strings.ReplaceAll(c.ProxyUsername, ".", "[.]"))
 			authCondition = fmt.Sprintf(" sc_proxy_user_%d sc_proxy_current", i)
 		}
-		if p.Mode == "all_web" {
+		if c.Access == AccessAllWeb {
 			fmt.Fprintf(&b, "http_access allow client_%d %s%s\n", i, listener, authCondition)
 			continue
 		}
-		if len(p.Destinations) == 0 {
+		effective := EffectiveDestinations(s, c)
+		if c.Access != AccessList || len(effective) == 0 {
 			continue
 		}
 		var ds []string
-		for _, d := range p.Destinations {
+		for _, d := range effective {
 			v := d.Domain
 			if d.IncludeSubdomains {
 				v = "." + v
@@ -449,6 +638,39 @@ func DomainMatches(host, domain string, includeSubdomains bool) bool {
 func portIn(ports []int, port int) bool {
 	for _, p := range ports {
 		if p == port {
+			return true
+		}
+	}
+	return false
+}
+
+// AllowingSource names what lets the client reach host under AccessList: the
+// client's own domains (policyID "") or the first attached policy listing it.
+func AllowingSource(s Snapshot, c Client, host string) (policyID string, ok bool) {
+	for _, d := range c.Destinations {
+		if DomainMatches(host, d.Domain, d.IncludeSubdomains) {
+			return "", true
+		}
+	}
+	for _, id := range c.PolicyIDs {
+		for _, p := range s.Policies {
+			if p.ID != id {
+				continue
+			}
+			for _, d := range p.Destinations {
+				if DomainMatches(host, d.Domain, d.IncludeSubdomains) {
+					return p.ID, true
+				}
+			}
+		}
+	}
+	return "", false
+}
+
+// UsesPolicy reports whether the client has the policy attached.
+func UsesPolicy(c Client, policyID string) bool {
+	for _, id := range c.PolicyIDs {
+		if id == policyID {
 			return true
 		}
 	}

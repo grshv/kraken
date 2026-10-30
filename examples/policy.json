@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "clients": [
     {
       "id": "00000000-0000-4000-8000-000000000001",
@@ -8,7 +8,10 @@
         "192.0.2.11/32"
       ],
       "enabled": true,
-      "policy_id": "00000000-0000-4000-8000-000000000011"
+      "access": "all_web",
+      "tls_profile_id": "00000000-0000-4000-8000-000000000021",
+      "policy_ids": [],
+      "destinations": []
     },
     {
       "id": "00000000-0000-4000-8000-000000000002",
@@ -17,28 +20,29 @@
         "192.0.2.12/32"
       ],
       "enabled": true,
-      "policy_id": "00000000-0000-4000-8000-000000000012"
+      "access": "list",
+      "tls_profile_id": "00000000-0000-4000-8000-000000000021",
+      "policy_ids": [
+        "00000000-0000-4000-8000-000000000012"
+      ],
+      "destinations": [
+        {
+          "domain": "mirror.example.test",
+          "include_subdomains": false
+        }
+      ]
     }
   ],
   "policies": [
     {
-      "id": "00000000-0000-4000-8000-000000000011",
-      "name": "External web",
-      "mode": "all_web",
-      "destinations": [],
-      "tls_profile_id": "00000000-0000-4000-8000-000000000021"
-    },
-    {
       "id": "00000000-0000-4000-8000-000000000012",
       "name": "Approved repositories",
-      "mode": "allowlist",
       "destinations": [
         {
           "domain": "packages.example.test",
           "include_subdomains": false
         }
-      ],
-      "tls_profile_id": "00000000-0000-4000-8000-000000000021"
+      ]
     }
   ],
   "tls_profiles": [

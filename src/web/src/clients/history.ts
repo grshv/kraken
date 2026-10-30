@@ -1,9 +1,11 @@
-import type { Client, Destination, Policy, Snapshot } from "../model";
+import type { Client, Destination, Snapshot } from "../model";
+import { effectiveDestinations } from "../draft/edits";
 
 // clientChanges describes what changed for one client between two snapshots
 // (an older applied revision and a newer one, or active and draft): the
-// client's own fields and the content of the policy it uses. The audit log
-// stores only action names, so the client history is derived from snapshots.
+// client's own fields, its access mode, attached policies and the final list
+// of domains it may reach. The audit log stores only action names, so the
+// client history is derived from snapshots.
 export function clientChanges(
   before: Snapshot | null,
   after: Snapshot,
@@ -13,14 +15,13 @@ export function clientChanges(
   const b = after.clients.find((c) => c.id === clientID);
   if (!a && !b) return [];
   if (!b) return ["Клиент удалён"];
-  const pb = policyOf(after, b);
   if (!a) {
-    const what = !pb
-      ? "без доступа"
-      : pb.mode === "all_web"
+    const list = finalList(after, b);
+    const what =
+      b.access === "all_web"
         ? "весь веб"
-        : pb.destinations.length
-          ? `политика: ${pb.destinations.map(label).join(", ")}`
+        : b.access === "list" && list.length
+          ? `домены: ${list.map(label).join(", ")}`
           : "без доступа";
     return [`Создан клиент, ${what}`];
   }
@@ -40,25 +41,33 @@ export function clientChanges(
         ? `Логин прокси: ${b.proxy_username}`
         : "Логин прокси снят",
     );
-  const pa = before ? policyOf(before, a) : null;
-  if (a.policy_id !== b.policy_id) {
-    out.push(`Политика: ${pa?.name ?? "—"} → ${pb?.name ?? "—"}`);
-    return out;
+  if (a.tls_profile_id !== b.tls_profile_id) {
+    const name = after.tls_profiles.find((p) => p.id === b.tls_profile_id);
+    out.push(`Подключение: ${name?.name ?? b.tls_profile_id}`);
   }
-  if (pa && pb) {
-    if (pa.mode !== pb.mode)
-      out.push(
-        pb.mode === "all_web" ? "Доступ: весь веб" : "Доступ: список доменов",
-      );
-    const added = pb.destinations.filter((d) => !has(pa.destinations, d));
-    const removed = pa.destinations.filter((d) => !has(pb.destinations, d));
-    for (const d of pb.destinations) {
-      const old = pa.destinations.find((x) => x.domain === d.domain);
+  if (a.access !== b.access) out.push(`Доступ: ${accessLabel(b)}`);
+  const policyName = (id: string) =>
+    after.policies.find((p) => p.id === id)?.name ??
+    before?.policies.find((p) => p.id === id)?.name ??
+    id;
+  for (const id of b.policy_ids)
+    if (!a.policy_ids.includes(id))
+      out.push(`Подключена политика «${policyName(id)}»`);
+  for (const id of a.policy_ids)
+    if (!b.policy_ids.includes(id))
+      out.push(`Отключена политика «${policyName(id)}»`);
+  if (b.access === "list") {
+    const la = before ? finalList(before, a) : [];
+    const lb = finalList(after, b);
+    for (const d of lb) {
+      const old = la.find((x) => x.domain === d.domain);
       if (old && old.include_subdomains !== d.include_subdomains)
         out.push(
           `${d.domain}: ${d.include_subdomains ? "с поддоменами" : "без поддоменов"}`,
         );
     }
+    const added = lb.filter((d) => !has(la, d));
+    const removed = la.filter((d) => !has(lb, d));
     if (added.length)
       out.push(
         `${added.length > 1 ? "Добавлены" : "Добавлен"} ${added.map(label).join(", ")}`,
@@ -71,8 +80,16 @@ export function clientChanges(
   return out;
 }
 
-function policyOf(s: Snapshot, c: Client): Policy | null {
-  return s.policies.find((p) => p.id === c.policy_id) ?? null;
+function finalList(s: Snapshot, c: Client): Destination[] {
+  return effectiveDestinations(s, c).map((e) => e.destination);
+}
+
+export function accessLabel(c: Pick<Client, "access">): string {
+  return c.access === "all_web"
+    ? "весь веб"
+    : c.access === "none"
+      ? "нет доступа"
+      : "список доменов";
 }
 
 function label(d: Destination): string {

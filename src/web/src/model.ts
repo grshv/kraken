@@ -9,6 +9,9 @@ export type ApiRequest = <T>(
 ) => Promise<T>;
 
 export type Destination = { domain: string; include_subdomains: boolean };
+// Access: the union of attached policies and own domains, the whole web
+// (protections and blocked-for-all still apply) or nothing.
+export type Access = "list" | "all_web" | "none";
 export type Client = {
   kind?: "host" | "network" | "group";
   id: string;
@@ -16,15 +19,19 @@ export type Client = {
   description?: string;
   source_networks: string[];
   enabled: boolean;
-  policy_id: string;
   proxy_username?: string;
+  access: Access;
+  // HTTP or TLS listener (TLS is required for a proxy login).
+  tls_profile_id: string;
+  // Attached shared domain sets and the client's own domains.
+  policy_ids: string[];
+  destinations: Destination[];
 };
+// Policy is a named, shareable set of allowed domains.
 export type Policy = {
   id: string;
   name: string;
-  mode: "all_web" | "allowlist";
   destinations: Destination[];
-  tls_profile_id: string;
 };
 export type Snapshot = {
   settings?: Settings;

@@ -11,7 +11,8 @@ export type ExplainStep = { ok: boolean; text: string };
 
 // explainSteps turns /explain's single reason into the check chain the server
 // walks (explainEvent in httpapi): built-in protection, blocked for all, the
-// source client, enabled, proxy login, then the client's policy. Checks before
+// source client, enabled, proxy login, then the client's access: policy_id
+// names the attached policy that allowed the host, null its own domains. Checks before
 // the failing one passed; checks after it were not reached and are omitted.
 export function explainSteps(
   ex: Explain,
@@ -62,10 +63,15 @@ export function explainSteps(
     add(false, "Логин прокси не подошёл");
     return steps;
   }
-  const pname = policy ? `«${policy.name}»` : "клиента";
-  if (r === "allowed_all_web") add(true, `Политика ${pname}: весь веб`);
+  if (r === "allowed_all_web") add(true, "Доступ клиента: весь веб");
   else if (r === "allowed_by_policy")
-    add(true, `${host} есть в политике ${pname}`);
-  else add(false, `${host} нет в политике ${pname}`);
+    add(
+      true,
+      policy
+        ? `${host} есть в политике «${policy.name}»`
+        : `${host} есть в своих доменах клиента`,
+    );
+  else if (client?.access === "none") add(false, "У клиента нет доступа");
+  else add(false, `${host} нет в списке доменов клиента`);
   return steps;
 }

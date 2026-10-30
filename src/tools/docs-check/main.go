@@ -467,7 +467,7 @@ func resolveRef(document map[string]any, ptr string) bool {
 // checkPolicyExample checks key semantic invariants, not general JSON Schema.
 func checkPolicyExample(policy map[string]any, errs *[]string) {
 	fail := func(msg string) { *errs = append(*errs, "examples/policy.json: invalid example: "+msg) }
-	if policy["schema_version"] != float64(1) {
+	if policy["schema_version"] != float64(2) {
 		fail("unknown schema version")
 		return
 	}
@@ -486,9 +486,21 @@ func checkPolicyExample(policy map[string]any, errs *[]string) {
 			continue
 		}
 		cid, _ := cm["id"].(string)
-		if !policyIDs[asStr(cm["policy_id"])] {
-			fail("missing policy")
+		access, _ := cm["access"].(string)
+		if access != "list" && access != "all_web" && access != "none" {
+			fail("invalid access mode")
 		}
+		if !profileIDs[asStr(cm["tls_profile_id"])] {
+			fail("missing TLS profile")
+		}
+		attached, _ := cm["policy_ids"].([]any)
+		for _, id := range attached {
+			if !policyIDs[asStr(id)] {
+				fail("missing policy")
+			}
+		}
+		own, _ := cm["destinations"].([]any)
+		checkExampleDomains(own, fail)
 		nets, _ := cm["source_networks"].([]any)
 		if len(nets) == 0 {
 			fail("empty source networks")
@@ -519,30 +531,11 @@ func checkPolicyExample(policy map[string]any, errs *[]string) {
 		if pm == nil {
 			continue
 		}
-		mode, _ := pm["mode"].(string)
-		if mode != "all_web" && mode != "allowlist" {
-			fail("invalid policy mode")
-		}
-		if !profileIDs[asStr(pm["tls_profile_id"])] {
-			fail("missing TLS profile")
+		if _, legacy := pm["mode"]; legacy {
+			fail("policy mode belongs to the client in schema 2")
 		}
 		dests, _ := pm["destinations"].([]any)
-		if mode == "all_web" && len(dests) != 0 {
-			fail("ambiguous all_web destinations")
-		}
-		for _, d := range dests {
-			dm, _ := d.(map[string]any)
-			if dm == nil {
-				continue
-			}
-			domain, _ := dm["domain"].(string)
-			if !canonicalDomainRe.MatchString(domain) {
-				fail("noncanonical example domain")
-			}
-			if _, ok := dm["include_subdomains"].(bool); !ok {
-				fail("subdomain flag must be bool")
-			}
-		}
+		checkExampleDomains(dests, fail)
 	}
 	for _, p := range profiles {
 		pm, _ := p.(map[string]any)
@@ -560,6 +553,22 @@ func checkPolicyExample(policy map[string]any, errs *[]string) {
 			if asStr(pm["cert_ref"]) == "" {
 				fail("TLS transport requires certificate reference")
 			}
+		}
+	}
+}
+
+func checkExampleDomains(dests []any, fail func(string)) {
+	for _, d := range dests {
+		dm, _ := d.(map[string]any)
+		if dm == nil {
+			continue
+		}
+		domain, _ := dm["domain"].(string)
+		if !canonicalDomainRe.MatchString(domain) {
+			fail("noncanonical example domain")
+		}
+		if _, ok := dm["include_subdomains"].(bool); !ok {
+			fail("subdomain flag must be bool")
 		}
 	}
 }

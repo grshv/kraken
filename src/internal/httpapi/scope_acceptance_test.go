@@ -123,14 +123,14 @@ func scopeFixture(t *testing.T) (http.Handler, *http.Cookie, string, *http.Cooki
 	d := acceptDraft(t, h, admin)
 	tls := d.Snapshot.TLSProfiles[0].ID
 	d.Snapshot.Policies = append(d.Snapshot.Policies,
-		policy.Policy{ID: "p-own", Name: "own", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "own.example"}}, TLSProfileID: tls},
-		policy.Policy{ID: "p-shared", Name: "shared", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "shared.example"}}, TLSProfileID: tls},
-		policy.Policy{ID: "p-foreign", Name: "foreign", Mode: "allowlist", Destinations: []policy.Destination{{Domain: "foreign.example"}}, TLSProfileID: tls})
+		policy.Policy{ID: "p-own", Name: "own", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "own.example"}}, LegacyTLSProfileID: tls},
+		policy.Policy{ID: "p-shared", Name: "shared", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "shared.example"}}, LegacyTLSProfileID: tls},
+		policy.Policy{ID: "p-foreign", Name: "foreign", LegacyMode: "allowlist", Destinations: []policy.Destination{{Domain: "foreign.example"}}, LegacyTLSProfileID: tls})
 	d.Snapshot.Clients = append(d.Snapshot.Clients,
-		policy.Client{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, PolicyID: "p-own"},
-		policy.Client{ID: "c-a2", Name: "alpha-shared", Kind: "host", Networks: []string{"10.1.0.6/32"}, Enabled: true, PolicyID: "p-shared"},
-		policy.Client{ID: "c-b", Name: "bravo-secret", Kind: "host", Networks: []string{"10.2.0.5/32"}, Enabled: true, PolicyID: "p-shared"},
-		policy.Client{ID: "c-d", Name: "delta-secret", Kind: "host", Networks: []string{"10.1.0.9/32"}, Enabled: true, PolicyID: "p-foreign"})
+		policy.Client{ID: "c-a", Name: "alpha", Kind: "host", Networks: []string{"10.1.0.5/32"}, Enabled: true, LegacyPolicyID: "p-own"},
+		policy.Client{ID: "c-a2", Name: "alpha-shared", Kind: "host", Networks: []string{"10.1.0.6/32"}, Enabled: true, LegacyPolicyID: "p-shared"},
+		policy.Client{ID: "c-b", Name: "bravo-secret", Kind: "host", Networks: []string{"10.2.0.5/32"}, Enabled: true, LegacyPolicyID: "p-shared"},
+		policy.Client{ID: "c-d", Name: "delta-secret", Kind: "host", Networks: []string{"10.1.0.9/32"}, Enabled: true, LegacyPolicyID: "p-foreign"})
 	acceptCode(t, acceptPut(h, admin, csrf, d), 200, "")
 	if acceptApply(t, h, admin, csrf, admin, csrf, "fixture-admin") != 201 {
 		t.Fatal("admin apply failed")
@@ -197,7 +197,7 @@ func TestAcceptManagerEditsMergeAndKeepForeignObjects(t *testing.T) {
 			d.Snapshot.Clients[i].Description = "edited by manager"
 		}
 	}
-	d.Snapshot.Clients = append(d.Snapshot.Clients, policy.Client{ID: "c-new", Name: "new-host", Kind: "host", Networks: []string{"10.1.7.7/32"}, Enabled: true, PolicyID: "p-own"})
+	d.Snapshot.Clients = append(d.Snapshot.Clients, policy.Client{ID: "c-new", Name: "new-host", Kind: "host", Networks: []string{"10.1.7.7/32"}, Enabled: true, LegacyPolicyID: "p-own"})
 	acceptCode(t, acceptPut(h, mgr, mcsrf, d), 200, "")
 	after := acceptDraft(t, h, admin)
 	if !hasClient(after.Snapshot, "c-b") || !hasClient(after.Snapshot, "c-d") || !hasClient(after.Snapshot, "c-new") {
@@ -224,9 +224,9 @@ func TestAcceptManagerDraftRejections(t *testing.T) {
 		d.Snapshot.Clients = append(d.Snapshot.Clients, c)
 		return acceptPut(h, mgr, mcsrf, d)
 	}
-	acceptCode(t, add(policy.Client{ID: "c-out", Name: "out", Kind: "host", Networks: []string{"10.3.0.1/32"}, Enabled: true, PolicyID: "p-own"}), 422, "source_outside_scope")
-	acceptCode(t, add(policy.Client{ID: "c-wide", Name: "wide", Kind: "network", Networks: []string{"10.0.0.0/8"}, Enabled: true, PolicyID: "p-own"}), 422, "source_outside_scope")
-	w := add(policy.Client{ID: "c-ov", Name: "ov", Kind: "network", Networks: []string{"10.1.0.0/24"}, Enabled: true, PolicyID: "p-own"})
+	acceptCode(t, add(policy.Client{ID: "c-out", Name: "out", Kind: "host", Networks: []string{"10.3.0.1/32"}, Enabled: true, LegacyPolicyID: "p-own"}), 422, "source_outside_scope")
+	acceptCode(t, add(policy.Client{ID: "c-wide", Name: "wide", Kind: "network", Networks: []string{"10.0.0.0/8"}, Enabled: true, LegacyPolicyID: "p-own"}), 422, "source_outside_scope")
+	w := add(policy.Client{ID: "c-ov", Name: "ov", Kind: "network", Networks: []string{"10.1.0.0/24"}, Enabled: true, LegacyPolicyID: "p-own"})
 	acceptCode(t, w, 422, "source_overlap")
 	if strings.Contains(w.Body.String(), "delta") || strings.Contains(w.Body.String(), "c-d") {
 		t.Fatal("overlap error names foreign client")

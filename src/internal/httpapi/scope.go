@@ -93,11 +93,13 @@ func networkInScope(scope store.Scope, raw string) bool {
 	return false
 }
 
-// clientsByPolicy returns policy_id -> set of client IDs referencing it.
+// clientsByPolicy returns policy_id -> set of client IDs attaching it.
 func clientsByPolicy(clients []policy.Client) map[string][]string {
 	out := map[string][]string{}
 	for _, c := range clients {
-		out[c.PolicyID] = append(out[c.PolicyID], c.ID)
+		for _, id := range c.PolicyIDs {
+			out[id] = append(out[id], c.ID)
+		}
 	}
 	return out
 }
@@ -106,12 +108,12 @@ func clientsByPolicy(clients []policy.Client) map[string][]string {
 // outside the manager's scope, in either the draft or the active snapshot.
 func policyHasForeignClient(draft, active []policy.Client, scope store.Scope, policyID string) bool {
 	for _, c := range draft {
-		if c.PolicyID == policyID && !inScope(scope, c.ID) {
+		if policy.UsesPolicy(c, policyID) && !inScope(scope, c.ID) {
 			return true
 		}
 	}
 	for _, c := range active {
-		if c.PolicyID == policyID && !inScope(scope, c.ID) {
+		if policy.UsesPolicy(c, policyID) && !inScope(scope, c.ID) {
 			return true
 		}
 	}

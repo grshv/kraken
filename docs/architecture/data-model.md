@@ -24,6 +24,11 @@ HTTP readiness панели.
 Клиенты, source networks, policies, destinations, TLS profiles и settings —
 типизированные части snapshot в kv, а не отдельные SQL tables. Правила ссылок,
 пересечений IP/auth identities и secret refs проверяет policy.Validate.
+Snapshot пишется в схеме 2 (политики — наборы доменов, режим и подключение у
+клиента); снимки схемы 1 в draft, ревизиях и manifests не мигрируются в БД, а
+переводятся при чтении (`policy.Upgrade`, см.
+[policies-and-tls](policies-and-tls.md)), поэтому откат на старую ревизию
+применяет её в новой схеме.
 Validation привязана к immutable revision и operation. Отдельных validations,
 traffic_buckets, client_networks и applied_state tables нет; их создание и полная
 реляционная переделка не запланированы. Точное применение подтверждает manifest
