@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Globe, Lock, Plus, Undo, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import {
   Table,
   TableBody,
@@ -102,34 +103,23 @@ export function DomainEditor({
                   </Chip>
                 </TableCell>
                 <TableCell>
-                  {readOnly ? (
-                    d.include_subdomains ? (
-                      "да"
-                    ) : (
-                      "нет"
-                    )
-                  ) : (
-                    <Button
-                      size="icon-xs"
-                      variant="ghost"
-                      aria-pressed={d.include_subdomains}
-                      aria-label={`Поддомены ${d.domain}`}
-                      onClick={() =>
-                        onChange(
-                          destinations.map((x) =>
-                            x.domain === d.domain
-                              ? {
-                                  ...x,
-                                  include_subdomains: !x.include_subdomains,
-                                }
-                              : x,
-                          ),
-                        )
-                      }
-                    >
-                      {d.include_subdomains ? "да" : "нет"}
-                    </Button>
-                  )}
+                  <Switch
+                    checked={d.include_subdomains}
+                    disabled={readOnly}
+                    aria-label={`Поддомены ${d.domain}`}
+                    onCheckedChange={() =>
+                      onChange(
+                        destinations.map((x) =>
+                          x.domain === d.domain
+                            ? {
+                                ...x,
+                                include_subdomains: !x.include_subdomains,
+                              }
+                            : x,
+                        ),
+                      )
+                    }
+                  />
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">

@@ -848,7 +848,7 @@ function PolicyBadge({
     <Badge variant="secondary">
       <ShieldCheck className="size-3.5" />
       {sharedCount > 1 ? `${policy.name} (общая)` : "своя политика"} ·{" "}
-      {policy.destinations.length} доменов
+      {pluralRu(policy.destinations.length, "домен", "домена", "доменов")}
     </Badge>
   );
 }

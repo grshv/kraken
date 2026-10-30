@@ -395,7 +395,7 @@ function PolicyDetail({
         {clients.length > 1 && (
           <Callout tone="warn" icon={<ShieldCheck aria-hidden />}>
             <div className="text-sm">
-              Изменения затронут {clients.length} клиентов:{" "}
+              Изменения затронут {pluralRu(clients.length, "клиента", "клиентов", "клиентов")}:{" "}
               {clients.map((c) => c.name).join(", ")}.
             </div>
           </Callout>
