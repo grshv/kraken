@@ -3204,6 +3204,7 @@
         "additionalProperties": false,
         "required": [
           "id",
+          "number",
           "draft_version",
           "policy_hash",
           "compiler_version",
@@ -3215,6 +3216,11 @@
           "id": {
             "type": "string",
             "format": "uuid"
+          },
+          "number": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Sequential revision number shown as r-<number>; assigned with the revision and never reused after pruning"
           },
           "draft_version": {
             "type": "integer",
@@ -3256,6 +3262,10 @@
           "revision_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "revision_number": {
+            "type": "integer",
+            "minimum": 0
           },
           "policy_hash": {
             "type": "string"
@@ -3505,6 +3515,7 @@
           "runtime",
           "squid",
           "applied_revision",
+          "applied_revision_number",
           "observed_config_hash",
           "capabilities",
           "has_unapplied_changes",
@@ -3525,6 +3536,13 @@
               "null"
             ],
             "format": "uuid"
+          },
+          "applied_revision_number": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "description": "Number of the applied revision; null when nothing is applied"
           },
           "observed_config_hash": {
             "type": [
@@ -4030,6 +4048,11 @@
             "type": "string",
             "format": "uuid"
           },
+          "number": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Sequential revision number shown as r-<number>; assigned with the revision and never reused after pruning"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time"
@@ -4055,6 +4078,7 @@
         },
         "required": [
           "id",
+          "number",
           "created_at",
           "policy_hash",
           "compiler_version",

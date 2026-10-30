@@ -112,7 +112,7 @@ import {
   setClientNetworks,
 } from "../draft/edits";
 import type { Client, Event, Policy, Session, Snapshot } from "../model";
-import { ago, pluralRu } from "../model";
+import { ago, pluralRu, revisionLabel } from "../model";
 import type { NavId } from "../shell/nav";
 
 // Inspector shapes (subset of fields the screens render).
@@ -1977,6 +1977,7 @@ type HistoryEntry = {
   actor: string;
   changes: string[];
   revision?: string;
+  label?: string;
 };
 
 // HistoryTab: what changed for this client, newest first. Applied revisions
@@ -1999,7 +2000,12 @@ function HistoryTab({
     (async () => {
       const [revs, audit] = await Promise.all([
         request<{
-          items: { id: string; created_at: string; was_applied: boolean }[];
+          items: {
+            id: string;
+            number: number;
+            created_at: string;
+            was_applied: boolean;
+          }[];
           next_cursor?: string;
         }>("/revisions?limit=50"),
         request<{ items: AuditRow[] }>(
@@ -2039,6 +2045,7 @@ function HistoryTab({
             actor: actorOf(r.id),
             changes,
             revision: r.id,
+            label: revisionLabel(r.id, r.number),
           });
       });
       if (live) setEntries(out);
@@ -2080,7 +2087,7 @@ function HistoryTab({
             </div>
             {r.revision ? (
               <Badge variant="secondary" className="font-mono">
-                {r.revision.slice(0, 8)}
+                {r.label}
               </Badge>
             ) : (
               <Badge variant="mod">в черновике</Badge>

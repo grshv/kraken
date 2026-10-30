@@ -37,6 +37,7 @@ type Draft struct {
 }
 type Revision struct {
 	ID           string          `json:"id"`
+	Number       int64           `json:"number"`
 	DraftVersion int             `json:"draft_version"`
 	Hash         string          `json:"policy_hash"`
 	Compiler     string          `json:"compiler_version"`
@@ -646,13 +647,15 @@ func (s *Server) createRevision(w http.ResponseWriter, r *http.Request, v sessio
 	}
 	rev := Revision{ID: store.ID(), DraftVersion: d.Version, Hash: policy.Hash(d.Snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: d.Snapshot}
 	b, _ := json.Marshal(rev)
-	if e := s.Store.InsertRevision(ctx, rev.ID, string(b), v.User, "create_revision"); e != nil {
+	n, e := s.Store.InsertRevision(ctx, rev.ID, string(b), v.User, "create_revision")
+	if e != nil {
 		if s.failStorageBusy(w, e) {
 			return
 		}
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
+	rev.Number = n
 	respond(w, 201, rev)
 }
 
@@ -694,6 +697,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request, v session) {
 		return
 	}
 	result["revision_id"] = rev.ID
+	result["revision_number"] = rev.Number
 	result["policy_hash"] = rev.Hash
 	respond(w, 200, result)
 }

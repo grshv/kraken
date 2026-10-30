@@ -67,6 +67,7 @@ export type Status = {
   runtime: Component;
   squid: Component;
   applied_revision: string | null;
+  applied_revision_number?: number | null;
   // observed_config_hash was missing from the previous model; the UI does not
   // display it but including it keeps the type aligned with OpenAPI so future
   // fields land at compile time rather than runtime.
@@ -90,6 +91,7 @@ export type Preview = {
   summary: string[];
   config_diff: { kind: string; text: string }[];
   revision_id?: string;
+  revision_number?: number;
   policy_hash: string;
   generated_config: string;
   warnings: string[];
@@ -158,8 +160,16 @@ export type Settings = {
   // upstream_proxy sends traffic through a parent proxy; null = go direct.
   upstream_proxy?: UpstreamProxy | null;
 };
+// revisionLabel shows a revision as r-<number>; revisions without a number
+// (none after migration 006) fall back to the UUID prefix.
+export function revisionLabel(id: string, number?: number | null): string {
+  if (number) return `r-${number}`;
+  return id.length > 8 ? id.slice(0, 8) : id;
+}
+
 export type RevisionSummary = {
   id: string;
+  number: number;
   created_at: string;
   policy_hash: string;
   compiler_version: string;
@@ -170,6 +180,7 @@ export type RevisionSummary = {
 };
 export type Revision = {
   id: string;
+  number: number;
   draft_version: number;
   policy_hash: string;
   compiler_version: string;

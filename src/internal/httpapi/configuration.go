@@ -16,6 +16,7 @@ import (
 
 type RevisionSummary struct {
 	ID          string `json:"id"`
+	Number      int64  `json:"number"`
 	Created     string `json:"created_at"`
 	Hash        string `json:"policy_hash"`
 	Compiler    string `json:"compiler_version"`
@@ -42,6 +43,13 @@ func (s *Server) status(w http.ResponseWriter, r *http.Request, v session) {
 			runtimeUpdate = config != m.Config
 		}
 	}
+	var number any
+	if e == nil && m.Revision != "" {
+		if n, ne := s.Store.RevisionNumber(ctx, m.Revision); ne == nil && n > 0 {
+			number = n
+		}
+	}
+	result["applied_revision_number"] = number
 	result["has_unapplied_changes"] = changed
 	result["runtime_update_available"] = runtimeUpdate
 	result["instance"] = s.instanceStatus(r.Context())
@@ -68,7 +76,7 @@ func (s *Server) listRevisions(w http.ResponseWriter, r *http.Request, v session
 			return
 		}
 		isCurrent := me == nil && current.Revision == rev.ID
-		items = append(items, RevisionSummary{ID: rev.ID, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: row.Applied, Current: isCurrent, CanRollback: row.Applied && !isCurrent && me == nil && rev.Compiler == policy.CompilerVersion && rev.Image == s.Image && sameInstallationPorts(current.Snapshot, rev.Snapshot), Status: row.LatestStatus})
+		items = append(items, RevisionSummary{ID: rev.ID, Number: rev.Number, Created: rev.Created, Hash: rev.Hash, Compiler: rev.Compiler, Applied: row.Applied, Current: isCurrent, CanRollback: row.Applied && !isCurrent && me == nil && rev.Compiler == policy.CompilerVersion && rev.Image == s.Image && sameInstallationPorts(current.Snapshot, rev.Snapshot), Status: row.LatestStatus})
 	}
 	respond(w, 200, map[string]any{"items": items})
 }

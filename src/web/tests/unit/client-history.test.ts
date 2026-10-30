@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import type { Snapshot } from "../../src/model";
+import { revisionLabel } from "../../src/model";
 import { clientChanges } from "../../src/clients/history";
 import { missingDomains } from "../../src/clients/missing";
 
@@ -112,5 +113,13 @@ describe("missingDomains", () => {
   it("offers nothing for all-web or missing policies", () => {
     expect(missingDomains(top, { ...policy, mode: "all_web" })).toEqual([]);
     expect(missingDomains(top, null)).toEqual([]);
+  });
+});
+
+describe("revisionLabel", () => {
+  it("shows the sequential number, falling back to the UUID prefix", () => {
+    expect(revisionLabel("0f3c9a12-aaaa-bbbb", 41)).toBe("r-41");
+    expect(revisionLabel("0f3c9a12-aaaa-bbbb", 0)).toBe("0f3c9a12");
+    expect(revisionLabel("short", null)).toBe("short");
   });
 });

@@ -519,24 +519,40 @@ AND key NOT IN (SELECT key FROM kv WHERE key LIKE 'revision:%' ORDER BY rowid DE
 	return tx.Commit()
 }
 
-// InsertRevision stores the revision JSON under kv key "revision:<id>" and
-// writes the corresponding audit_event in one transaction. Used by
-// httpapi.createRevision so schema details stay inside store.
-func (s *Store) InsertRevision(ctx context.Context, revID, revBody, actor, action string) error {
+// InsertRevision stores the revision JSON under kv key "revision:<id>" with
+// the next sequential number in "$.number", and writes the corresponding
+// audit_event in one transaction. The counter lives in kv "revision_seq", so
+// numbers never repeat after pruning. Returns the assigned number.
+func (s *Store) InsertRevision(ctx context.Context, revID, revBody, actor, action string) (int64, error) {
 	ctx, cancel := opCtx(ctx)
 	defer cancel()
 	tx, e := s.DB.BeginTx(ctx, nil)
 	if e != nil {
-		return e
+		return 0, e
 	}
 	defer tx.Rollback()
-	if _, e = tx.ExecContext(ctx, "INSERT INTO kv VALUES(?,?)", "revision:"+revID, revBody); e != nil {
-		return e
+	var n int64
+	if e = tx.QueryRowContext(ctx, `INSERT INTO kv VALUES('revision_seq','1')
+ ON CONFLICT(key) DO UPDATE SET value=CAST(value AS INTEGER)+1 RETURNING CAST(value AS INTEGER)`).Scan(&n); e != nil {
+		return 0, e
+	}
+	if _, e = tx.ExecContext(ctx, "INSERT INTO kv VALUES(?,json_set(?,'$.number',?))", "revision:"+revID, revBody, n); e != nil {
+		return 0, e
 	}
 	if _, e = tx.ExecContext(ctx, "INSERT INTO audit_events(actor,action,entity_id,created_at) VALUES(?,?,?,?)", actor, action, revID, time.Now().Unix()); e != nil {
-		return e
+		return 0, e
 	}
-	return tx.Commit()
+	return n, tx.Commit()
+}
+
+// RevisionNumber reads only "$.number" of a stored revision (0 when the
+// revision predates numbering), so frequent status polls skip the snapshot.
+func (s *Store) RevisionNumber(ctx context.Context, revID string) (int64, error) {
+	ctx, cancel := opCtx(ctx)
+	defer cancel()
+	var n sql.NullInt64
+	e := s.Read.QueryRowContext(ctx, "SELECT json_extract(value,'$.number') FROM kv WHERE key=?", "revision:"+revID).Scan(&n)
+	return n.Int64, e
 }
 
 // ListRevisions returns the most recent 100 revision bodies with their

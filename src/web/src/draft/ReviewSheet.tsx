@@ -14,6 +14,7 @@ import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "cn";
 import type { Draft, Operation, Preview, Status } from "../model";
+import { revisionLabel } from "../model";
 import type { ApplyRun } from "./useApplyFlow";
 
 // Side sheet: shows the diff between draft and active revision, then the
@@ -77,7 +78,7 @@ export function ReviewSheet({
           <SheetTitle>Проверка изменений</SheetTitle>
           <SheetDescription id="review-desc">
             {rev
-              ? `Ревизия ${short(rev)} против действующей конфигурации`
+              ? `Ревизия ${revisionLabel(rev, preview?.revision_number)} против действующей конфигурации`
               : "Черновик против действующей ревизии"}
           </SheetDescription>
         </SheetHeader>
@@ -299,8 +300,4 @@ function StepRow({
       </span>
     </li>
   );
-}
-
-function short(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id;
 }

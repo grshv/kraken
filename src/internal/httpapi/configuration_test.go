@@ -37,6 +37,13 @@ func TestSettingsBareAddressesHistoryAndDiff(t *testing.T) {
 	}
 	var rev Revision
 	json.Unmarshal(w.Body.Bytes(), &rev)
+	if rev.Number != 1 {
+		t.Fatalf("first revision number: %d", rev.Number)
+	}
+	var stored Revision
+	if getJSON(t, h, cookie, "/revisions/"+rev.ID, &stored); stored.Number != 1 {
+		t.Fatalf("stored revision number: %d", stored.Number)
+	}
 	w = request(h, "GET", "/revisions/"+rev.ID+"/preview", nil, cookie, "", "")
 	var preview struct {
 		Summary []string   `json:"summary"`
@@ -51,7 +58,7 @@ func TestSettingsBareAddressesHistoryAndDiff(t *testing.T) {
 		Items []RevisionSummary `json:"items"`
 	}
 	json.Unmarshal(w.Body.Bytes(), &list)
-	if len(list.Items) != 1 || list.Items[0].CanRollback {
+	if len(list.Items) != 1 || list.Items[0].Number != 1 || list.Items[0].CanRollback {
 		t.Fatal("unapplied revision offered for rollback")
 	}
 	if w = request(h, "GET", "/revisions", nil, nil, "", ""); w.Code != http.StatusUnauthorized {
@@ -229,7 +236,7 @@ func TestRevisionOperationsCannotChangeInstalledListeners(t *testing.T) {
 	snapshot.Settings.HTTPPort = 8080
 	revision := Revision{ID: store.ID(), DraftVersion: 1, Hash: policy.Hash(snapshot), Compiler: policy.CompilerVersion, Image: s.Image, Created: stamp(), Snapshot: snapshot}
 	encoded, _ := json.Marshal(revision)
-	if e := s.Store.InsertRevision(context.Background(), revision.ID, string(encoded), "admin", "create_revision"); e != nil {
+	if _, e := s.Store.InsertRevision(context.Background(), revision.ID, string(encoded), "admin", "create_revision"); e != nil {
 		t.Fatal(e)
 	}
 	for _, action := range []string{"validate", "apply", "rollback"} {
@@ -275,7 +282,7 @@ func TestRollbackCompatibilityMatchesCompilerAndImage(t *testing.T) {
 	}{{"current-build", policy.CompilerVersion, s.Image, true}, {"legacy-build", "5", s.Image, false}, {"other-image", policy.CompilerVersion, "other-image", false}} {
 		revision := Revision{ID: tc.id, Snapshot: manifest.Snapshot, Compiler: tc.compiler, Image: tc.image}
 		body, _ := json.Marshal(revision)
-		if err = s.Store.InsertRevision(context.Background(), tc.id, string(body), "fixture", "create_revision"); err != nil {
+		if _, err = s.Store.InsertRevision(context.Background(), tc.id, string(body), "fixture", "create_revision"); err != nil {
 			t.Fatal(err)
 		}
 		op := Operation{ID: "applied-" + tc.id, Action: "apply", Revision: tc.id, Status: "succeeded"}
@@ -522,4 +529,14 @@ func TestDiscardDraftSuccessConflictAndManagerScope(t *testing.T) {
 	md = acceptDraft(t, h, mgr)
 	w = request(h, "DELETE", "/configuration/draft", map[string]any{"expected_version": md.Version}, mgr, mcsrf, origin)
 	acceptCode(t, w, 200, "")
+}
+
+// The status bar shows the applied revision by number, not by UUID.
+func TestStatusAppliedRevisionNumber(t *testing.T) {
+	_, h, cookie, _ := inspectorFixture(t)
+	var status map[string]any
+	getJSON(t, h, cookie, "/status", &status)
+	if status["applied_revision_number"] != float64(1) {
+		t.Fatalf("applied_revision_number: %v", status["applied_revision_number"])
+	}
 }

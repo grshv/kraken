@@ -82,6 +82,9 @@ secret references и terminal outcome. Он связывается с запис
 Вместо полной реляционной схемы из верхней таблицы реализовано kv-хранение:
 
 - `draft` и `revision:<id>` хранятся в таблице `kv(key, value)` как opaque JSON.
+  Номер ревизии (`$.number`, в интерфейсе `r-<number>`) выдаётся из счётчика
+  `kv` `revision_seq` в той же транзакции, что и запись ревизии, и не
+  повторяется после очистки старых ревизий.
   Целостность клиентов/политик/TLS-профилей проверяется на уровне приложения
   в `policy.Validate`. Optimistic-lock `expected_version` для draft — в
   `store.Change`. Совместимость ревизии с image/compiler — в `createOperation`.
@@ -113,7 +116,9 @@ secret references и terminal outcome. Он связывается с запис
 `(client_id, ingested_at)` для rollup-запросов инспектора. `004.sql`
 (`telemetry-split-v1`) выносит события прокси из управляющей БД: удаляет
 `proxy_events`, его индексы и `event_checkpoint` из `kv`; данных для переноса нет
-(тестовые тома), телеметрия начинается с нуля. `005.sql` (`notification-marks-v1`) добавляет `notification_marks`. Runner записывает version и checksum в
+(тестовые тома), телеметрия начинается с нуля. `005.sql` (`notification-marks-v1`) добавляет `notification_marks`. `006.sql`
+(`revision-numbers-v1`) нумерует существующие ревизии по порядку вставки и
+заводит счётчик `revision_seq` в `kv`. Runner записывает version и checksum в
 `schema_migrations`. DDL, перенос данных и версия выполняются одной транзакцией
 SQLite: ошибка откатывает весь переход. Записанный checksum, не совпадающий с
 checksum этой сборки, означает базу несовместимой сборки — `store.Open`

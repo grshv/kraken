@@ -10,6 +10,7 @@ import { KeyValue } from "@/components/kraken/blocks";
 import { cn } from "cn";
 import type { Request } from "../api";
 import type { Settings, Status } from "../model";
+import { revisionLabel } from "../model";
 
 // Parsed Squid manager figures from /squid/metrics (ADR 0013); raw output
 // never reaches the browser.
@@ -147,7 +148,9 @@ function StatusPopoverBody({
       "Ревизия",
       rev ? (
         <>
-          <span className="font-mono text-sm">{shortId(rev)}</span>
+          <span className="font-mono text-sm">
+            {revisionLabel(rev, status?.applied_revision_number)}
+          </span>
           {inst?.last_applied_at &&
             ` · применена ${clock(inst.last_applied_at)}`}
         </>
@@ -210,10 +213,6 @@ function StatusPopoverBody({
       <KeyValue items={items} />
     </div>
   );
-}
-
-function shortId(id: string): string {
-  return id.length > 8 ? id.slice(0, 8) : id;
 }
 
 const num = (n: number) =>

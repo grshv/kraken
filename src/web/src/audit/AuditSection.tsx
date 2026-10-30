@@ -25,6 +25,7 @@ import { KeyValue } from "../components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import type { Preview, RevisionSummary } from "../model";
+import { revisionLabel } from "../model";
 import { localTime } from "../model";
 import type { NavId } from "../shell/nav";
 import type { SectionProps } from "../sections/sectionProps";
@@ -395,7 +396,7 @@ function AuditDetail({
               <CardTitle>Что изменилось</CardTitle>
               <CardAction>
                 <span className="font-mono text-sm text-muted-foreground">
-                  {event.entity_id.slice(0, 8)}
+                  {revisionLabel(event.entity_id, revision?.number)}
                 </span>
               </CardAction>
             </CardHeader>
