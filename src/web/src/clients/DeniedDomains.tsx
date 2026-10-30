@@ -1,5 +1,20 @@
 import { useMemo, useState } from "react";
-import { Ban, Check, EyeOff, Plus, RotateCcw, Search } from "lucide-react";
+import {
+  Ban,
+  Check,
+  EyeOff,
+  MoreHorizontal,
+  Plus,
+  RotateCcw,
+  Search,
+} from "lucide-react";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -185,6 +200,11 @@ export function DeniedDomains({
               }}
             />
           </div>
+          {picked.length === 0 && shown.length > 0 && (
+            <span className="text-sm text-muted-foreground">
+              Отметьте строки, чтобы разрешить или отметить несколько сразу
+            </span>
+          )}
           {picked.length > 0 && (
             <>
               <span className="text-sm text-muted-foreground">
@@ -256,7 +276,7 @@ export function DeniedDomains({
               <TableHead className="w-[84px] text-right">Отказов</TableHead>
               <TableHead className="w-[84px]">Последний</TableHead>
               <TableHead className="w-[190px]">Статус</TableHead>
-              <TableHead className="w-[132px]" />
+              <TableHead className="w-[164px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -291,15 +311,62 @@ export function DeniedDomains({
                   </TableCell>
                   <TableCell className="truncate">{statusBadge(n)}</TableCell>
                   <TableCell className="text-right">
-                    {!drafted && (
-                      <Button
-                        size="xs"
-                        variant="outline"
-                        onClick={() => void allow([n])}
-                      >
-                        <Plus aria-hidden /> Разрешить
-                      </Button>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {!drafted && (
+                        <Button
+                          size="xs"
+                          variant="outline"
+                          onClick={() => void allow([n])}
+                        >
+                          <Plus aria-hidden /> Разрешить
+                        </Button>
+                      )}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            size="icon-xs"
+                            variant="ghost"
+                            aria-label={`Действия с ${host}`}
+                          >
+                            <MoreHorizontal aria-hidden />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          {n.status !== "seen" && (
+                            <DropdownMenuItem
+                              onSelect={() => void mark([n], "seen")}
+                            >
+                              <Check aria-hidden /> Просмотрено
+                            </DropdownMenuItem>
+                          )}
+                          {n.status !== "ignored" && (
+                            <DropdownMenuItem
+                              onSelect={() => void mark([n], "ignored")}
+                            >
+                              <EyeOff aria-hidden /> Игнорировать
+                            </DropdownMenuItem>
+                          )}
+                          {n.status !== "new" && (
+                            <DropdownMenuItem
+                              onSelect={() => void mark([n], "new")}
+                            >
+                              <RotateCcw aria-hidden /> В новые
+                            </DropdownMenuItem>
+                          )}
+                          {canBlock && (
+                            <>
+                              <DropdownMenuSeparator />
+                              <DropdownMenuItem
+                                variant="destructive"
+                                onSelect={() => void block([n])}
+                              >
+                                <Ban aria-hidden /> Запретить для всех
+                              </DropdownMenuItem>
+                            </>
+                          )}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
+                    </div>
                   </TableCell>
                 </TableRow>
               );

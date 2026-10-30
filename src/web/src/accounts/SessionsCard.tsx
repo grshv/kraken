@@ -10,6 +10,14 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
 import { ago } from "../model";
 import type { SectionProps } from "../sections/sectionProps";
 import { deviceLabel } from "./device";
@@ -60,12 +68,20 @@ export function SessionsCard({
   };
   const others = (items ?? []).filter((s) => !s.current);
   const hasCurrent = (items ?? []).some((s) => s.current);
+  // The current session first, then the most recently active.
+  const sorted = [...(items ?? [])].sort(
+    (a, b) =>
+      Number(b.current) - Number(a.current) ||
+      Date.parse(b.last_seen_at) - Date.parse(a.last_seen_at),
+  );
   return (
     <Card>
       <CardHeader>
         <div>
           <CardTitle>Сессии</CardTitle>
-          <CardDescription>12 ч или 30 мин бездействия</CardDescription>
+          <CardDescription>
+            Сессия истекает через 12 ч или после 30 мин бездействия
+          </CardDescription>
         </div>
         {others.length > 0 && (
           <CardAction>
@@ -84,51 +100,66 @@ export function SessionsCard({
           </CardAction>
         )}
       </CardHeader>
-      <CardContent className="flex flex-col">
+      <CardContent>
         {items !== null && items.length === 0 && (
           <span className="text-sm text-muted-foreground">
             Активных сессий нет
           </span>
         )}
-        {(items ?? []).map((s) => (
-          <div
-            key={s.id}
-            className="flex items-center gap-2 border-b py-1.5 last:border-b-0"
-          >
-            <div className="min-w-0 grow">
-              <div className="truncate" title={s.user_agent ?? undefined}>
-                {deviceLabel(s.user_agent)}
-                {s.current && (
-                  <Badge variant="secondary" className="ml-1.5">
-                    эта
-                  </Badge>
-                )}
-              </div>
-              <div className="truncate text-sm text-muted-foreground">
-                {s.remote && <span className="font-mono">{s.remote}</span>}
-                {s.created_at &&
-                  ` · с ${new Date(s.created_at).toLocaleString("ru-RU", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}`}
-                {` · ${seen(s.last_seen_at)}`}
-              </div>
-            </div>
-            {!s.current && (
-              <Button
-                size="xs"
-                variant="ghost"
-                onClick={() =>
-                  void revoke(`${base}/${s.id}`, "Сессия завершена")
-                }
-              >
-                <X aria-hidden /> Завершить
-              </Button>
-            )}
-          </div>
-        ))}
+        {items !== null && items.length > 0 && (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Устройство</TableHead>
+                <TableHead>Адрес</TableHead>
+                <TableHead>Начало</TableHead>
+                <TableHead>Активность</TableHead>
+                <TableHead />
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell title={s.user_agent ?? undefined}>
+                    {deviceLabel(s.user_agent)}
+                    {s.current && (
+                      <Badge variant="secondary" className="ml-1.5">
+                        эта
+                      </Badge>
+                    )}
+                  </TableCell>
+                  <TableCell className="font-mono">{s.remote ?? "—"}</TableCell>
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {s.created_at
+                      ? new Date(s.created_at).toLocaleString("ru-RU", {
+                          day: "2-digit",
+                          month: "2-digit",
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })
+                      : "—"}
+                  </TableCell>
+                  <TableCell className="text-muted-foreground">
+                    {seen(s.last_seen_at)}
+                  </TableCell>
+                  <TableCell className="text-right">
+                    {!s.current && (
+                      <Button
+                        size="xs"
+                        variant="ghost"
+                        onClick={() =>
+                          void revoke(`${base}/${s.id}`, "Сессия завершена")
+                        }
+                      >
+                        <X aria-hidden /> Завершить
+                      </Button>
+                    )}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
       </CardContent>
     </Card>
   );
@@ -136,5 +167,5 @@ export function SessionsCard({
 
 function seen(iso: string): string {
   const a = ago(iso);
-  return a === "сейчас" ? "активна сейчас" : `активна ${a} назад`;
+  return a === "сейчас" ? "сейчас" : `${a} назад`;
 }

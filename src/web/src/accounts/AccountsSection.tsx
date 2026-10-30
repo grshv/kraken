@@ -50,6 +50,7 @@ import {
 } from "./rules";
 import { parseNetwork } from "../clients/networks";
 import { SessionsCard } from "./SessionsCard";
+import { RecentActions } from "./RecentActions";
 import { ProxyKpis, ProxySources, useProxyActivity } from "./ProxyActivity";
 import type { SectionProps } from "../sections/sectionProps";
 import type { NavId } from "../shell/nav";
@@ -339,6 +340,7 @@ function AccountDetail({
   session,
   request,
   onToast,
+  onNavigate,
   onMutated,
 }: {
   username: string;
@@ -359,6 +361,7 @@ function AccountDetail({
     return (
       <PanelUserDetail
         user={user}
+        onNavigate={onNavigate}
         users={users}
         draftClients={draftClients}
         session={session}
@@ -447,6 +450,7 @@ function PanelUserDetail({
   request,
   onToast,
   onMutated,
+  onNavigate,
   error,
   setError,
 }: {
@@ -457,6 +461,7 @@ function PanelUserDetail({
   request: SectionProps["request"];
   onToast: (m: string) => void;
   onMutated: () => Promise<void>;
+  onNavigate: (id: NavId) => void;
   error: string | null;
   setError: (s: string | null) => void;
 }) {
@@ -643,72 +648,95 @@ function PanelUserDetail({
             <span className="text-sm">{error}</span>
           </Callout>
         )}
-        <Card>
-          <CardHeader>
-            <div>
-              <CardTitle>Роль</CardTitle>
-              {user.role === "admin" && !demote && (
-                <CardDescription>
-                  Последнего администратора нельзя понизить или заблокировать
-                </CardDescription>
-              )}
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid grid-cols-2 gap-2 max-[1180px]:grid-cols-1">
-              <RoleOption
-                selected={user.role === "admin"}
-                disabled={user.role === "admin"}
-                onClick={() => patch({ role: "admin" }, "Роль изменена")}
-                label="Администратор"
-                hint="Всё, включая настройки и аккаунты"
-              />
-              <RoleOption
-                selected={user.role === "manager"}
-                disabled={user.role === "admin" && !demote}
-                title={
-                  user.role === "admin" && !demote
-                    ? "Нельзя понизить последнего администратора"
-                    : undefined
-                }
-                onClick={() => patch({ role: "manager" }, "Роль изменена")}
-                label="Менеджер"
-                hint="Только назначенные клиенты"
-              />
-            </div>
-            <Table className="mt-2.5">
-              <TableHeader>
-                <TableRow>
-                  <TableHead className="w-[38%]">Право</TableHead>
-                  <TableHead className="w-[18%]">Администратор</TableHead>
-                  <TableHead>Менеджер</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
+        <div className="grid grid-cols-1 items-start gap-3.5 @[900px]:grid-cols-2">
+          <Card>
+            <CardHeader>
+              <div>
+                <CardTitle>Роль</CardTitle>
+                {user.role === "admin" && !demote && (
+                  <CardDescription>
+                    Последнего администратора нельзя понизить или заблокировать
+                  </CardDescription>
+                )}
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="grid grid-cols-2 gap-2">
+                <RoleOption
+                  selected={user.role === "admin"}
+                  disabled={user.role === "admin"}
+                  onClick={() => patch({ role: "admin" }, "Роль изменена")}
+                  label="Администратор"
+                  hint="Всё, включая настройки и аккаунты"
+                />
+                <RoleOption
+                  selected={user.role === "manager"}
+                  disabled={user.role === "admin" && !demote}
+                  title={
+                    user.role === "admin" && !demote
+                      ? "Нельзя понизить последнего администратора"
+                      : undefined
+                  }
+                  onClick={() => patch({ role: "manager" }, "Роль изменена")}
+                  label="Менеджер"
+                  hint="Только назначенные клиенты"
+                />
+              </div>
+              <dl className="mt-3 flex flex-col text-sm">
                 {PERMS.map(([p, ad, mg]) => (
-                  <TableRow key={p}>
-                    <TableCell className="w-[38%]">{p}</TableCell>
-                    <TableCell
-                      className={
-                        "w-[18%] " +
-                        (user.role === "admin" ? "" : "text-muted-foreground")
-                      }
-                    >
-                      {ad}
-                    </TableCell>
-                    <TableCell
-                      className={
-                        user.role === "manager" ? "" : "text-muted-foreground"
-                      }
-                    >
-                      {mg}
-                    </TableCell>
-                  </TableRow>
+                  <div
+                    key={p}
+                    className="flex items-baseline justify-between gap-4 border-b py-1.5 last:border-b-0"
+                  >
+                    <dt className="text-muted-foreground">{p}</dt>
+                    <dd className="m-0 text-right">
+                      {user.role === "admin" ? ad : mg}
+                    </dd>
+                  </div>
                 ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
+              </dl>
+            </CardContent>
+          </Card>
+          <div className="flex flex-col gap-3.5">
+            <Card>
+              <CardHeader>
+                <CardTitle>Входы</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <KeyValue
+                  items={[
+                    [
+                      "Последний",
+                      logins.last
+                        ? new Date(logins.last).toLocaleString("ru-RU", {
+                            day: "2-digit",
+                            month: "2-digit",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                          })
+                        : "—",
+                    ],
+                    [
+                      "Неудачных за 24 ч",
+                      <span className={cn(logins.failed24h > 0 && "text-bad")}>
+                        {logins.failed24h}
+                      </span>,
+                    ],
+                    [
+                      "Защита",
+                      "больше 5 попыток в минуту с адреса или 20 для имени — вход закрыт на минуту",
+                    ],
+                  ]}
+                />
+              </CardContent>
+            </Card>
+            <RecentActions
+              username={user.username}
+              request={request}
+              onOpenAudit={() => onNavigate("audit")}
+            />
+          </div>
+        </div>
 
         {user.role === "manager" && (
           <ManagerScopeEditor
@@ -727,45 +755,11 @@ function PanelUserDetail({
           />
         )}
 
-        <div className="grid grid-cols-1 items-start gap-3.5 @[700px]:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Входы</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <KeyValue
-                items={[
-                  [
-                    "Последний",
-                    logins.last
-                      ? new Date(logins.last).toLocaleString("ru-RU", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "—",
-                  ],
-                  [
-                    "Неудачных за 24 ч",
-                    <span className={cn(logins.failed24h > 0 && "text-bad")}>
-                      {logins.failed24h}
-                    </span>,
-                  ],
-                  [
-                    "Защита",
-                    "больше 5 попыток в минуту с адреса или 20 для имени — вход закрыт на минуту",
-                  ],
-                ]}
-              />
-            </CardContent>
-          </Card>
-          <SessionsCard
-            username={user.username}
-            request={request}
-            onToast={onToast}
-          />
-        </div>
+        <SessionsCard
+          username={user.username}
+          request={request}
+          onToast={onToast}
+        />
       </InspectorBody>
     </>
   );
