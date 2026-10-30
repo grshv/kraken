@@ -97,7 +97,6 @@ import { clientChanges } from "./history";
 import { missingDomains } from "./missing";
 import {
   addDomainToClientPolicy,
-  addDomainsToPolicy,
   changeClientPolicy,
   createClientFromIP,
   deleteClient,
@@ -613,9 +612,7 @@ function RadioCard({
     <div
       className={cn(
         "rounded-lg border px-3 py-2.5",
-        active
-          ? "border-muted-foreground/45 bg-hover"
-          : "border-border",
+        active ? "border-muted-foreground/45 bg-hover" : "border-border",
         disabled && "opacity-60",
       )}
     >
@@ -985,32 +982,7 @@ function OverviewTab({
   return (
     <>
       {deniedTop.length > 0 && (
-        <Callout
-          tone="bad"
-          icon={<Ban aria-hidden />}
-          actions={
-            deniedTop.length > 1 ? (
-              <Button
-                size="xs"
-                onClick={async () => {
-                  const res = await onCommit(
-                    addDomainsToPolicy(
-                      snap,
-                      policy!.id,
-                      deniedTop.map((d) => d.host),
-                    ),
-                  );
-                  if (res.ok)
-                    onToast(
-                      `${pluralRu(deniedTop.length, "домен добавлен", "домена добавлены", "доменов добавлены")} в политику`,
-                    );
-                }}
-              >
-                <Plus aria-hidden /> Разрешить все
-              </Button>
-            ) : undefined
-          }
-        >
+        <Callout tone="bad" icon={<Ban aria-hidden />}>
           <div className="font-medium">
             {deniedTop.length === 1
               ? "Домена нет"
@@ -1024,39 +996,12 @@ function OverviewTab({
             )}{" "}
             за 24 ч
           </div>
-          <div className="mt-1.5 flex flex-col">
-            {shown.map((d) => (
-              <div
-                key={d.host}
-                className="flex items-center gap-2.5 border-t border-bad/15 py-1"
-              >
-                <span className="grow truncate font-mono text-sm">
-                  {d.host}
-                </span>
-                <span className="text-sm text-bad tabular-nums">
-                  {pluralRu(d.denied, "отказ", "отказа", "отказов")}
-                </span>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  className="h-6"
-                  onClick={() => allow(d.host)}
-                >
-                  <Plus aria-hidden /> Разрешить
-                </Button>
-              </div>
-            ))}
-            {rest > 0 && (
-              <Button
-                size="xs"
-                variant="link"
-                className="h-6 self-start px-0 text-muted-foreground"
-                onClick={() => onTab("access")}
-              >
-                ещё {pluralRu(rest, "домен", "домена", "доменов")} во вкладке
-                «Доступ»
-              </Button>
-            )}
+          <div className="mt-0.5 text-sm text-muted-foreground">
+            <span className="font-mono">
+              {shown.map((d) => d.host).join(", ")}
+            </span>
+            {rest > 0 && ` и ещё ${rest}`}. Разрешить можно ниже, в «Куда
+            обращается», или во вкладке «Доступ».
           </div>
         </Callout>
       )}
