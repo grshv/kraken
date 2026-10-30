@@ -1,7 +1,10 @@
 import { useEffect, useId, useMemo, useState } from "react";
 import {
+  ArrowRight,
   Ban,
   Check,
+  Info,
+  TriangleAlert,
   Copy,
   Eye,
   Globe,
@@ -17,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
 import {
   Select,
@@ -89,8 +93,10 @@ import {
 import { entityMarks, type Mark } from "../draft/marks";
 import { parseNetwork, networksOverlap, networkWithin } from "./networks";
 import { Sparkline, TrafficChart, type Bucket } from "./TrafficChart";
+import { clientChanges } from "./history";
 import {
   addDomainToClientPolicy,
+  changeClientPolicy,
   createClientFromIP,
   deleteClient,
   newEntityID,
@@ -297,62 +303,62 @@ export function ClientsSection(props: SectionProps) {
   }
 
   const createForm = creating && snap && (
-      <NewClientForm
-        key={creating.from ?? creating.name}
-        draft={snap!}
-        request={request}
-        from={creating.from}
-        fromSource={unknown?.find((u) => u.source_ip === creating.from)}
-        initialName={creating.name}
-        initialSrc={creating.src}
-        initialDomains={creating.domains}
-        onCancel={() => setCreating(null)}
-        onSubmit={async (input) => {
-          const r = createClientFromIP(
-            snap!,
-            input.networks[0],
-            input.name,
-            input.domains,
-          );
-          if (!r) {
-            onToast("Проверьте адрес источника и имя");
-            return;
-          }
-          let next = r.snapshot;
-          const usePolicy =
-            input.mode === "shared" ? input.sharedPolicyID : r.policyID;
-          next = {
-            ...next,
-            clients: next.clients.map((c) =>
-              c.id === r.clientID
-                ? {
-                    ...c,
-                    kind: input.kind,
-                    source_networks: input.networks,
-                    policy_id: usePolicy,
-                    proxy_username: input.proxyUsername || undefined,
-                  }
-                : c,
+    <NewClientForm
+      key={creating.from ?? creating.name}
+      draft={snap!}
+      request={request}
+      from={creating.from}
+      fromSource={unknown?.find((u) => u.source_ip === creating.from)}
+      initialName={creating.name}
+      initialSrc={creating.src}
+      initialDomains={creating.domains}
+      onCancel={() => setCreating(null)}
+      onSubmit={async (input) => {
+        const r = createClientFromIP(
+          snap!,
+          input.networks[0],
+          input.name,
+          input.domains,
+        );
+        if (!r) {
+          onToast("Проверьте адрес источника и имя");
+          return;
+        }
+        let next = r.snapshot;
+        const usePolicy =
+          input.mode === "shared" ? input.sharedPolicyID : r.policyID;
+        next = {
+          ...next,
+          clients: next.clients.map((c) =>
+            c.id === r.clientID
+              ? {
+                  ...c,
+                  kind: input.kind,
+                  source_networks: input.networks,
+                  policy_id: usePolicy,
+                  proxy_username: input.proxyUsername || undefined,
+                }
+              : c,
+          ),
+          policies: next.policies
+            .filter((p) => input.mode !== "shared" || p.id !== r.policyID)
+            .map((p) =>
+              p.id === r.policyID && input.mode === "all"
+                ? { ...p, mode: "all_web" as const, destinations: [] }
+                : p,
             ),
-            policies: next.policies
-              .filter((p) => input.mode !== "shared" || p.id !== r.policyID)
-              .map((p) =>
-                p.id === r.policyID && input.mode === "all"
-                  ? { ...p, mode: "all_web" as const, destinations: [] }
-                  : p,
-              ),
-          };
-          const res = await onCommit(next);
-          if (res.ok) {
-            setSelected(r.clientID);
-            setCreating(null);
-            setTab("access");
-            onToast("Клиент добавлен в черновик");
-          } else if (res.code !== "revision_conflict") {
-            onToast(res.message ?? "Не удалось сохранить клиента");
-          }
-        }}
-      />
+        };
+        const res = await onCommit(next);
+        if (res.ok) {
+          setSelected(r.clientID);
+          setCreating(null);
+          setTab("access");
+          onToast("Клиент добавлен в черновик");
+        } else if (res.code !== "revision_conflict") {
+          onToast(res.message ?? "Не удалось сохранить клиента");
+        }
+      }}
+    />
   );
 
   const commit = async (next: Snapshot): Promise<CommitResult> => {
@@ -482,59 +488,61 @@ export function ClientsSection(props: SectionProps) {
         </ListPaneBody>
       </ListPane>
       {createForm || (
-      <InspectorPane>
-        {selectedClient ? (
-          <ClientDetail
-            client={selectedClient}
-            tab={tab}
-            onTab={setTab}
-            snap={snap!}
-            stats={stats[selectedClient.id]}
-            marks={clientMarks}
-            request={request}
-            session={session}
-            onCommit={commit}
-            onToast={onToast}
-            onNavigate={onNavigate}
-            onConfirm={setConfirm}
-            setConfirmFn={setConfirmFn}
-            onDelete={async () => {
-              const res = await onCommit(
-                deleteClient(snap!, selectedClient.id),
-              );
-              if (res.ok) {
-                setSelected(null);
-                onToast("Клиент удалён из черновика");
-              }
-            }}
-            onToggleEnabled={async () => {
-              await onCommit(
-                setClientEnabled(
-                  snap!,
-                  selectedClient.id,
-                  !selectedClient.enabled,
-                ),
-              );
-            }}
-            onDuplicate={() => {
-              setCreating({
-                name: selectedClient.name + "-копия",
-                src: selectedClient.source_networks[0] ?? "",
-                domains: (
-                  snap!.policies.find((p) => p.id === selectedClient.policy_id)
-                    ?.destinations ?? []
-                ).map((d) => (d.include_subdomains ? "*." : "") + d.domain),
-              });
-            }}
-          />
-        ) : (
-          <InspectorBody>
-            <EmptyState icon={<Users />} title="Выберите клиента">
-              Выберите клиента слева или создайте нового.
-            </EmptyState>
-          </InspectorBody>
-        )}
-      </InspectorPane>
+        <InspectorPane>
+          {selectedClient ? (
+            <ClientDetail
+              client={selectedClient}
+              active={activeSnap ?? null}
+              tab={tab}
+              onTab={setTab}
+              snap={snap!}
+              stats={stats[selectedClient.id]}
+              marks={clientMarks}
+              request={request}
+              session={session}
+              onCommit={commit}
+              onToast={onToast}
+              onNavigate={onNavigate}
+              onConfirm={setConfirm}
+              setConfirmFn={setConfirmFn}
+              onDelete={async () => {
+                const res = await onCommit(
+                  deleteClient(snap!, selectedClient.id),
+                );
+                if (res.ok) {
+                  setSelected(null);
+                  onToast("Клиент удалён из черновика");
+                }
+              }}
+              onToggleEnabled={async () => {
+                await onCommit(
+                  setClientEnabled(
+                    snap!,
+                    selectedClient.id,
+                    !selectedClient.enabled,
+                  ),
+                );
+              }}
+              onDuplicate={() => {
+                setCreating({
+                  name: selectedClient.name + "-копия",
+                  src: selectedClient.source_networks[0] ?? "",
+                  domains: (
+                    snap!.policies.find(
+                      (p) => p.id === selectedClient.policy_id,
+                    )?.destinations ?? []
+                  ).map((d) => (d.include_subdomains ? "*." : "") + d.domain),
+                });
+              }}
+            />
+          ) : (
+            <InspectorBody>
+              <EmptyState icon={<Users />} title="Выберите клиента">
+                Выберите клиента слева или создайте нового.
+              </EmptyState>
+            </InspectorBody>
+          )}
+        </InspectorPane>
       )}
       <ConfirmDialog
         options={confirm}
@@ -570,42 +578,55 @@ function RadioCard({
   title,
   hint,
   disabled,
+  children,
 }: {
   value: string;
   active: boolean;
   title: string;
   hint?: string;
   disabled?: boolean;
+  children?: React.ReactNode;
 }) {
   const id = useId();
+  // Extra controls (a policy picker) sit below the label so clicking them
+  // does not toggle the radio.
   return (
-    <label
-      htmlFor={id}
+    <div
       className={cn(
-        "grid grid-cols-[18px_minmax(0,1fr)] gap-2.5 rounded-lg border px-3 py-2.5 items-start",
+        "rounded-lg border px-3 py-2.5",
         active
           ? "border-foreground shadow-[0_0_0_1px_var(--foreground)]"
           : "border-border",
-        disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+        disabled && "opacity-60",
       )}
     >
-      <RadioGroupItem
-        id={id}
-        value={value}
-        disabled={disabled}
-        className="mt-px"
-      />
-      <span className="min-w-0">
-        <div className="font-medium">{title}</div>
-        {hint && <div className="text-sm text-muted-foreground">{hint}</div>}
-      </span>
-    </label>
+      <label
+        htmlFor={id}
+        className={cn(
+          "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5",
+          disabled ? "cursor-not-allowed" : "cursor-pointer",
+        )}
+      >
+        <RadioGroupItem
+          id={id}
+          value={value}
+          disabled={disabled}
+          className="mt-px"
+        />
+        <span className="min-w-0">
+          <div className="font-medium">{title}</div>
+          {hint && <div className="text-sm text-muted-foreground">{hint}</div>}
+        </span>
+      </label>
+      {children && <div className="pl-7">{children}</div>}
+    </div>
   );
 }
 
 // ClientDetail renders the tabbed inspector for one client.
 function ClientDetail({
   client,
+  active,
   tab,
   onTab,
   snap,
@@ -623,6 +644,7 @@ function ClientDetail({
   onDuplicate,
 }: {
   client: Client;
+  active: Snapshot | null;
   tab: Tab;
   onTab: (t: Tab) => void;
   snap: Snapshot;
@@ -665,8 +687,7 @@ function ClientDetail({
     };
   }, [request, client.id]);
   const lastSeen = recent?.[0]?.timestamp;
-  const missing = (stats?.top_destinations ?? []).filter((d) => d.denied > 0)
-    .length;
+  const missing = missingDomains(stats, policy).length;
   const tabs: [Tab, string][] = [
     ["overview", "Обзор"],
     ["access", "Доступ"],
@@ -839,9 +860,32 @@ function ClientDetail({
             onNavigate={onNavigate}
           />
         )}
-        {tab === "history" && <HistoryTab client={client} request={request} />}
+        {tab === "history" && (
+          <HistoryTab
+            client={client}
+            snap={snap}
+            active={active}
+            request={request}
+          />
+        )}
       </InspectorBody>
     </>
+  );
+}
+
+// missingDomains: denied destinations the client's allowlist does not cover —
+// the ones "Разрешить" can fix. Denials of covered hosts come from protection
+// or the global blocklist and are not offered.
+function missingDomains(stats: ClientStats | undefined, policy: Policy | null) {
+  if (!policy || policy.mode !== "allowlist") return [];
+  return (stats?.top_destinations ?? []).filter(
+    (d) =>
+      d.denied > 0 &&
+      !policy.destinations.some(
+        (x) =>
+          d.host === x.domain ||
+          (x.include_subdomains && d.host.endsWith("." + x.domain)),
+      ),
   );
 }
 
@@ -921,12 +965,11 @@ function OverviewTab({
   onTab: (t: Tab) => void;
 }) {
   const top = stats?.top_destinations ?? [];
-  const deniedTop = top.filter((d) => d.denied > 0);
+  const deniedTop = missingDomains(stats, policy);
+  const isMissing = (host: string) => deniedTop.some((d) => d.host === host);
   const shown = deniedTop.slice(0, 3);
   const rest = deniedTop.length - shown.length;
-  const policyName = policy
-    ? policy.name
-    : "";
+  const policyName = policy ? policy.name : "";
   const shared = policy
     ? snap.clients.filter((c) => c.policy_id === policy.id).length
     : 0;
@@ -1039,7 +1082,9 @@ function OverviewTab({
                           </div>
                           {d.denied > 0 && (
                             <div className="truncate text-sm text-muted-foreground">
-                              нет в политике
+                              {isMissing(d.host)
+                                ? "нет в политике"
+                                : "запрещено защитой или для всех"}
                             </div>
                           )}
                         </TableCell>
@@ -1067,7 +1112,7 @@ function OverviewTab({
                             : d.requests.toLocaleString("ru-RU")}
                         </TableCell>
                         <TableCell className="pr-0 text-right">
-                          {d.denied > 0 && (
+                          {isMissing(d.host) && (
                             <Button
                               size="xs"
                               variant="outline"
@@ -1243,7 +1288,11 @@ function AccessTab({
       live = false;
     };
   }, [policy?.id]);
-  const deniedTop = (stats?.top_destinations ?? []).filter((d) => d.denied > 0);
+  const deniedTop = missingDomains(stats, policy);
+  // Policies another client could share: allowlists not owned by this client.
+  const sharable = snap.policies.filter(
+    (p) => p.mode === "allowlist" && p.id !== policy?.id,
+  );
   if (!policy) {
     return (
       <Callout tone="info" icon={<Eye aria-hidden />}>
@@ -1258,27 +1307,46 @@ function AccessTab({
       ? "all"
       : sharedWith.length > 1
         ? "shared"
-        : "own";
+        : policy.destinations.length === 0
+          ? "none"
+          : "own";
+  const ownPolicy = (destinations: Policy["destinations"]): Snapshot => {
+    if (sharedWith.length <= 1)
+      return {
+        ...snap,
+        policies: snap.policies.map((p) =>
+          p.id === policy.id ? { ...p, mode: "allowlist", destinations } : p,
+        ),
+      };
+    const ownID = newEntityID(snap, "p-");
+    return {
+      ...snap,
+      policies: [
+        ...snap.policies,
+        {
+          id: ownID,
+          name: client.name,
+          mode: "allowlist",
+          destinations,
+          tls_profile_id: snap.tls_profiles[0]?.id ?? "",
+        },
+      ],
+      clients: snap.clients.map((c) =>
+        c.id === client.id ? { ...c, policy_id: ownID } : c,
+      ),
+    };
+  };
   const select = async (v: string) => {
     if (v === activeMode) return;
     if (v === "own") {
-      // Switch to a fresh own policy.
-      const ownID = newEntityID(snap, "p-");
-      const tlsID = snap.tls_profiles[0]?.id ?? "";
-      const own: Policy = {
-        id: ownID,
-        name: client.name,
-        mode: "allowlist",
-        destinations: policy.destinations,
-        tls_profile_id: tlsID,
-      };
-      await onCommit({
-        ...snap,
-        policies: [...snap.policies, own],
-        clients: snap.clients.map((c) =>
-          c.id === client.id ? { ...c, policy_id: ownID } : c,
-        ),
-      });
+      await onCommit(
+        ownPolicy(policy.mode === "allowlist" ? policy.destinations : []),
+      );
+    } else if (v === "none") {
+      await onCommit(ownPolicy([]));
+    } else if (v === "shared") {
+      if (sharable[0])
+        await onCommit(changeClientPolicy(snap, client.id, sharable[0].id));
     } else if (v === "all") {
       await onCommit({
         ...snap,
@@ -1292,9 +1360,15 @@ function AccessTab({
     <>
       <Card>
         <CardHeader>
-          <CardTitle>Политика</CardTitle>
+          <div>
+            <CardTitle>Политика</CardTitle>
+            <CardDescription>
+              Список доменов можно держать у клиента или подключить общую: тогда
+              правка действует на всех её клиентов
+            </CardDescription>
+          </div>
         </CardHeader>
-        <CardContent>
+        <CardContent className="flex flex-col gap-2.5">
           <RadioGroup
             value={activeMode}
             onValueChange={select}
@@ -1304,15 +1378,47 @@ function AccessTab({
               value="own"
               active={activeMode === "own"}
               title="Своя политика"
-              hint="Только для этого клиента"
+              hint={`Только для ${client.name}`}
             />
             <RadioCard
               value="shared"
               active={activeMode === "shared"}
               title="Общая политика"
-              hint={policy.name}
-              disabled
-            />
+              hint={sharable.length ? undefined : "Других политик пока нет"}
+              disabled={!sharable.length}
+            >
+              {sharable.length > 0 && (
+                <Select
+                  value={activeMode === "shared" ? policy.id : ""}
+                  onValueChange={(id) =>
+                    onCommit(changeClientPolicy(snap, client.id, id))
+                  }
+                >
+                  <SelectTrigger
+                    className="mt-1.5 h-7"
+                    aria-label="Общая политика"
+                  >
+                    <SelectValue placeholder="Выберите…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {[
+                      ...(activeMode === "shared" ? [policy] : []),
+                      ...sharable,
+                    ].map((p) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name}:{" "}
+                        {pluralRu(
+                          p.destinations.length,
+                          "домен",
+                          "домена",
+                          "доменов",
+                        )}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </RadioCard>
             <RadioCard
               value="all"
               active={activeMode === "all"}
@@ -1321,18 +1427,26 @@ function AccessTab({
             />
             <RadioCard
               value="none"
-              active={false}
+              active={activeMode === "none"}
               title="Нет доступа"
               hint="Клиент описан, но всё закрыто"
-              disabled
             />
           </RadioGroup>
+          {activeMode === "own" && (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
+              <Info aria-hidden className="size-3.5" />
+              Тот же список нужен другим?
+              <Button
+                size="xs"
+                variant="outline"
+                onClick={() => onNavigate("policies")}
+              >
+                Сделать общей…
+              </Button>
+            </div>
+          )}
           {others.length > 0 && (
-            <Callout
-              tone="warn"
-              icon={<ShieldCheck aria-hidden />}
-              className="mt-2.5"
-            >
+            <Callout tone="warn" icon={<ShieldCheck aria-hidden />}>
               <div className="text-sm">
                 Общая политика: правка затронет также{" "}
                 {others.map((c) => c.name).join(", ")}.
@@ -1344,7 +1458,14 @@ function AccessTab({
       {policy.mode === "allowlist" && (
         <Card>
           <CardHeader>
-            <CardTitle className="flex-1 min-w-0">Разрешённые домены</CardTitle>
+            <div>
+              <CardTitle>Разрешённые домены</CardTitle>
+              <CardDescription>
+                {others.length
+                  ? `Действует для ${pluralRu(sharedWith.length, "клиента", "клиентов", "клиентов")}`
+                  : "Действует только для этого клиента"}
+              </CardDescription>
+            </div>
             <CardAction>
               <Button
                 size="xs"
@@ -1359,10 +1480,10 @@ function AccessTab({
             {deniedTop.length > 0 && (
               <Callout
                 tone="warn"
-                icon={<Ban aria-hidden />}
+                icon={<TriangleAlert aria-hidden />}
                 className="mb-2.5"
               >
-                <div className="text-sm">
+                <div className="flex flex-wrap items-center gap-1.5 text-sm">
                   Отказанные домены этого клиента:{" "}
                   {deniedTop.map((d) => (
                     <Button
@@ -1403,6 +1524,25 @@ function AccessTab({
   );
 }
 
+// addressCount renders how many addresses a network holds ("1 адрес",
+// "256 адресов"); IPv6 prefixes beyond /64 are not counted.
+function addressCount(net: string): string {
+  const [ip, bits] = net.split("/");
+  const v6 = ip.includes(":");
+  const prefix = bits === undefined ? (v6 ? 128 : 32) : Number(bits);
+  const free = (v6 ? 128 : 32) - prefix;
+  if (free === 0) return "1 адрес";
+  if (free > 52) return "сеть IPv6";
+  const n = Math.pow(2, free);
+  return pluralRu(n, "адрес", "адреса", "адресов").replace(
+    String(n),
+    n.toLocaleString("ru-RU"),
+  );
+}
+
+// SourceTab: who the client is, its source addresses (one row each, saved
+// when a row loses focus) and how it connects. A proxy login means the TLS
+// port, as policies-and-tls requires.
 function SourceTab({
   client,
   snap,
@@ -1420,10 +1560,15 @@ function SourceTab({
 }) {
   const [name, setName] = useState(client.name);
   const [description, setDescription] = useState(client.description ?? "");
-  const [kind, setKind] = useState<Client["kind"]>(client.kind ?? "host");
-  const [networks, setNetworks] = useState(client.source_networks.join("\n"));
+  const [rows, setRows] = useState<string[]>(client.source_networks);
   const [fieldError, setFieldError] = useState("");
   const [accounts, setAccounts] = useState<ProxyAccount[]>([]);
+  useEffect(() => {
+    setName(client.name);
+    setDescription(client.description ?? "");
+    setRows(client.source_networks);
+    setFieldError("");
+  }, [client]);
   useEffect(() => {
     let live = true;
     request<{ items: ProxyAccount[] }>("/proxy-accounts")
@@ -1436,34 +1581,34 @@ function SourceTab({
     };
   }, [request]);
   const scope = managerScope(session);
-  const others = snap.clients.filter((c) => c.id !== client.id);
-  const save = async () => {
-    const lines = networks
-      .split(/[\s,]+/)
-      .map((s) => s.trim())
-      .filter(Boolean);
+  const others = snap.clients.filter((c) => c.id !== client.id && c.enabled);
+  const patch = (p: Partial<Client>) =>
+    onCommit({
+      ...snap,
+      clients: snap.clients.map((c) =>
+        c.id === client.id ? { ...c, ...p } : c,
+      ),
+    });
+  // Overlaps allowed only between different proxy logins.
+  const overlapOf = (n: string) =>
+    others.find((c) => c.source_networks.some((m) => networksOverlap(n, m)));
+  const loginsDiffer = (c: Client) =>
+    !!client.proxy_username &&
+    !!c.proxy_username &&
+    client.proxy_username !== c.proxy_username;
+  const saveNetworks = async (list: string[]) => {
     const parsed: string[] = [];
-    for (const ln of lines) {
+    for (const ln of list.map((s) => s.trim()).filter(Boolean)) {
       const n = parseNetwork(ln);
       if (!n) {
         setFieldError(`«${ln}» не похоже на IP-адрес или сеть.`);
         return;
       }
-      // Overlap with another client (same family) unless distinct proxy logins.
-      for (const c of others) {
-        if (!c.enabled) continue;
-        if (
-          client.proxy_username &&
-          c.proxy_username &&
-          client.proxy_username !== c.proxy_username
-        )
-          continue;
-        if (c.source_networks.some((m) => networksOverlap(n, m))) {
-          setFieldError(`${n} пересекается с клиентом ${c.name}.`);
-          return;
-        }
+      const o = overlapOf(n);
+      if (o && !loginsDiffer(o)) {
+        setFieldError(`${n} пересекается с клиентом ${o.name}.`);
+        return;
       }
-      // Manager: source must be inside his networks.
       if (scope && !scope.networks.some((net) => networkWithin(n, net))) {
         setFieldError(`${n} вне ваших сетей.`);
         return;
@@ -1475,14 +1620,8 @@ function SourceTab({
       return;
     }
     setFieldError("");
-    let next = setClientNetworks(snap, client.id, parsed);
-    next = {
-      ...next,
-      clients: next.clients.map((c) =>
-        c.id === client.id ? { ...c, name, description, kind } : c,
-      ),
-    };
-    const res = await onCommit(next);
+    if (parsed.join() === client.source_networks.join()) return;
+    const res = await onCommit(setClientNetworks(snap, client.id, parsed));
     if (!res.ok && res.code === "source_outside_scope")
       setFieldError("Адрес вне ваших сетей.");
     else if (!res.ok && res.code === "source_overlap")
@@ -1490,19 +1629,31 @@ function SourceTab({
     else if (!res.ok && res.code !== "revision_conflict")
       onToast(res.message ?? "Ошибка сохранения");
   };
+  const allowedOverlaps = client.source_networks
+    .map((n) => [n, overlapOf(n)] as const)
+    .filter(([, o]) => o && loginsDiffer(o));
+  const settings = snap.settings;
   return (
     <>
       <Card>
         <CardHeader>
-          <CardTitle className="flex-1 min-w-0">Кто это</CardTitle>
+          <CardTitle>Кто это</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-1 gap-3.5 min-[1180px]:grid-cols-2">
-            <Field label="Имя" htmlFor="f-src-name">
+          <div className="grid grid-cols-1 gap-3.5 @[700px]:grid-cols-2">
+            <Field
+              label="Имя"
+              htmlFor="f-src-name"
+              help="Латиница, цифры и дефис. Под этим именем клиент виден в журнале"
+            >
               <Input
                 id="f-src-name"
                 value={name}
                 onChange={(e) => setName(e.target.value)}
+                onBlur={() => {
+                  const v = name.trim();
+                  if (v && v !== client.name) void patch({ name: v });
+                }}
               />
             </Field>
             <Field label="Описание" htmlFor="f-src-desc">
@@ -1510,102 +1661,178 @@ function SourceTab({
                 id="f-src-desc"
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
+                onBlur={() => {
+                  if (description !== (client.description ?? ""))
+                    void patch({ description: description || undefined });
+                }}
               />
             </Field>
-            <Field label="Тип" htmlFor="f-src-kind">
-              <Select
-                value={kind}
-                onValueChange={(v) => setKind(v as Client["kind"])}
+            <Field
+              label="Тип"
+              help="Подсказка для людей; доступ определяется адресами ниже"
+            >
+              <ToggleGroup
+                type="single"
+                variant="seg"
+                size="sm"
+                spacing={0.5}
+                className="w-full rounded-lg bg-muted p-[3px]"
+                aria-label="Тип клиента"
+                value={client.kind ?? "host"}
+                onValueChange={(v) => {
+                  if (v) void patch({ kind: v as Client["kind"] });
+                }}
               >
-                <SelectTrigger id="f-src-kind">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="host">Устройство</SelectItem>
-                  <SelectItem value="network">Сеть</SelectItem>
-                  <SelectItem value="group">Группа сетей</SelectItem>
-                </SelectContent>
-              </Select>
+                <ToggleGroupItem value="host">Устройство</ToggleGroupItem>
+                <ToggleGroupItem value="network">Сеть</ToggleGroupItem>
+                <ToggleGroupItem value="group">Группа сетей</ToggleGroupItem>
+              </ToggleGroup>
             </Field>
             <Field label="Включён">
-              <Badge variant={client.enabled ? "default" : "secondary"}>
+              <label className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
+                <Switch
+                  checked={client.enabled}
+                  onCheckedChange={(on) =>
+                    onCommit(setClientEnabled(snap, client.id, on))
+                  }
+                />
                 {client.enabled
-                  ? "правила действуют"
-                  : "все запросы получают отказ"}
-              </Badge>
+                  ? "Правила действуют"
+                  : "Все запросы получают отказ"}
+              </label>
             </Field>
           </div>
         </CardContent>
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="flex-1 min-w-0">Адреса источника</CardTitle>
+          <div>
+            <CardTitle>Адреса источника</CardTitle>
+            <CardDescription>
+              IP или CIDR, как их видит прокси (после NAT)
+            </CardDescription>
+          </div>
         </CardHeader>
-        <CardContent>
-          <Field
-            label="Адреса (по одному в строке)"
-            htmlFor="f-src-networks"
-            error={fieldError}
+        <CardContent className="flex flex-col gap-2">
+          {rows.map((r, i) => {
+            const n = parseNetwork(r);
+            return (
+              <div key={i} className="flex items-center gap-2">
+                <Input
+                  className="max-w-[260px] font-mono text-sm"
+                  aria-label={`Адрес ${i + 1}`}
+                  value={r}
+                  placeholder="10.20.0.77 или 10.20.0.0/24"
+                  onChange={(e) =>
+                    setRows(rows.map((x, j) => (j === i ? e.target.value : x)))
+                  }
+                  onBlur={() => saveNetworks(rows)}
+                />
+                <span className="text-sm text-muted-foreground">
+                  {n ? addressCount(n) : ""}
+                </span>
+                <span className="grow" />
+                {rows.length > 1 && (
+                  <Button
+                    size="icon-xs"
+                    variant="ghost"
+                    aria-label={`Удалить ${r}`}
+                    onClick={() => {
+                      const next = rows.filter((_, j) => j !== i);
+                      setRows(next);
+                      void saveNetworks(next);
+                    }}
+                  >
+                    <X aria-hidden />
+                  </Button>
+                )}
+              </div>
+            );
+          })}
+          {fieldError && <div className="text-sm text-bad">{fieldError}</div>}
+          {allowedOverlaps.map(([n, o]) => (
+            <Callout key={n} tone="info" icon={<Info aria-hidden />}>
+              <div className="text-sm">
+                {n} пересекается с {o!.name}: допустимо, у клиентов разные
+                логины прокси
+              </div>
+            </Callout>
+          ))}
+          <Button
+            size="xs"
+            variant="outline"
+            className="self-start border-dashed"
+            onClick={() => setRows([...rows, ""])}
           >
-            <Textarea
-              id="f-src-networks"
-              className="font-mono text-sm"
-              rows={3}
-              value={networks}
-              onChange={(e) => setNetworks(e.target.value)}
-              placeholder="10.20.0.77 или 10.20.0.0/24"
-            />
-          </Field>
-          <Button size="sm" className="mt-2" onClick={save}>
-            Сохранить адреса
+            <Plus aria-hidden /> Адрес или сеть
           </Button>
         </CardContent>
       </Card>
       <Card>
         <CardHeader>
-          <CardTitle className="flex-1 min-w-0">Подключение к прокси</CardTitle>
+          <CardTitle>Подключение к прокси</CardTitle>
         </CardHeader>
-        <CardContent>
-          <Field
-            label="Логин прокси"
-            htmlFor="f-src-login"
-            help="Логины прокси настраиваются в разделе «Аккаунты». Пароль в политике не хранится."
+        <CardContent className="flex flex-col gap-3">
+          <RadioGroup
+            value={client.proxy_username ? "tls" : "http"}
+            onValueChange={(v) => {
+              if (v === "http") void patch({ proxy_username: undefined });
+              else if (accounts[0])
+                void patch({ proxy_username: accounts[0].username });
+            }}
+            className="grid grid-cols-1 gap-2 @[700px]:grid-cols-2"
           >
-            <Select
-              value={client.proxy_username ?? ""}
-              onValueChange={async (v) => {
-                const next = {
-                  ...snap,
-                  clients: snap.clients.map((c) =>
-                    c.id === client.id
-                      ? { ...c, proxy_username: v || undefined }
-                      : c,
-                  ),
-                };
-                const res = await onCommit(next);
-                if (!res.ok && res.code === "username_taken")
-                  onToast("Логин уже занят");
-              }}
+            <RadioCard
+              value="http"
+              active={!client.proxy_username}
+              title={`HTTP, порт ${settings?.http_port ?? 3128}`}
+              hint="Без шифрования до прокси. Логин недоступен"
+            />
+            <RadioCard
+              value="tls"
+              active={!!client.proxy_username}
+              title={`TLS, порт ${settings?.tls_port ?? 3129}`}
+              hint={
+                accounts.length
+                  ? "Шифрование до прокси, вход по логину прокси"
+                  : "Сначала создайте логин прокси в разделе «Аккаунты»"
+              }
+              disabled={!accounts.length && !client.proxy_username}
             >
-              <SelectTrigger id="f-src-login">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="">Не требуется</SelectItem>
-                {accounts.map((a) => (
-                  <SelectItem key={a.username} value={a.username}>
-                    {a.username}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
+              {client.proxy_username && (
+                <Select
+                  value={client.proxy_username}
+                  onValueChange={async (v) => {
+                    const res = await patch({ proxy_username: v });
+                    if (!res.ok && res.code === "username_taken")
+                      onToast("Логин уже занят");
+                  }}
+                >
+                  <SelectTrigger
+                    className="mt-1.5 h-7"
+                    aria-label="Логин прокси"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accounts.map((a) => (
+                      <SelectItem key={a.username} value={a.username}>
+                        {a.username}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </RadioCard>
+          </RadioGroup>
         </CardContent>
       </Card>
     </>
   );
 }
 
+// RequestsTab: the client's recent events with a destination filter and an
+// all/denied switch; the full search lives in the log.
 function RequestsTab({
   client,
   request,
@@ -1616,124 +1843,243 @@ function RequestsTab({
   onNavigate: (id: NavId) => void;
 }) {
   const [items, setItems] = useState<Event[]>([]);
+  const [dest, setDest] = useState("");
+  const [only, setOnly] = useState<"all" | "denied">("all");
   useEffect(() => {
     let live = true;
-    request<{ items: Event[] }>(
-      `/events?client_id=${encodeURIComponent(client.id)}&limit=50`,
-    )
-      .then((r) => {
-        if (live) setItems(r.items ?? []);
-      })
-      .catch(() => {});
+    const q = new URLSearchParams({ client_id: client.id, limit: "50" });
+    if (dest.trim()) q.set("destination", dest.trim());
+    if (only === "denied") q.set("failures_only", "true");
+    const t = setTimeout(() => {
+      request<{ items: Event[] }>(`/events?${q}`)
+        .then((r) => {
+          if (live) setItems(r.items ?? []);
+        })
+        .catch(() => {});
+    }, 250);
     return () => {
       live = false;
+      clearTimeout(t);
     };
-  }, [request, client.id]);
+  }, [request, client.id, dest, only]);
   return (
     <>
-      <div className="flex justify-end">
-        <Button size="xs" variant="ghost" onClick={() => onNavigate("log")}>
-          Открыть в журнале
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="relative flex max-w-[420px] min-w-0 grow items-center">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
+          />
+          <Chip className="pointer-events-none absolute left-7 h-5 text-xs">
+            клиент:{client.name}
+          </Chip>
+          <Input
+            aria-label="Фильтр по назначению"
+            className="h-8"
+            style={{ paddingLeft: `${client.name.length * 7 + 86}px` }}
+            placeholder="домен…"
+            value={dest}
+            onChange={(e) => setDest(e.target.value)}
+          />
+        </div>
+        <ToggleGroup
+          type="single"
+          variant="seg"
+          size="sm"
+          spacing={0.5}
+          className="rounded-lg bg-muted p-[3px]"
+          value={only}
+          aria-label="Какие запросы"
+          onValueChange={(v) => {
+            if (v) setOnly(v as "all" | "denied");
+          }}
+        >
+          <ToggleGroupItem value="all">Все</ToggleGroupItem>
+          <ToggleGroupItem value="denied">Отказы</ToggleGroupItem>
+        </ToggleGroup>
+        <span className="grow" />
+        <Button size="xs" variant="outline" onClick={() => onNavigate("log")}>
+          Открыть в журнале <ArrowRight aria-hidden />
         </Button>
       </div>
-      <Card>
-        <CardContent>
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Время</TableHead>
-                <TableHead>Назначение</TableHead>
-                <TableHead>Результат</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.slice(0, 20).map((e) => (
+      <div className="overflow-hidden rounded-lg border bg-card">
+        <Table>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Время</TableHead>
+              <TableHead>IP</TableHead>
+              <TableHead>Назначение</TableHead>
+              <TableHead>Результат</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {items.slice(0, 50).map((e) => {
+              const denied = e.proxy_result.includes("DENIED");
+              const code = e.proxy_http_status ?? (denied ? 403 : 200);
+              return (
                 <TableRow key={e.id}>
-                  <TableCell className="tabular-nums text-sm text-muted-foreground">
-                    {e.timestamp.slice(11, 19)}
+                  <TableCell className="text-muted-foreground tabular-nums">
+                    {new Date(e.timestamp).toLocaleTimeString("ru-RU")}
                   </TableCell>
                   <TableCell className="font-mono text-sm">
+                    {e.source_ip}
+                  </TableCell>
+                  <TableCell className="max-w-0 truncate font-mono text-sm">
+                    {e.method !== "CONNECT" && (
+                      <span className="text-muted-foreground">{e.method} </span>
+                    )}
                     {e.destination}
                   </TableCell>
                   <TableCell>
-                    <Badge
-                      variant={e.proxy_result.includes("DENIED") ? "bad" : "ok"}
-                    >
-                      {e.proxy_result}
+                    <Badge variant={denied ? "bad" : "ok"}>
+                      {denied ? `${code} отказ` : code}
                     </Badge>
+                    {e.count > 1 && (
+                      <span className="ml-1.5 text-sm text-muted-foreground">
+                        ×{e.count}
+                      </span>
+                    )}
                   </TableCell>
                 </TableRow>
-              ))}
-              {items.length === 0 && (
-                <TableRow>
-                  <TableCell
-                    colSpan={3}
-                    className="text-sm text-muted-foreground"
-                  >
-                    Нет запросов
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
+              );
+            })}
+            {items.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={4} className="text-muted-foreground">
+                  Нет запросов
+                </TableCell>
+              </TableRow>
+            )}
+          </TableBody>
+        </Table>
+      </div>
     </>
   );
 }
 
+type HistoryEntry = {
+  at: string;
+  actor: string;
+  changes: string[];
+  revision?: string;
+};
+
+// HistoryTab: what changed for this client, newest first. Applied revisions
+// (up to 15) are diffed pairwise; the unapplied draft is diffed against the
+// active configuration. Actors come from the create_revision audit rows.
 function HistoryTab({
   client,
+  snap,
+  active,
   request,
 }: {
   client: Client;
+  snap: Snapshot;
+  active: Snapshot | null;
   request: SectionProps["request"];
 }) {
-  const [items, setItems] = useState<AuditRow[]>([]);
+  const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
   useEffect(() => {
     let live = true;
-    request<{ items: AuditRow[] }>(
-      `/audit?entity_id=${encodeURIComponent(client.id)}&limit=50`,
-    )
-      .then((r) => {
-        if (live) setItems(r.items ?? []);
-      })
-      .catch(() => {});
+    (async () => {
+      const [revs, audit] = await Promise.all([
+        request<{
+          items: { id: string; created_at: string; was_applied: boolean }[];
+          next_cursor?: string;
+        }>("/revisions?limit=50"),
+        request<{ items: AuditRow[] }>(
+          "/audit?action=create_revision&limit=200",
+        ).catch(() => ({
+          items: [] as AuditRow[],
+        })),
+      ]);
+      const appliedAll = revs.items.filter((r) => r.was_applied);
+      const applied = appliedAll.slice(0, 15);
+      // Without a baseline the oldest fetched revision is only diffable when
+      // it is the very first applied one (everything in it was created).
+      const complete = !revs.next_cursor && appliedAll.length <= 15;
+      const snaps = await Promise.all(
+        applied.map((r) =>
+          request<{ snapshot: Snapshot }>(`/revisions/${r.id}`)
+            .then((x) => x.snapshot)
+            .catch(() => null),
+        ),
+      );
+      const actorOf = (id: string) =>
+        audit.items.find(
+          (a) => a.action === "create_revision" && a.entity_id === id,
+        )?.actor ?? "—";
+      const out: HistoryEntry[] = [];
+      applied.forEach((r, i) => {
+        const after = snaps[i];
+        if (!after) return;
+        // The next item is older; the oldest fetched one has no baseline.
+        const before = i + 1 < applied.length ? snaps[i + 1] : null;
+        if (i + 1 === applied.length && !complete) return;
+        if (i + 1 < applied.length && !before) return; // fetch failed
+        const changes = clientChanges(before, after, client.id);
+        if (changes.length)
+          out.push({
+            at: r.created_at,
+            actor: actorOf(r.id),
+            changes,
+            revision: r.id,
+          });
+      });
+      if (live) setEntries(out);
+    })().catch(() => {
+      if (live) setEntries([]);
+    });
     return () => {
       live = false;
     };
   }, [request, client.id]);
+  const pending = active ? clientChanges(active, snap, client.id) : [];
+  const rows: HistoryEntry[] = [
+    ...(pending.length ? [{ at: "", actor: "", changes: pending }] : []),
+    ...(entries ?? []),
+  ];
   return (
-    <Card>
+    <Card className="py-1">
       <CardContent>
-        {items.map((r) => (
-          <div key={r.id} className="flex items-start gap-2 border-b py-2">
-            <span className="w-[120px] shrink-0 tabular-nums text-sm text-muted-foreground">
-              {r.timestamp.replace("T", " ").slice(0, 19)}
+        {rows.map((r, i) => (
+          <div
+            key={r.revision ?? `draft-${i}`}
+            className="grid grid-cols-[98px_minmax(0,1fr)_auto] items-start gap-3 border-b py-2.5 last:border-b-0"
+          >
+            <span className="text-muted-foreground tabular-nums">
+              {r.at
+                ? new Date(r.at).toLocaleString("ru-RU", {
+                    day: "2-digit",
+                    month: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "сейчас"}
             </span>
-            <div className="flex-1 min-w-0">
-              <div>{actionLabel(r.action)}</div>
-              <div className="text-sm text-muted-foreground">{r.actor}</div>
+            <div className="min-w-0">
+              <div>{r.changes.join("; ")}</div>
+              {r.actor && (
+                <div className="text-sm text-muted-foreground">{r.actor}</div>
+              )}
             </div>
-            {r.action.includes("draft") && (
+            {r.revision ? (
+              <Badge variant="secondary" className="font-mono">
+                {r.revision.slice(0, 8)}
+              </Badge>
+            ) : (
               <Badge variant="mod">в черновике</Badge>
             )}
           </div>
         ))}
-        {items.length === 0 && (
-          <div className="text-sm text-muted-foreground">Истории нет</div>
+        {entries !== null && rows.length === 0 && (
+          <div className="py-2 text-sm text-muted-foreground">
+            Изменений не было
+          </div>
         )}
       </CardContent>
     </Card>
   );
-}
-
-function actionLabel(action: string): string {
-  if (action === "update_draft") return "Изменение в черновике";
-  if (action === "discard_draft") return "Сброс черновика";
-  if (action === "create_revision") return "Создана ревизия";
-  if (action === "login") return "Вход в панель";
-  return action;
 }
 
 export type NewClientInput = {
@@ -1952,7 +2298,8 @@ function NewClientForm({
                 htmlFor="f-nc-domains"
                 help={
                   <span className="flex flex-wrap items-center gap-1.5">
-                    {from && "Подставлены домены из отказанных запросов этого IP. "}
+                    {from &&
+                      "Подставлены домены из отказанных запросов этого IP. "}
                     Шаблоны:
                     <TemplateButtons
                       request={request}
@@ -2081,9 +2428,7 @@ function NewClientForm({
                 kind,
                 networks: lines.map((l) => parseNetwork(l)!),
                 domains:
-                  mode === "own"
-                    ? domains.split(/[\s,]+/).filter(Boolean)
-                    : [],
+                  mode === "own" ? domains.split(/[\s,]+/).filter(Boolean) : [],
                 mode,
                 sharedPolicyID: sharedID,
                 proxyUsername: login,

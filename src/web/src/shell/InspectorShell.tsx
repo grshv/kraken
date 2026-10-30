@@ -170,7 +170,9 @@ export function InspectorShell({
           onClick={() => setPaletteOpen(true)}
         >
           <Search aria-hidden className="size-3.5" />
-          <span className="grow text-left">Клиент, IP, домен или действие…</span>
+          <span className="grow text-left">
+            Клиент, IP, домен или действие…
+          </span>
           <kbd className="rounded-[6px] border bg-muted px-[5px] font-mono text-xs text-muted-foreground">
             ⌘K
           </kbd>

@@ -148,7 +148,8 @@ function StatusPopoverBody({
       rev ? (
         <>
           <span className="font-mono text-sm">{shortId(rev)}</span>
-          {inst?.last_applied_at && ` · применена ${clock(inst.last_applied_at)}`}
+          {inst?.last_applied_at &&
+            ` · применена ${clock(inst.last_applied_at)}`}
         </>
       ) : (
         "—"

@@ -70,7 +70,10 @@ export function TrafficChart({
   const H = 100;
   const x = (i: number) => (i / (n - 1)) * W;
   const line = allowed
-    .map((a, i) => `${i ? "L" : "M"}${x(i).toFixed(1)},${(H - (a / maxA) * H).toFixed(1)}`)
+    .map(
+      (a, i) =>
+        `${i ? "L" : "M"}${x(i).toFixed(1)},${(H - (a / maxA) * H).toFixed(1)}`,
+    )
     .join("");
   const bw = W / n;
   const ticks = [0, 16, 32, 48, 64, 80, n - 1].filter((i) => i < n);
@@ -152,7 +155,11 @@ export function TrafficChart({
             style={{
               left: at(i),
               transform:
-                i === 0 ? "none" : i === n - 1 ? "translateX(-100%)" : "translateX(-50%)",
+                i === 0
+                  ? "none"
+                  : i === n - 1
+                    ? "translateX(-100%)"
+                    : "translateX(-50%)",
             }}
           >
             {hhmm(series[i].start)}
@@ -194,9 +201,7 @@ export function Sparkline({ series }: { series?: Bucket[] }) {
   const h = 18;
   const hours: number[] = [];
   for (let i = 0; i < (series?.length ?? 0); i += 4)
-    hours.push(
-      series!.slice(i, i + 4).reduce((sum, b) => sum + b.requests, 0),
-    );
+    hours.push(series!.slice(i, i + 4).reduce((sum, b) => sum + b.requests, 0));
   if (hours.every((v) => !v))
     return (
       <svg className="block" width={w} height={h} aria-hidden>
