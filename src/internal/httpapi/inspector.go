@@ -47,12 +47,16 @@ type explanation struct {
 // http_access protective denials Squid renders: protected destinations and
 // blocked-for-all domains run before client rules, so a protected request is
 // reported as protected_destination even when a matching client exists. Domain
-// hosts are not DNS-resolved, so a domain that resolves to a protected address
-// is not flagged; this is a static assessment, not a runtime proof.
+// hosts are not DNS-resolved here; a domain that resolved to a protected or
+// internal address is recognised from the reason Squid logged (deny_reason
+// "protected", or "private" while internal destinations stay closed).
 func explainEvent(v events.Event, snap policy.Snapshot) explanation {
 	settings := policy.EffectiveSettings(snap)
 	host, port := splitDestination(v.Destination)
 	if policy.ProtectionDenial(host, port, v.Method == "CONNECT", settings) {
+		return explanation{"denied", "protected_destination", nil, nil}
+	}
+	if v.DenyReason != nil && (*v.DenyReason == "protected" || (*v.DenyReason == "private" && !settings.AllowPrivateDestinations)) {
 		return explanation{"denied", "protected_destination", nil, nil}
 	}
 	for _, d := range settings.BlockedDomains {
@@ -426,6 +430,8 @@ func (s *Server) inspectorEventExplain(w http.ResponseWriter, r *http.Request, v
 		"reason":    ex.reason,
 		"client_id": ex.clientID,
 		"policy_id": ex.policyID,
+		// logged_reason is what Squid recorded at the time (deny_reason).
+		"logged_reason": ev.DenyReason,
 	})
 }
 

@@ -247,7 +247,7 @@ func useFacetAggregate(q EventQuery, from, to time.Time, step time.Duration, fro
 	if to.Sub(from) <= 24*time.Hour {
 		return false
 	}
-	if q.Destination != "" || q.SourceIP != "" {
+	if q.Destination != "" || q.SourceIP != "" || q.DenyReason != "" {
 		return false
 	}
 	if step != 15*time.Minute && step != time.Hour {

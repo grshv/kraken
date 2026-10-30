@@ -61,7 +61,7 @@ func (t *Store) Ingest(ctx context.Context, items []events.Event, cp events.Chec
 		return e
 	}
 	defer hostInsert.Close()
-	evInsert, e := tx.PrepareContext(ctx, "INSERT INTO event(ts,client_id,client_name,source_ip,host_id,port,method,result,http_status,duration_ms,bytes,count,failed,proxy_username,revision_id,match_basis,tls_mode,source_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_id) DO NOTHING")
+	evInsert, e := tx.PrepareContext(ctx, "INSERT INTO event(ts,client_id,client_name,source_ip,host_id,port,method,result,http_status,duration_ms,bytes,count,failed,proxy_username,revision_id,match_basis,tls_mode,source_id,deny_reason) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(source_id) DO NOTHING")
 	if e != nil {
 		return e
 	}
@@ -92,9 +92,12 @@ func (t *Store) Ingest(ctx context.Context, items []events.Event, cp events.Chec
 		if v.RevisionID != nil {
 			revID = *v.RevisionID
 		}
-		var httpStatus any
+		var httpStatus, denyReason any
 		if v.ProxyHTTPStatus != nil {
 			httpStatus = *v.ProxyHTTPStatus
+		}
+		if v.DenyReason != nil {
+			denyReason = *v.DenyReason
 		}
 		failed := 0
 		if eventFailed(v) {
@@ -104,7 +107,7 @@ func (t *Store) Ingest(ctx context.Context, items []events.Event, cp events.Chec
 		if v.ID != "" {
 			sourceID = v.ID
 		}
-		if _, e = evInsert.ExecContext(ctx, ts, clientID, clientName, v.SourceIP, hid, hostPort(v.Destination), v.Method, v.ProxyResult, httpStatus, v.Duration, v.Bytes, v.Count, failed, proxyUser, revID, v.ClientMatchBasis, v.TLSMode, sourceID); e != nil {
+		if _, e = evInsert.ExecContext(ctx, ts, clientID, clientName, v.SourceIP, hid, hostPort(v.Destination), v.Method, v.ProxyResult, httpStatus, v.Duration, v.Bytes, v.Count, failed, proxyUser, revID, v.ClientMatchBasis, v.TLSMode, sourceID, denyReason); e != nil {
 			return e
 		}
 	}
@@ -126,6 +129,7 @@ func (t *Store) Ingest(ctx context.Context, items []events.Event, cp events.Chec
 // EventQuery filters the journal. Zero times mean no bound.
 type EventQuery struct {
 	SourceIP, Destination, Method, Result, ClientID string
+	DenyReason                                      string // policy.DenyReasons value
 	From, To                                        time.Time
 	Failures                                        bool
 	Cursor                                          string
@@ -146,10 +150,10 @@ func scanEventRow(mfKey string, sc func(...any) error) (events.Event, error) {
 	var ts int64
 	var rid int64
 	var clientID, clientName, sourceIP, hostName, method, result, matchBasis, tlsMode sql.NullString
-	var proxyUser, revID sql.NullString
+	var proxyUser, revID, denyReason sql.NullString
 	var port, httpStatus, duration, bytes, count sql.NullInt64
 	var failed int
-	if e := sc(&rid, &ts, &clientID, &clientName, &sourceIP, &hostName, &port, &method, &result, &httpStatus, &duration, &bytes, &count, &failed, &proxyUser, &revID, &matchBasis, &tlsMode); e != nil {
+	if e := sc(&rid, &ts, &clientID, &clientName, &sourceIP, &hostName, &port, &method, &result, &httpStatus, &duration, &bytes, &count, &failed, &proxyUser, &revID, &matchBasis, &tlsMode, &denyReason); e != nil {
 		return v, e
 	}
 	v.ID = compactMonth(mfKey) + "-" + fmt.Sprintf("%d", rid)
@@ -169,6 +173,10 @@ func scanEventRow(mfKey string, sc func(...any) error) (events.Event, error) {
 	if revID.Valid {
 		s := revID.String
 		v.RevisionID = &s
+	}
+	if denyReason.Valid {
+		s := denyReason.String
+		v.DenyReason = &s
 	}
 	v.SourceIP = sourceIP.String
 	v.Method = method.String
@@ -192,7 +200,7 @@ func scanEventRow(mfKey string, sc func(...any) error) (events.Event, error) {
 	return v, nil
 }
 
-var eventColumns = `e.id,e.ts,e.client_id,e.client_name,e.source_ip,h.name,e.port,e.method,e.result,e.http_status,e.duration_ms,e.bytes,e.count,e.failed,e.proxy_username,e.revision_id,e.match_basis,e.tls_mode`
+var eventColumns = `e.id,e.ts,e.client_id,e.client_name,e.source_ip,h.name,e.port,e.method,e.result,e.http_status,e.duration_ms,e.bytes,e.count,e.failed,e.proxy_username,e.revision_id,e.match_basis,e.tls_mode,e.deny_reason`
 
 func splitEventID(id string) (string, int64, bool) {
 	if len(id) < 8 || id[6] != '-' {
@@ -252,6 +260,7 @@ type coalesceKey struct {
 	revisionID       string
 	clientMatchBasis string
 	tlsMode          string
+	denyReason       string
 }
 
 // coalesceBatch folds identical events within one batch into a single record
@@ -276,7 +285,10 @@ func coalesceBatch(items []events.Event) []events.Event {
 		}
 		host := hostOf(v.Destination)
 		port := hostPort(v.Destination)
-		clientID, clientName, proxyUser, revID := "", "", "", ""
+		clientID, clientName, proxyUser, revID, denyReason := "", "", "", "", ""
+		if v.DenyReason != nil {
+			denyReason = *v.DenyReason
+		}
 		if v.ClientID != nil {
 			clientID = *v.ClientID
 		}
@@ -308,6 +320,7 @@ func coalesceBatch(items []events.Event) []events.Event {
 			revisionID:       revID,
 			clientMatchBasis: v.ClientMatchBasis,
 			tlsMode:          v.TLSMode,
+			denyReason:       denyReason,
 		}
 		if idx, ok := agg[k]; ok {
 			first := &out[idx]

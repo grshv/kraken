@@ -987,6 +987,25 @@
             }
           },
           {
+            "name": "deny_reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "port",
+                "connect_port",
+                "manager",
+                "protected",
+                "private",
+                "blocked",
+                "tls_required",
+                "no_rule"
+              ]
+            },
+            "description": "Only events denied by this squid.conf rule (logged %{sc_deny}note)."
+          },
+          {
             "name": "from",
             "in": "query",
             "description": "Inclusive event timestamp, RFC3339 with timezone.",
@@ -1104,6 +1123,25 @@
               "type": "string",
               "maxLength": 64
             }
+          },
+          {
+            "name": "deny_reason",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "port",
+                "connect_port",
+                "manager",
+                "protected",
+                "private",
+                "blocked",
+                "tls_required",
+                "no_rule"
+              ]
+            },
+            "description": "Only events denied by this squid.conf rule (logged %{sc_deny}note)."
           }
         ],
         "responses": {
@@ -3967,9 +4005,28 @@
           "client_name",
           "client_match_basis",
           "proxy_username",
-          "count"
+          "count",
+          "deny_reason"
         ],
         "properties": {
+          "deny_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "enum": [
+              "port",
+              "connect_port",
+              "manager",
+              "protected",
+              "private",
+              "blocked",
+              "tls_required",
+              "no_rule",
+              null
+            ],
+            "description": "Protective or final rule that denied the request, as logged by Squid; null when not logged (allowed, expert rule, proxy auth or older records)."
+          },
           "id": {
             "type": "string",
             "description": "Opaque event id in compact <YYYYMM>-<rowid> form: the month key plus the rowid within events-YYYY-MM.db."
@@ -4114,9 +4171,53 @@
           "denied",
           "clients",
           "methods",
-          "histogram"
+          "histogram",
+          "deny_reasons",
+          "site_errors"
         ],
         "properties": {
+          "deny_reasons": {
+            "type": "array",
+            "description": "Denied requests by reason: deny_reason values, proxy_auth (407) and other. Raw events only, sorted by count.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "reason",
+                "count"
+              ],
+              "properties": {
+                "reason": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "site_errors": {
+            "type": "array",
+            "description": "Failed requests not denied by the proxy: 4xx, 5xx or network (no HTTP status). Raw events only.",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "class",
+                "count"
+              ],
+              "properties": {
+                "class": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
           "allowed": {
             "type": "integer",
             "minimum": 0
@@ -5751,9 +5852,17 @@
           "decision",
           "reason",
           "client_id",
-          "policy_id"
+          "policy_id",
+          "logged_reason"
         ],
         "properties": {
+          "logged_reason": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "deny_reason Squid logged for this event; protected/private explain a denial by the resolved address."
+          },
           "decision": {
             "type": "string",
             "enum": [

@@ -149,3 +149,25 @@ func TestProxyUsernameIsMetadataNotCredentials(t *testing.T) {
 		t.Fatal("unsafe username persisted")
 	}
 }
+
+// The kraken logformat appends %{sc_deny}note; only known reasons are kept.
+func TestParseDenyReason(t *testing.T) {
+	base := "1767225600.000 0 10.0.0.5 TCP_DENIED/403 3900 CONNECT 10.0.0.9:443 - HIER_NONE/- text/html "
+	for raw, want := range map[string]string{"private": "private", "no_rule": "no_rule", "-": "", "evil%20x": ""} {
+		v, ok := Parse(base + raw)
+		if !ok {
+			t.Fatalf("%s: not parsed", raw)
+		}
+		got := ""
+		if v.DenyReason != nil {
+			got = *v.DenyReason
+		}
+		if got != want {
+			t.Fatalf("%s: %q, want %q", raw, got, want)
+		}
+	}
+	// Lines in the native format (before the reason field) still parse.
+	if v, ok := Parse(strings.TrimSuffix(base, " ")); !ok || v.DenyReason != nil {
+		t.Fatalf("native line: %+v %v", v, ok)
+	}
+}

@@ -216,6 +216,10 @@ func buildEventWhere(q EventQuery) (where []string, args []any, destLike string)
 		where = append(where, "e.result=?")
 		args = append(args, q.Result)
 	}
+	if q.DenyReason != "" {
+		where = append(where, "e.deny_reason=?")
+		args = append(args, q.DenyReason)
+	}
 	if !q.From.IsZero() {
 		where = append(where, "e.ts>=?")
 		args = append(args, q.From.UnixMilli())

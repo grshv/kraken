@@ -46,6 +46,17 @@ TLSProfile: mode(tunnel), proxy_transport(http|tls), cert_ref
 5. Применить enabled source client и его режим/назначения.
 6. Завершить явным `http_access deny all`.
 
+Каждое защитное и финальное `http_access deny` помечает транзакцию ACL
+`annotate_transaction` (`sc_r_<причина>` с `sc_deny=<причина>`): у защитных правил
+ACL стоит последним и срабатывает, только если остальные условия правила совпали;
+у финального — `http_access deny sc_r_no_rule all`, чтобы `deny_info` экспертной
+секции для `all` продолжал работать. Причины (`policy.DenyReasons`): `port`,
+`connect_port`, `manager`, `protected`, `private`, `blocked`, `tls_required`,
+`no_rule`. Access log пишется в формате `kraken`: родной формат `squid` и поле
+`%{sc_deny}note` («-», если отказ не из этих правил, например из expert-секции).
+Отказ по адресу, в который разрешился домен, поэтому виден как `protected` или
+`private` без повторного DNS-запроса. Проверка логина (407) не размечается.
+
 Список специальных диапазонов, IPv4-mapped IPv6, DNS rebinding и порядок
 разрешения адресов проверяются на выбранной версии. Firewall egress на proxy VM
 дублирует запрет доступа к metadata/management, с отдельным разрешением нужного DNS.

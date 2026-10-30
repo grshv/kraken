@@ -164,11 +164,11 @@ checkpoint чтения access.log) и `rollups.db` (долгоживущие а
 events-YYYY-MM.db: `host(id, name UNIQUE)` — словарь хостов назначений; `event(id,
 ts, client_id, client_name, source_ip, host_id, port, method, result,
 http_status, duration_ms, bytes, failed, proxy_username, revision_id,
-match_basis, tls_mode, source_id, count)` — индексы `ts`, `(client_id, ts)`,
+match_basis, tls_mode, source_id, count, deny_reason)` — индексы `ts`, `(client_id, ts)`,
 `(source_ip, ts) WHERE client_id IS NULL` и уникальный `source_id`; `checkpoint(k,
 v)` — позиция чтения access.log, пишется в одной транзакции с событиями.
 Одинаковые события одной порции в пределах одной секунды UTC (клиент, источник,
-хост, порт, метод, результат, статус, логин, ревизия, режим TLS) хранятся одной
+хост, порт, метод, результат, статус, логин, ревизия, режим TLS, причина отказа) хранятся одной
 строкой: `count` — число запросов, `bytes` — сумма, `duration_ms` — максимум, `ts` и
 `source_id` — первого события. Все счётчики (агрегаты, фасеты, инспектор) суммируют
 `count`. `source_id` сохраняет исходный id события (хэш строки access.log) для lookup'а

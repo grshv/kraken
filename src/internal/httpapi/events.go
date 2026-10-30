@@ -6,12 +6,14 @@ import (
 	"log/slog"
 	"net/http"
 	"net/netip"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"time"
 
 	"kraken.local/kraken/internal/events"
+	"kraken.local/kraken/internal/policy"
 	"kraken.local/kraken/internal/store"
 	"kraken.local/kraken/internal/telemetry"
 )
@@ -163,8 +165,8 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 		return
 	}
 	filter := telemetry.EventQuery{ClientID: q.Get("client_id"), Failures: raw == "true", Cursor: q.Get("cursor"), Limit: limit,
-		SourceIP: q.Get("source_ip"), Destination: strings.TrimSpace(q.Get("destination")), Method: q.Get("method"), Result: q.Get("result")}
-	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64
+		SourceIP: q.Get("source_ip"), Destination: strings.TrimSpace(q.Get("destination")), Method: q.Get("method"), Result: q.Get("result"), DenyReason: q.Get("deny_reason")}
+	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64 || !validDenyReason(filter.DenyReason)
 	if filter.SourceIP != "" {
 		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
 			invalid = true
@@ -272,8 +274,9 @@ func (s *Server) eventFacets(w http.ResponseWriter, r *http.Request, v session) 
 		Destination: strings.TrimSpace(q.Get("destination")),
 		Method:      q.Get("method"),
 		Result:      q.Get("result"),
+		DenyReason:  q.Get("deny_reason"),
 	}
-	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64
+	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64 || !validDenyReason(filter.DenyReason)
 	if filter.SourceIP != "" {
 		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
 			invalid = true
@@ -376,17 +379,48 @@ func (s *Server) eventFacets(w http.ResponseWriter, r *http.Request, v session) 
 		}
 		return methods[i].Method < methods[j].Method
 	})
+	outcomes, e := s.Telemetry.Outcomes(ctx, filter)
+	if e != nil {
+		queryFailure(w, e)
+		return
+	}
 	hist := make([]histBucket, 0, len(f.Histogram))
 	for _, b := range f.Histogram {
 		hist = append(hist, histBucket{Start: b.Start.UTC().Format(time.RFC3339), Allowed: b.Allowed, Denied: b.Denied})
 	}
 	respond(w, 200, map[string]any{
-		"allowed":   f.Allowed,
-		"denied":    f.Denied,
-		"clients":   clients,
-		"methods":   methods,
-		"histogram": hist,
+		"allowed":      f.Allowed,
+		"denied":       f.Denied,
+		"clients":      clients,
+		"methods":      methods,
+		"histogram":    hist,
+		"deny_reasons": countList("reason", outcomes.DenyReasons),
+		"site_errors":  countList("class", outcomes.SiteErrors),
 	})
+}
+
+// validDenyReason accepts an empty filter or a reason logged by squid.conf.
+func validDenyReason(r string) bool {
+	return r == "" || slices.Contains(policy.DenyReasons, r)
+}
+
+// countList turns a facet map into [{<key>: k, count: n}] sorted by count.
+func countList(key string, m map[string]int64) []map[string]any {
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if m[keys[i]] != m[keys[j]] {
+			return m[keys[i]] > m[keys[j]]
+		}
+		return keys[i] < keys[j]
+	})
+	out := make([]map[string]any, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, map[string]any{key: k, "count": m[k]})
+	}
+	return out
 }
 
 // parseFacetsStep maps the step query parameter to a duration.

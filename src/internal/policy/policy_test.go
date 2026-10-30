@@ -34,7 +34,7 @@ func TestRenderDenyByDefault(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, want := range []string{"http_access deny sc_private_dst", "dstdomain -n example.org", "http_access deny all", "reply_header_add X-Kraken-Revision " + Fingerprint(s, o)} {
+	for _, want := range []string{"http_access deny sc_private_dst", "dstdomain -n example.org", "http_access deny sc_r_no_rule all\n", "reply_header_add X-Kraken-Revision " + Fingerprint(s, o)} {
 		if !strings.Contains(c, want) {
 			t.Fatalf("missing %s", want)
 		}
@@ -69,5 +69,47 @@ func TestTLSDowngradeGuard(t *testing.T) {
 	o.ProxyKey = ""
 	if _, e = Render(s, o); e == nil {
 		t.Fatal("TLS accepted without key")
+	}
+}
+
+// Every deny reason is an annotate_transaction ACL that ends (or, for the
+// final rule, starts before "all") exactly one http_access deny line, and the
+// access log uses the kraken format that records it.
+func TestDenyReasonsAnnotateRules(t *testing.T) {
+	s := Empty()
+	st := EffectiveSettings(s)
+	st.BlockedDomains = []Destination{{Domain: "x.example"}}
+	s.Settings = &st
+	s.Clients = []Client{{ID: "c", Name: "c", Networks: []string{"10.0.0.0/8"}, Enabled: true, PolicyID: "p", ProxyUsername: "u"}}
+	cert := "proxy-server"
+	s.TLSProfiles = append(s.TLSProfiles, TLSProfile{ID: "tls", Name: "tls", Mode: s.TLSProfiles[0].Mode, Transport: "tls", CertRef: &cert})
+	s.Policies = []Policy{{ID: "p", Name: "p", Mode: "all_web", TLSProfileID: "tls"}}
+	c, e := Render(s, Options{StateDir: "/data", SquidDir: "/data/squid", LogPath: "/data/access.log", ProxyAccounts: "/run/a.json", ProxyCert: "/certs/p.crt", ProxyKey: "/certs/p.key"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	if !strings.Contains(c, "access_log stdio:/data/access.log kraken !sc_probe_source\n") || !strings.Contains(c, "%{sc_deny}note\n") {
+		t.Fatal("access log does not use the kraken format")
+	}
+	for _, r := range DenyReasons {
+		def := "acl sc_r_" + r + " annotate_transaction sc_deny=" + r + "\n"
+		if !strings.Contains(c, def) {
+			t.Fatalf("missing %q", def)
+		}
+		uses := 0
+		for _, line := range strings.Split(c, "\n") {
+			if strings.HasPrefix(line, "http_access deny ") && strings.Contains(line+" ", " sc_r_"+r+" ") {
+				uses++
+				if r == "no_rule" && line != "http_access deny sc_r_no_rule all" {
+					t.Fatalf("final rule: %q", line)
+				}
+				if r != "no_rule" && !strings.HasSuffix(line, " sc_r_"+r) {
+					t.Fatalf("annotation must be the last ACL: %q", line)
+				}
+			}
+		}
+		if uses != 1 || strings.Index(c, def) > strings.Index(c, " sc_r_"+r) {
+			t.Fatalf("%s: used %d times or before definition", r, uses)
+		}
 	}
 }

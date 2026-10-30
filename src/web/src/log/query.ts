@@ -14,6 +14,33 @@ export type LogEvent = {
   proxy_result: string;
   proxy_http_status: number | null;
   count?: number;
+  deny_reason?: string | null;
+};
+
+// DENY_REASONS mirror policy.DenyReasons: the protective or final squid.conf
+// rule that denied a request, logged at the time. proxy_auth (407) and other
+// (expert rule or older record) come only from the facet, not as a filter.
+export const DENY_REASONS: Record<string, string> = {
+  port: "Запрещённый порт",
+  connect_port: "CONNECT на запрещённый порт",
+  manager: "Служебный адрес Squid",
+  protected: "Защищённый адрес",
+  private: "Внутренний адрес",
+  blocked: "Запрещено для всех",
+  tls_required: "Нужен TLS с логином",
+  no_rule: "Нет правила для клиента",
+};
+const OTHER_REASONS: Record<string, string> = {
+  proxy_auth: "Нет или неверный пароль прокси",
+  other: "Другое правило",
+};
+export function denyReasonLabel(r: string): string {
+  return DENY_REASONS[r] ?? OTHER_REASONS[r] ?? r;
+}
+export const SITE_ERRORS: Record<string, string> = {
+  "4xx": "Ответ 4xx",
+  "5xx": "Ответ 5xx",
+  network: "Сеть, без ответа",
 };
 
 export type LogQuery = {
@@ -22,6 +49,7 @@ export type LogQuery = {
   result?: "allowed" | "denied";
   method?: string;
   source?: string;
+  reason?: string;
   free: string[];
 };
 
@@ -45,6 +73,8 @@ export function parseLogQuery(text: string): LogQuery {
     else if (key === "host") q.host = val;
     else if (key === "method") q.method = val;
     else if (key === "ip" || key === "source") q.source = val;
+    else if ((key === "reason" || key === "причина") && val in DENY_REASONS)
+      q.reason = val;
     else if (key === "result" || key === "результат") {
       const v = val.toLowerCase();
       if (v === "allowed" || v === "разрешено") q.result = "allowed";
@@ -76,6 +106,7 @@ export type EventsParams = {
   destination?: string;
   method?: string;
   source_ip?: string;
+  deny_reason?: string;
   // Lower time bound: the list shows the same window as the facets.
   from?: string;
   cursor?: string;
@@ -100,6 +131,7 @@ export function buildEventsParams(
   if (q.result === "denied") p.failures_only = true;
   if (q.method) p.method = q.method;
   if (q.source) p.source_ip = q.source;
+  if (q.reason) p.deny_reason = q.reason;
   const freeStr = q.free
     .map((s) => s.trim())
     .filter(Boolean)
@@ -148,6 +180,7 @@ export type FacetsParams = {
   destination?: string;
   method?: string;
   source_ip?: string;
+  deny_reason?: string;
 };
 
 // buildFacetsParams composes the /events/facets query from a parsed LogQuery,
@@ -179,6 +212,7 @@ export function buildFacetsParams(
   if (q.result === "denied") p.failures_only = true;
   if (q.method) p.method = q.method;
   if (q.source) p.source_ip = q.source;
+  if (q.reason) p.deny_reason = q.reason;
   const freeStr = q.free
     .map((s) => s.trim())
     .filter(Boolean)
@@ -211,4 +245,6 @@ export type FacetsResponse = {
   clients: { id: string; name: string | null; count: number }[];
   methods: { method: string; count: number }[];
   histogram: { start: string; allowed: number; denied: number }[];
+  deny_reasons?: { reason: string; count: number }[];
+  site_errors?: { class: string; count: number }[];
 };

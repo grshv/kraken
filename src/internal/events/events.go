@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,6 +21,8 @@ import (
 	"time"
 	"unicode"
 	"unicode/utf8"
+
+	"kraken.local/kraken/internal/policy"
 )
 
 type Event struct {
@@ -39,6 +42,9 @@ type Event struct {
 	Count            int64   `json:"count"`
 	TLSMode          string  `json:"tls_mode"`
 	RevisionID       *string `json:"revision_id"`
+	// DenyReason is the protective or final rule that denied the request, as
+	// annotated in squid.conf (policy.DenyReasons); nil when not logged.
+	DenyReason *string `json:"deny_reason"`
 }
 
 type Position struct {
@@ -256,6 +262,9 @@ func Parse(line string) (Event, bool) {
 	v.SourceIP = ip.Unmap().String()
 	if len(p) > 7 && p[7] != "-" && loggedUsernamePattern.MatchString(p[7]) {
 		v.ProxyUsername = &p[7]
+	}
+	if len(p) > 10 && slices.Contains(policy.DenyReasons, p[10]) {
+		v.DenyReason = &p[10]
 	}
 	v.Destination = u.Host
 	v.Method = p[5]

@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS event (
   revision_id TEXT,
   match_basis TEXT,
   tls_mode TEXT,
-  source_id TEXT
+  source_id TEXT,
+  deny_reason TEXT
 );
 CREATE INDEX IF NOT EXISTS event_ts ON event(ts);
 CREATE INDEX IF NOT EXISTS event_client_ts ON event(client_id, ts);

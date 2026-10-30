@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildEventsParams,
   buildFacetsParams,
+  denyReasonLabel,
   FACET_WINDOWS,
   isDenied,
   parseLogQuery,
@@ -203,5 +204,16 @@ describe("buildFacetsParams", () => {
     expect(s).toContain("failures_only=true");
     expect(s).not.toContain("cursor");
     expect(s).not.toContain("limit");
+  });
+});
+
+describe("deny reason token", () => {
+  it("maps reason:/причина: to deny_reason and drops unknown values", () => {
+    const q = parseLogQuery("reason:private host:x.example");
+    expect(q.reason).toBe("private");
+    expect(buildEventsParams(q, () => undefined).deny_reason).toBe("private");
+    expect(parseLogQuery("причина:no_rule").reason).toBe("no_rule");
+    expect(parseLogQuery("reason:proxy_auth").reason).toBeUndefined();
+    expect(denyReasonLabel("proxy_auth")).toBe("Нет или неверный пароль прокси");
   });
 });

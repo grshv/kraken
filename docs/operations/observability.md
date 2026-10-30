@@ -8,7 +8,9 @@
 
 ## Источники
 
-- Squid access log в явно выбранном format; его поля проверяются integration-тестами на образе.
+- Squid access log в формате `kraken` (родной `squid` и причина отказа `%{sc_deny}note`,
+  [policies-and-tls](../architecture/policies-and-tls.md)); его поля проверяются integration-тестами на образе.
+  Строки старого формата без причины разбираются по-прежнему.
 - Squid/Pebble service logs — reload, DNS, startup и TLS/helper failures.
 - Внутренний operation journal — этап, duration, candidate/LKG hashes, findings.
 - Web structured logs — request/operation ID, safe actor ID, status, duration.

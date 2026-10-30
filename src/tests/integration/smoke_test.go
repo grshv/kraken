@@ -328,6 +328,29 @@ threading.Thread(target=plain.serve_forever,daemon=True).start();secure.serve_fo
 	if st := smFetch(client, "http://allowed.test/?fixture="+strings.Repeat("x", 4096), false, false); st != 200 {
 		t.Errorf("client long query: expected 200, got %d", st)
 	}
+	// The annotated deny rules put the reason into the access log: metadata is
+	// a protected destination, denied.test matches no client rule.
+	for reason, host := range map[string]string{"protected": "169.254.169.254", "no_rule": "denied.test"} {
+		waitFor(t, 30, func() error {
+			p := inst.panel.apiOK(t, "GET", "/events?deny_reason="+reason+"&limit=50", nil, "")
+			for _, v := range p["items"].([]any) {
+				ev := v.(map[string]any)
+				if strings.HasPrefix(ev["destination"].(string), host) && ev["deny_reason"] == reason {
+					return nil
+				}
+			}
+			return errf("%s: no %s event in %v", reason, host, p["items"])
+		})
+	}
+	now := time.Now().UTC()
+	facets := inst.panel.apiOK(t, "GET", "/events/facets?from="+now.Add(-time.Hour).Format(time.RFC3339)+"&to="+now.Add(time.Minute).Format(time.RFC3339)+"&step=1m", nil, "")
+	reasons := map[string]bool{}
+	for _, v := range facets["deny_reasons"].([]any) {
+		reasons[v.(map[string]any)["reason"].(string)] = true
+	}
+	if !reasons["protected"] || !reasons["no_rule"] {
+		t.Errorf("deny reason facet: %v", facets["deny_reasons"])
+	}
 
 	t.Run("real HTTP/CONNECT origin counters change; idle telemetry does not inflate them", func(t *testing.T) {
 		var measuredOriginReqs float64

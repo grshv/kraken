@@ -39,6 +39,9 @@ import type { SectionProps } from "../sections/sectionProps";
 import {
   buildEventsParams,
   buildFacetsParams,
+  DENY_REASONS,
+  denyReasonLabel,
+  SITE_ERRORS,
   FACET_WINDOWS,
   isDenied,
   parseLogQuery,
@@ -323,6 +326,17 @@ export function LogSection(props: SectionProps) {
   );
 
   // Clicking a method facet toggles a `method:` token.
+  const applyReasonFacet = useCallback(
+    (value: string) => {
+      const rest = queryText
+        .split(/\s+/)
+        .filter((t) => !/^(reason|причина):/i.test(t));
+      if (parsed.reason !== value) rest.push(`reason:${value}`);
+      setQueryText(rest.join(" "));
+    },
+    [queryText, parsed.reason],
+  );
+
   const applyMethodFacet = useCallback(
     (value: string) => {
       const rest = queryText.split(/\s+/).filter((t) => !/^method:/i.test(t));
@@ -467,6 +481,37 @@ export function LogSection(props: SectionProps) {
               );
             })}
             {methodCounts.length === 0 && (
+              <div className="text-sm text-muted-foreground">—</div>
+            )}
+          </FacetGroup>
+          <FacetGroup title="Причина отказа">
+            {(facets?.deny_reasons ?? []).map((r) => (
+              <FacetRow
+                key={r.reason}
+                label={denyReasonLabel(r.reason)}
+                value={r.count}
+                checked={parsed.reason === r.reason}
+                onClick={
+                  r.reason in DENY_REASONS
+                    ? () => applyReasonFacet(r.reason)
+                    : undefined
+                }
+              />
+            ))}
+            {!facets?.deny_reasons?.length && (
+              <div className="text-sm text-muted-foreground">—</div>
+            )}
+          </FacetGroup>
+          <FacetGroup title="Ошибка сайта">
+            {(facets?.site_errors ?? []).map((r) => (
+              <FacetRow
+                key={r.class}
+                label={SITE_ERRORS[r.class] ?? r.class}
+                value={r.count}
+                checked={false}
+              />
+            ))}
+            {!facets?.site_errors?.length && (
               <div className="text-sm text-muted-foreground">—</div>
             )}
           </FacetGroup>

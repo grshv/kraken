@@ -454,21 +454,28 @@ func (t *Store) openMonth(path, key string) (*monthFile, error) {
 	return mf, nil
 }
 
-// migrateEventCount adds the count column to legacy monthly files that predate
-// it. CREATE TABLE IF NOT EXISTS already includes it for new files, so this
-// only affects files created by older binaries. Idempotent.
+// migrateEventCount adds the count and deny_reason columns to legacy monthly
+// files that predate them. CREATE TABLE IF NOT EXISTS already includes them for
+// new files, so this only affects files created by older binaries. Idempotent.
 func migrateEventCount(db *sql.DB) error {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	var present int
-	if e := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pragma_table_info('event') WHERE name='count'").Scan(&present); e != nil {
-		return e
+	for _, col := range []struct{ name, ddl string }{
+		{"count", "ALTER TABLE event ADD COLUMN count INTEGER NOT NULL DEFAULT 1"},
+		{"deny_reason", "ALTER TABLE event ADD COLUMN deny_reason TEXT"},
+	} {
+		var present int
+		if e := db.QueryRowContext(ctx, "SELECT COUNT(*) FROM pragma_table_info('event') WHERE name=?", col.name).Scan(&present); e != nil {
+			return e
+		}
+		if present > 0 {
+			continue
+		}
+		if _, e := db.ExecContext(ctx, col.ddl); e != nil {
+			return e
+		}
 	}
-	if present > 0 {
-		return nil
-	}
-	_, e := db.ExecContext(ctx, "ALTER TABLE event ADD COLUMN count INTEGER NOT NULL DEFAULT 1")
-	return e
+	return nil
 }
 
 // ensureFile0600 creates the file with mode 0600 if absent (so SQLite inherits

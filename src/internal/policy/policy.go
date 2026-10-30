@@ -13,7 +13,12 @@ import (
 	"strings"
 )
 
-const CompilerVersion = "11"
+const CompilerVersion = "12"
+
+// DenyReasons are the values logged in %{sc_deny}note by the protective and
+// final http_access deny rules. A request denied elsewhere (expert rules)
+// logs "-". Order is the rule order in squid.conf.
+var DenyReasons = []string{"port", "connect_port", "manager", "protected", "private", "blocked", "tls_required", "no_rule"}
 
 // Squid Basic TTL zero never becomes valid. A separate uncached generation
 // check on every allowed request enforces reset/disable despite Basic caching.
@@ -240,15 +245,22 @@ func Render(s Snapshot, o Options) (string, error) {
 		fmt.Fprintf(&b, "https_port %d tls-cert=%s tls-key=%s\n", settings.TLSPort, o.ProxyCert, o.ProxyKey)
 	}
 	b.WriteString("acl sc_probe_source src 127.0.0.1/32 ::1/128\nacl sc_probe_listener localport 3130\n")
-	fmt.Fprintf(&b, "access_log stdio:%s squid !sc_probe_source\ncache_store_log none\npinger_enable off\nshutdown_lifetime 2 seconds\n", o.LogPath)
+	// The native squid format plus the deny reason annotated by the
+	// protective rules below (see DenyReasons); "-" when the request was not
+	// denied by one of them.
+	b.WriteString("logformat kraken %ts.%03tu %6tr %>a %Ss/%03>Hs %<st %rm %ru %[un %Sh/%<a %mt %{sc_deny}note\n")
+	for _, r := range DenyReasons {
+		fmt.Fprintf(&b, "acl sc_r_%s annotate_transaction sc_deny=%s\n", r, r)
+	}
+	fmt.Fprintf(&b, "access_log stdio:%s kraken !sc_probe_source\ncache_store_log none\npinger_enable off\nshutdown_lifetime 2 seconds\n", o.LogPath)
 	renderSettings(&b, settings)
 	fmt.Fprintf(&b, "acl sc_safe_ports port %s\nacl sc_ssl_ports port %s\nacl sc_http_listener localport %d\nacl sc_tls_listener localport %d\n", portList(settings.SafePorts), portList(settings.ConnectPorts), settings.HTTPPort, settings.TLSPort)
 	fmt.Fprintf(&b, "acl sc_protected_dst dst %s\n", strings.Join(protectedDestinations, " "))
 	fmt.Fprintf(&b, "acl sc_private_dst dst %s\n", strings.Join(privateDestinations, " "))
 	fmt.Fprintf(&b, "acl sc_manager_listener localport 3131\nacl sc_manager_method method GET\nacl sc_manager_path urlpath_regex ^/squid-internal-mgr/(info|counters|5min|active_requests)$\ncachemgr_passwd none info counters 5min active_requests\ninclude %s/manager-auth.conf\ncachemgr_passwd disable all\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_method sc_manager_path manager\nacl sc_manager_control urlpath_regex ^/squid-internal-mgr/(reconfigure|rotate)$\nhttp_access allow sc_probe_source sc_manager_listener sc_manager_control manager\nhttp_access deny sc_manager_listener\n", o.StateDir)
-	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports\nhttp_access deny CONNECT !sc_ssl_ports\nhttp_access deny manager\nhttp_access deny sc_protected_dst\n")
+	b.WriteString("http_access deny sc_probe_listener\nhttp_access deny !sc_safe_ports sc_r_port\nhttp_access deny CONNECT !sc_ssl_ports sc_r_connect_port\nhttp_access deny manager sc_r_manager\nhttp_access deny sc_protected_dst sc_r_protected\n")
 	if !settings.AllowPrivateDestinations {
-		b.WriteString("http_access deny sc_private_dst\n")
+		b.WriteString("http_access deny sc_private_dst sc_r_private\n")
 	}
 	if len(settings.BlockedDomains) > 0 {
 		var ds []string
@@ -260,7 +272,7 @@ func Render(s Snapshot, o Options) (string, error) {
 			ds = append(ds, v)
 		}
 		sort.Strings(ds)
-		fmt.Fprintf(&b, "acl sc_blocked_dst dstdomain -n %s\nhttp_access deny sc_blocked_dst\n", strings.Join(ds, " "))
+		fmt.Fprintf(&b, "acl sc_blocked_dst dstdomain -n %s\nhttp_access deny sc_blocked_dst sc_r_blocked\n", strings.Join(ds, " "))
 	}
 	fmt.Fprintf(&b, "reply_header_add X-Kraken-Revision %s all\n", h)
 	var authenticatedSources []string
@@ -280,14 +292,14 @@ func Render(s Snapshot, o Options) (string, error) {
 		authenticatedSources = unique
 		fmt.Fprintf(&b, "auth_param basic program /usr/local/bin/kraken proxy-auth --accounts %s\nauth_param basic children 2 startup=0 idle=1 queue-size=8 on-persistent-overload=ERR\nauth_param basic realm Kraken\nauth_param basic casesensitive on\nauth_param basic credentialsttl 1 seconds\n", o.ProxyAccounts)
 		fmt.Fprintf(&b, "external_acl_type sc_identity_state ttl=0 negative_ttl=0 cache=0 children-max=2 children-startup=0 children-idle=1 queue-size=8 %%LOGIN %%{sc_generation_}note %%DATA /usr/local/bin/kraken proxy-auth --state --accounts %s\nacl sc_proxy_current external sc_identity_state\n", o.ProxyAccounts)
-		fmt.Fprintf(&b, "acl sc_auth_sources src %s\nacl sc_proxy_authenticated proxy_auth REQUIRED\nhttp_access deny sc_auth_sources sc_http_listener\nhttp_access deny sc_auth_sources sc_tls_listener !sc_proxy_authenticated\n", strings.Join(authenticatedSources, " "))
+		fmt.Fprintf(&b, "acl sc_auth_sources src %s\nacl sc_proxy_authenticated proxy_auth REQUIRED\nhttp_access deny sc_auth_sources sc_http_listener sc_r_tls_required\nhttp_access deny sc_auth_sources sc_tls_listener !sc_proxy_authenticated\n", strings.Join(authenticatedSources, " "))
 	}
 	b.WriteString("# BEGIN user policy\n")
 	if s.Mode == "expert" {
 		b.WriteString(s.Expert)
 		b.WriteString("\n# END user policy\n")
 		renderCacheFallback(&b, settings)
-		b.WriteString("http_access deny all\n")
+		b.WriteString("http_access deny sc_r_no_rule all\n")
 		return b.String(), nil
 	}
 	profiles := map[string]TLSProfile{}
@@ -336,7 +348,7 @@ func Render(s Snapshot, o Options) (string, error) {
 	}
 	b.WriteString("# END user policy\n")
 	renderCacheFallback(&b, settings)
-	b.WriteString("http_access deny all\n")
+	b.WriteString("http_access deny sc_r_no_rule all\n")
 	return b.String(), nil
 }
 

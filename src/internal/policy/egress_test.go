@@ -54,13 +54,13 @@ func TestBlockedDomainsRender(t *testing.T) {
 		t.Fatal(e)
 	}
 	// Sorted, subdomains get a leading dot.
-	want := "acl sc_blocked_dst dstdomain -n .cdn.example.net example.org\nhttp_access deny sc_blocked_dst\n"
+	want := "acl sc_blocked_dst dstdomain -n .cdn.example.net example.org\nhttp_access deny sc_blocked_dst sc_r_blocked\n"
 	if !strings.Contains(c, want) {
 		t.Fatalf("missing blocked acl/deny\nwant: %q\ngot: %q", want, c)
 	}
-	protected := strings.Index(c, "http_access deny sc_protected_dst\n")
-	private := strings.Index(c, "http_access deny sc_private_dst\n")
-	deny := strings.Index(c, "http_access deny sc_blocked_dst\n")
+	protected := strings.Index(c, "http_access deny sc_protected_dst sc_r_protected\n")
+	private := strings.Index(c, "http_access deny sc_private_dst sc_r_private\n")
+	deny := strings.Index(c, "http_access deny sc_blocked_dst sc_r_blocked\n")
 	user := strings.Index(c, "# BEGIN user policy")
 	if protected < 0 || private < 0 || deny < 0 || user < 0 {
 		t.Fatalf("markers missing:\n%s", c)
@@ -82,7 +82,7 @@ func TestBlockedDomainsRenderExpertMode(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	deny := strings.Index(c, "http_access deny sc_blocked_dst\n")
+	deny := strings.Index(c, "http_access deny sc_blocked_dst sc_r_blocked\n")
 	user := strings.Index(c, "# BEGIN user policy")
 	office := strings.Index(c, "http_access allow office")
 	if deny < 0 || user < 0 || office < 0 {
