@@ -45,7 +45,7 @@ describe("paletteIntent", () => {
   it("resolves act:block-domain only for admin", () => {
     expect(paletteIntent("act:block-domain", "admin")).toEqual({
       kind: "nav",
-      nav: "settings",
+      nav: "policies",
       intent: "blocked-domains",
     });
     expect(paletteIntent("act:block-domain", "manager")).toBeNull();

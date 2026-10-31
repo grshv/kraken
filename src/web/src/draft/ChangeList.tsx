@@ -19,10 +19,12 @@ export function ChangeList({
   items,
   onUndo,
   undoable,
+  details,
 }: {
   items: string[];
   onUndo?: (index: number) => void;
   undoable?: boolean[];
+  details?: (string[] | undefined)[];
 }) {
   const hasUndo = !!onUndo;
   const cols = hasUndo
@@ -41,7 +43,16 @@ export function ChangeList({
           >
             {MARK[changeKind(s)]}
           </Badge>
-          <span>{s}</span>
+          <div className="min-w-0">
+            <span>{s}</span>
+            {!!details?.[i]?.length && (
+              <ul className="mt-1 space-y-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
+                {details[i]!.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+          </div>
           {hasUndo && undoable?.[i] && (
             <Button
               size="xs"

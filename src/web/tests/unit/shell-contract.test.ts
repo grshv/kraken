@@ -1,22 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { PANE_LIMITS, clampPane } from "../../src/shell/layout";
 import { navItems } from "../../src/shell/nav";
 import { applyReducer, initialApplyState } from "../../src/draft/applyFlow";
-
-describe("pane limits", () => {
-  it("clamps to agreed bounds inclusively", () => {
-    expect(PANE_LIMITS.list).toEqual({ min: 220, max: 440 });
-    expect(PANE_LIMITS.detail).toEqual({ min: 280, max: 520 });
-    expect(clampPane("list", 100)).toBe(220);
-    expect(clampPane("list", 220)).toBe(220);
-    expect(clampPane("list", 440)).toBe(440);
-    expect(clampPane("list", 900)).toBe(440);
-    expect(clampPane("detail", 279)).toBe(280);
-    expect(clampPane("detail", 521)).toBe(520);
-    expect(clampPane("detail", 300)).toBe(300);
-    expect(clampPane("list", Number.NaN)).toBe(220);
-  });
-});
 
 describe("navigation by role", () => {
   it("admin sees all sections in agreed order", () => {

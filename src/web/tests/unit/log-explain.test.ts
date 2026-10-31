@@ -1,59 +1,54 @@
 import { describe, it, expect } from "vitest";
 import type { Snapshot } from "../../src/model";
-import { explainSteps, type Explain } from "../../src/log/explain";
+import { whyText, type Explain } from "../../src/log/explain";
 
 const snap = {
-  clients: [{ id: "c1", name: "ci-01" }],
-  policies: [{ id: "p1", name: "Сборка" }],
+  clients: [
+    { id: "c1", name: "ci-01", access: "list", policy_ids: ["p1", "p2"] },
+    { id: "c2", name: "lab", access: "none", policy_ids: [] },
+  ],
+  policies: [
+    { id: "p1", name: "Сборка" },
+    { id: "p2", name: "Python" },
+  ],
 } as unknown as Snapshot;
 const ev = { source_ip: "10.20.0.15", destination: "registry.npmjs.org:443" };
-const ex = (reason: string, decision = "denied"): Explain =>
-  ({ reason, decision, client_id: "c1", policy_id: "p1" }) as Explain;
+const ex = (reason: string, decision = "denied", client_id = "c1"): Explain =>
+  ({ reason, decision, client_id, policy_id: null }) as Explain;
 
-describe("explainSteps", () => {
-  it("walks to the failing policy check", () => {
-    expect(explainSteps(ex("not_in_allowlist"), ev, snap)).toEqual([
-      { ok: true, text: "Порт 443 разрешён, адрес внешний" },
-      { ok: true, text: "Не в «запрещено для всех»" },
-      { ok: true, text: "Источник: клиент ci-01" },
-      { ok: false, text: "registry.npmjs.org нет в списке доменов клиента" },
-    ]);
+describe("whyText", () => {
+  it("names the client's lists the domain is missing from", () => {
+    expect(whyText(ex("not_in_allowlist"), ev, snap)).toBe(
+      "ci-01 работает по списку доменов: registry.npmjs.org нет ни в своих доменах, ни в политиках «Сборка», «Python».",
+    );
   });
 
-  it("stops at protection without reaching the client", () => {
-    expect(explainSteps(ex("protected_destination"), ev, snap)).toEqual([
-      { ok: false, text: "Адрес или порт 443 закрыт встроенной защитой" },
-    ]);
+  it("stops at protection with the port", () => {
+    expect(whyText(ex("protected_destination"), ev, snap)).toMatch(
+      /^Порт 443 или адрес закрыт встроенной защитой/,
+    );
   });
 
   it("names the undescribed source", () => {
-    const steps = explainSteps(
-      { ...ex("unknown_source"), client_id: null, policy_id: null },
-      ev,
-      snap,
-    );
-    expect(steps.at(-1)).toEqual({
-      ok: false,
-      text: "Источник 10.20.0.15 не описан как клиент",
-    });
-  });
-
-  it("marks an allowed request as passing every check", () => {
-    const steps = explainSteps(ex("allowed_by_policy", "allowed"), ev, snap);
-    expect(steps.every((s) => s.ok)).toBe(true);
-    expect(steps.at(-1)?.text).toBe(
-      "registry.npmjs.org есть в политике «Сборка»",
+    expect(
+      whyText({ ...ex("unknown_source"), client_id: null }, ev, snap),
+    ).toBe(
+      "IP 10.20.0.15 не входит ни в одного клиента. Неописанные источники получают отказ.",
     );
   });
 
-  it("names the client's own domains when no policy allowed it", () => {
-    const steps = explainSteps(
-      { ...ex("allowed_by_policy", "allowed"), policy_id: null },
-      ev,
-      snap,
+  it("explains the no-access mode and a disabled client", () => {
+    expect(whyText(ex("not_in_allowlist", "denied", "c2"), ev, snap)).toBe(
+      "lab в режиме «Нет доступа».",
     );
-    expect(steps.at(-1)?.text).toBe(
-      "registry.npmjs.org есть в своих доменах клиента",
+    expect(whyText(ex("client_disabled"), ev, snap)).toBe(
+      "ci-01 выключен: все его запросы получают отказ.",
+    );
+  });
+
+  it("calls a denial historical when the rules now allow it", () => {
+    expect(whyText(ex("allowed_by_policy", "allowed"), ev, snap)).toBe(
+      "Исторический отказ: сейчас такой запрос разрешён.",
     );
   });
 });

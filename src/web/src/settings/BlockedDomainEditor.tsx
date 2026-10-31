@@ -15,13 +15,10 @@ import { Chip } from "@/components/kraken/blocks";
 import { mergeDestinations, parseDomainInput } from "../policies/domains";
 import type { Destination } from "../model";
 
-// BlockedDomainEditor is the settings-local counterpart of the shared
-// policies/DomainEditor for the global "Запрещено для всех" list. It is built
-// on shadcn + Tailwind only: a table of domains (Chip, per-row subdomain
-// Switch, an empty request bar and a trash action), an add row with a "с
+// BlockedDomainEditor is the counterpart of the shared policies/DomainEditor
+// for the global "Запрещено для всех" list: a table of domains (Chip,
+// per-row subdomain Switch and a remove action), an add row with a "с
 // поддоменами" Switch, and the same parse/merge behaviour as the shared editor.
-// Hit counts are not available for the global blocklist, so the request bar
-// stays empty and the count shows an em dash.
 export function BlockedDomainEditor({
   destinations,
   onChange,
@@ -35,7 +32,10 @@ export function BlockedDomainEditor({
   const [withSubs, setWithSubs] = useState(true);
 
   function add() {
-    const tokens = draft.split(/[\s,]+/).map((s) => s.trim()).filter(Boolean);
+    const tokens = draft
+      .split(/[\s,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
     const parsed = tokens
       .map((t) => parseDomainInput(t))
       .filter((d): d is NonNullable<typeof d> => d !== null)
@@ -55,7 +55,6 @@ export function BlockedDomainEditor({
           <TableRow>
             <TableHead>Домен</TableHead>
             <TableHead>Поддомены</TableHead>
-            <TableHead className="text-right">Запросов, 24 ч</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -63,10 +62,7 @@ export function BlockedDomainEditor({
           {destinations.map((d) => (
             <TableRow key={d.domain}>
               <TableCell>
-                <Chip>
-                  {d.include_subdomains ? "*." : ""}
-                  {d.domain}
-                </Chip>
+                <Chip>{d.domain}</Chip>
               </TableCell>
               <TableCell>
                 <Switch
@@ -86,16 +82,6 @@ export function BlockedDomainEditor({
                   }
                 />
               </TableCell>
-              <TableCell>
-                <div className="flex items-center gap-2">
-                  <div className="h-1.5 min-w-[50px] grow overflow-hidden rounded-sm bg-muted">
-                    <div className="h-full w-0 rounded-sm bg-s-allow" />
-                  </div>
-                  <span className="w-[52px] text-right text-sm tabular-nums text-muted-foreground">
-                    —
-                  </span>
-                </div>
-              </TableCell>
               <TableCell className="text-right">
                 <Button
                   size="icon-xs"
@@ -112,10 +98,7 @@ export function BlockedDomainEditor({
           ))}
           {destinations.length === 0 && (
             <TableRow>
-              <TableCell
-                colSpan={4}
-                className="text-sm text-muted-foreground"
-              >
+              <TableCell colSpan={3} className="text-sm text-muted-foreground">
                 Нет доменов
               </TableCell>
             </TableRow>
@@ -124,6 +107,7 @@ export function BlockedDomainEditor({
       </Table>
       <div className="flex items-center gap-2">
         <Input
+          aria-label="Добавить запрещённые домены"
           className="font-mono"
           placeholder="домен; несколько через пробел или с новой строки"
           value={draft}

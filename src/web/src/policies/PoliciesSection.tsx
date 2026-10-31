@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
   Card,
-  CardAction,
   CardContent,
   CardDescription,
   CardHeader,
@@ -38,6 +37,11 @@ import {
 } from "../draft/edits";
 import type { Client, Policy, Session, Snapshot } from "../model";
 import { pluralRu } from "../model";
+import { BlockedDomainEditor } from "../settings/BlockedDomainEditor";
+import { setBlockedDomains } from "../settings/edits";
+
+// BLOCKED selects the pinned global deny list instead of a policy.
+const BLOCKED = "__blocked";
 
 // PoliciesSection: named domain sets with client/domain counts and a detail
 // editor (domains, 24h/7d hits, clients). A client attaches any number of
@@ -73,6 +77,9 @@ export function PoliciesSection(props: SectionProps) {
     (snap?.clients ?? []).filter((c) => c.policy_ids.includes(id));
 
   const selectedPolicy = policies.find((p) => p.id === selected) ?? null;
+  // Only an admin edits the global deny list.
+  const canBlock = session.role !== "manager";
+  const blocked = snap?.settings?.blocked_domains ?? [];
 
   useEffect(() => {
     if (!selectedPolicy) return;
@@ -83,13 +90,18 @@ export function PoliciesSection(props: SectionProps) {
         include_subdomains: boolean;
         hits_24h: number;
         hits_7d: number;
+        denied_24h?: number;
       }[];
     }>(`/inspector/policies/${selectedPolicy.id}/hits`)
       .then((r) => {
         if (!live) return;
         const next: DomainHits = {};
         for (const d of r.domains ?? [])
-          next[d.domain] = { hits_24h: d.hits_24h, hits_7d: d.hits_7d };
+          next[d.domain] = {
+            hits_24h: d.hits_24h,
+            hits_7d: d.hits_7d,
+            denied_24h: d.denied_24h,
+          };
         setHits(next);
       })
       .catch(() => setHits({}));
@@ -100,6 +112,12 @@ export function PoliciesSection(props: SectionProps) {
 
   // "policy:<id>" from another section selects that policy.
   useEffect(() => {
+    if (intent === "blocked-domains") {
+      setCreating(false);
+      setSelected(BLOCKED);
+      onIntentHandled?.();
+      return;
+    }
     if (!intent?.startsWith("policy:")) return;
     setCreating(false);
     setSelected(intent.slice("policy:".length));
@@ -137,7 +155,7 @@ export function PoliciesSection(props: SectionProps) {
 
   if (policies.length === 0 && !creating) {
     return (
-      <div className="flex w-full min-h-0">
+      <>
         <ListPane>
           <ListPaneHeader
             title="Политики"
@@ -161,7 +179,7 @@ export function PoliciesSection(props: SectionProps) {
             </EmptyState>
           </InspectorBody>
         </InspectorPane>
-      </div>
+      </>
     );
   }
 
@@ -194,7 +212,7 @@ export function PoliciesSection(props: SectionProps) {
   );
 
   return (
-    <div className="flex w-full min-h-0">
+    <>
       <ListPane>
         <ListPaneHeader
           title="Политики"
@@ -206,6 +224,22 @@ export function PoliciesSection(props: SectionProps) {
           description="Именованные наборы доменов. Клиент подключает любое число наборов."
         />
         <ListPaneBody>
+          {canBlock && (
+            <ListRow
+              selected={!creating && selected === BLOCKED}
+              onClick={() => {
+                setCreating(false);
+                setSelected(BLOCKED);
+              }}
+              title={<span className="font-medium">Запрещено для всех</span>}
+              meta={
+                <span className="text-muted-foreground">
+                  {pluralRu(blocked.length, "домен", "домена", "доменов")}
+                </span>
+              }
+              subtitle="Действует на всех клиентов, включая «весь веб»"
+            />
+          )}
           {policies.map((p) => (
             <PolicyRow
               key={p.id}
@@ -230,7 +264,17 @@ export function PoliciesSection(props: SectionProps) {
       </ListPane>
       {createForm || (
         <InspectorPane>
-          {selectedPolicy ? (
+          {selected === BLOCKED && snap && canBlock ? (
+            <BlockedDetail
+              snap={snap}
+              changed={
+                JSON.stringify(active?.settings?.blocked_domains ?? []) !==
+                JSON.stringify(blocked)
+              }
+              onCommit={onCommit}
+              onToast={onToast}
+            />
+          ) : selectedPolicy ? (
             <PolicyDetail
               policy={selectedPolicy}
               snap={snap!}
@@ -283,7 +327,7 @@ export function PoliciesSection(props: SectionProps) {
           )}
         </InspectorPane>
       )}
-    </div>
+    </>
   );
 }
 
@@ -467,8 +511,8 @@ function PolicyDetail({
         {clients.length > 1 && (
           <Callout tone="warn" icon={<TriangleAlert aria-hidden />}>
             <div className="text-sm">
-              Изменения затронут{" "}
-              {pluralRu(clients.length, "клиента", "клиентов", "клиентов")}:{" "}
+              Клиенты, которых затронут изменения:{" "}
+              {pluralRu(clients.length, "клиент", "клиента", "клиентов")}:{" "}
               {clients.map((c) => c.name).join(", ")}.
             </div>
           </Callout>
@@ -703,5 +747,60 @@ function NewPolicyForm({
         </Card>
       </InspectorBody>
     </InspectorPane>
+  );
+}
+
+// BlockedDetail: the global deny list. It is checked right after the built-in
+// protection, before any client rule, so it also closes «весь веб».
+function BlockedDetail({
+  snap,
+  changed,
+  onCommit,
+  onToast,
+}: {
+  snap: Snapshot;
+  changed: boolean;
+  onCommit: (next: Snapshot) => Promise<CommitResult>;
+  onToast: (m: string) => void;
+}) {
+  const blocked = snap.settings?.blocked_domains ?? [];
+  return (
+    <>
+      <InspectorHeader
+        title={
+          <span className="flex items-center gap-2">
+            Запрещено для всех
+            {changed && <Badge variant="mod">изменено</Badge>}
+          </span>
+        }
+      />
+      <InspectorBody>
+        <Callout tone="info">
+          <span className="text-sm">
+            Домены закрыты для всех клиентов, включая «весь веб» и squid.conf
+            вручную. Проверяются сразу после встроенной защиты и до правил
+            клиента.
+          </span>
+        </Callout>
+        <Card>
+          <CardHeader>
+            <CardTitle>Домены</CardTitle>
+            <CardDescription>
+              {pluralRu(snap.clients.length, "клиент", "клиента", "клиентов")}{" "}
+              получат отказ к этим доменам
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <BlockedDomainEditor
+              destinations={blocked}
+              onChange={async (next) => {
+                const res = await onCommit(setBlockedDomains(snap, next));
+                if (res.ok) onToast("Список обновлён в черновике");
+              }}
+            />
+          </CardContent>
+        </Card>
+      </InspectorBody>
+    </>
   );
 }

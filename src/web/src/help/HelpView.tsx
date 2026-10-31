@@ -39,14 +39,17 @@ export function HelpView({
   request,
   screens,
   onNavigate,
+  initial,
 }: {
   request: Request;
   screens: NavId[];
   onNavigate: (id: NavId) => void;
+  // Article to open first, e.g. from a denial in the journal.
+  initial?: string;
 }) {
   const [index, setIndex] = useState<HelpEntry[] | null>(null);
   const [article, setArticle] = useState<HelpArticle | null>(null);
-  const [slug, setSlug] = useState<string | null>(null);
+  const [slug, setSlug] = useState<string | null>(initial ?? null);
   const [error, setError] = useState("");
   const [query, setQuery] = useState("");
 
@@ -97,7 +100,7 @@ export function HelpView({
   })).filter((g) => g.items.length > 0);
 
   return (
-    <div className="flex w-full min-h-0">
+    <>
       <ListPane>
         <ListPaneHeader title="Справка">
           <div className="relative flex items-center">
@@ -154,7 +157,7 @@ export function HelpView({
           />
         )}
       </InspectorPane>
-    </div>
+    </>
   );
 }
 
@@ -205,9 +208,10 @@ function ArticleView({
                     <span className="text-muted-foreground tabular-nums">
                       {i + 1}
                     </span>
-                    <button
+                    <Button
+                      variant="ghost"
                       type="button"
-                      className="cursor-pointer text-left hover:underline"
+                      className="h-auto justify-start p-0 text-left whitespace-normal hover:bg-transparent hover:underline"
                       onClick={() =>
                         document
                           .getElementById(sectionID(i))
@@ -215,7 +219,7 @@ function ArticleView({
                       }
                     >
                       {h}
-                    </button>
+                    </Button>
                   </li>
                 ))}
               </ol>

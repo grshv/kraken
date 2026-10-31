@@ -1,3 +1,4 @@
+import { Timestamp } from "@/components/kraken/timestamp";
 import { useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -9,7 +10,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { actionLabel } from "../audit/actions";
-import { localTime } from "../model";
 import type { SectionProps } from "../sections/sectionProps";
 
 type Row = { id: string; action: string; detail?: string; timestamp: string };
@@ -61,11 +61,7 @@ export function RecentActions({
               {a.detail || actionLabel(a.action)}
             </span>
             <span className="shrink-0 text-sm text-muted-foreground tabular-nums">
-              {new Date(a.timestamp).toLocaleDateString("ru-RU", {
-                day: "2-digit",
-                month: "2-digit",
-              })}
-              , {localTime(a.timestamp)}
+              <Timestamp value={a.timestamp} compact />
             </span>
           </div>
         ))}

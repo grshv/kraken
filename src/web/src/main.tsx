@@ -8,6 +8,7 @@ import { Card } from "@/components/ui/card";
 import { Field, Callout } from "@/components/kraken/blocks";
 import { ConnectionError, fetchPanel, type Request } from "./api";
 import { ThemeProvider } from "./ThemeProvider";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import type {
   Draft,
   PanelRole,
@@ -75,9 +76,12 @@ function App() {
   const [sectionIntent, setSectionIntent] = useState<SectionIntent | undefined>(
     undefined,
   );
+  // Help articles open by slug and stay open; other intents are one-shot.
+  const [helpSlug, setHelpSlug] = useState<string | undefined>();
   const openWithIntent = useCallback((nav: NavId, intent: SectionIntent) => {
     setNavId(nav);
-    setSectionIntent(intent);
+    if (intent.startsWith("help:")) setHelpSlug(intent.slice("help:".length));
+    else setSectionIntent(intent);
   }, []);
   const [toast, setToast] = useState("");
   const [confirm, setConfirm] = useState<ConfirmOptions | null>(null);
@@ -397,7 +401,8 @@ function App() {
     onLogout: () => {
       void logout();
     },
-    onOpenAccount: () => setNavId("accounts"),
+    onOpenAccount: () =>
+      openWithIntent("accounts", `account:${session?.username ?? ""}`),
     onChangePassword: async (current, next) => {
       await api("/session/password", "PUT", {
         current_password: current,
@@ -506,6 +511,8 @@ function App() {
     if (navId === "help")
       return (
         <HelpView
+          key={helpSlug ?? ""}
+          initial={helpSlug}
           request={request}
           screens={visibleNav}
           onNavigate={setNavId}
@@ -554,6 +561,8 @@ function App() {
     if (navId === "log")
       return (
         <LogSection
+          intent={sectionIntent}
+          onIntentHandled={handleIntentHandled}
           request={request}
           draft={draft}
           active={active}
@@ -742,6 +751,8 @@ function LoginView({
 
 createRoot(document.getElementById("root")!).render(
   <ThemeProvider>
-    <App />
+    <TooltipProvider delayDuration={400}>
+      <App />
+    </TooltipProvider>
   </ThemeProvider>,
 );

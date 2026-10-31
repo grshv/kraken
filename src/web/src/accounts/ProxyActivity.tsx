@@ -1,3 +1,4 @@
+import { Timestamp } from "@/components/kraken/timestamp";
 import { useEffect, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import {
@@ -16,7 +17,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Callout, Kpi, KpiGroup } from "@/components/kraken/blocks";
-import { ago } from "../model";
 import type { SectionProps } from "../sections/sectionProps";
 
 type Activity = {
@@ -66,9 +66,12 @@ export function ProxyKpis({ activity }: { activity: Activity | null }) {
         label="Запросов, 24 ч"
         value={v(activity?.requests)}
         hint={
-          activity?.last_used_at
-            ? `последний ${ago(activity.last_used_at)} назад`
-            : undefined
+          activity?.last_used_at ? (
+            <span>
+              Последний:{" "}
+              <Timestamp value={activity.last_used_at} mode="relative" />
+            </span>
+          ) : undefined
         }
       />
       <Kpi
@@ -125,7 +128,7 @@ export function ProxySources({ activity }: { activity: Activity | null }) {
                     {num(s.failed_logins)}
                   </TableCell>
                   <TableCell className="text-right text-muted-foreground">
-                    {ago(s.last_seen)}
+                    <Timestamp value={s.last_seen} mode="relative" />
                   </TableCell>
                 </TableRow>
               ))}

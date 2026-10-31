@@ -1053,11 +1053,26 @@
           {
             "name": "client_id",
             "in": "query",
+            "style": "form",
+            "explode": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 128
+              }
             },
-            "description": "Exact stored client ID, including deleted clients."
+            "description": "Exact stored client ID, including deleted clients; repeat to match any of several. Empty values are ignored."
+          },
+          {
+            "name": "unmatched",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Also match unmatched (unknown) sources; alone it selects only them. A manager sees those inside his networks."
           },
           {
             "name": "failures_only",
@@ -1066,6 +1081,15 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "allowed_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Only requests that did not fail; together with failures_only=true it is 400 invalid_filter."
           },
           {
             "name": "source_ip",
@@ -1088,10 +1112,16 @@
           {
             "name": "method",
             "in": "query",
-            "description": "Exact method, e.g. GET, HEAD or CONNECT.",
+            "description": "Exact method, e.g. GET, HEAD or CONNECT; repeat to match any of several.",
+            "style": "form",
+            "explode": true,
             "schema": {
-              "type": "string",
-              "maxLength": 24
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 24
+              }
             }
           },
           {
@@ -1107,20 +1137,26 @@
             "name": "deny_reason",
             "in": "query",
             "required": false,
+            "style": "form",
+            "explode": true,
             "schema": {
-              "type": "string",
-              "enum": [
-                "port",
-                "connect_port",
-                "manager",
-                "protected",
-                "private",
-                "blocked",
-                "tls_required",
-                "no_rule"
-              ]
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "port",
+                  "connect_port",
+                  "manager",
+                  "protected",
+                  "private",
+                  "blocked",
+                  "tls_required",
+                  "no_rule"
+                ]
+              }
             },
-            "description": "Only events denied by this squid.conf rule (logged %{sc_deny}note)."
+            "description": "Only events denied by one of these squid.conf rules (logged %{sc_deny}note); repeat to match any of several."
           },
           {
             "name": "from",
@@ -1191,11 +1227,26 @@
           {
             "name": "client_id",
             "in": "query",
+            "style": "form",
+            "explode": true,
             "schema": {
-              "type": "string",
-              "format": "uuid"
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 128
+              }
             },
-            "description": "Exact stored client ID, including deleted clients."
+            "description": "Exact stored client ID, including deleted clients; repeat to match any of several. Empty values are ignored."
+          },
+          {
+            "name": "unmatched",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Also match unmatched (unknown) sources; alone it selects only them. A manager sees those inside his networks."
           },
           {
             "name": "failures_only",
@@ -1204,6 +1255,15 @@
               "type": "boolean",
               "default": false
             }
+          },
+          {
+            "name": "allowed_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Only requests that did not fail; together with failures_only=true it is 400 invalid_filter."
           },
           {
             "name": "source_ip",
@@ -1226,10 +1286,16 @@
           {
             "name": "method",
             "in": "query",
-            "description": "Exact method, e.g. GET, HEAD or CONNECT.",
+            "description": "Exact method, e.g. GET, HEAD or CONNECT; repeat to match any of several.",
+            "style": "form",
+            "explode": true,
             "schema": {
-              "type": "string",
-              "maxLength": 24
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 24
+              }
             }
           },
           {
@@ -1245,20 +1311,26 @@
             "name": "deny_reason",
             "in": "query",
             "required": false,
+            "style": "form",
+            "explode": true,
             "schema": {
-              "type": "string",
-              "enum": [
-                "port",
-                "connect_port",
-                "manager",
-                "protected",
-                "private",
-                "blocked",
-                "tls_required",
-                "no_rule"
-              ]
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "port",
+                  "connect_port",
+                  "manager",
+                  "protected",
+                  "private",
+                  "blocked",
+                  "tls_required",
+                  "no_rule"
+                ]
+              }
             },
-            "description": "Only events denied by this squid.conf rule (logged %{sc_deny}note)."
+            "description": "Only events denied by one of these squid.conf rules (logged %{sc_deny}note); repeat to match any of several."
           }
         ],
         "responses": {
@@ -1274,6 +1346,195 @@
           },
           "400": {
             "description": "invalid_filter: missing/invalid from, to or step, window over 7 days or over 1440 buckets, or an invalid filter value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Error; code is stable, message safe for UI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Storage busy or request deadline exceeded; retry the same request. code=storage_busy, Retry-After: 2.",
+            "headers": {
+              "Retry-After": {
+                "schema": {
+                  "type": "string"
+                },
+                "description": "Seconds to wait before retrying."
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/events/domains": {
+      "get": {
+        "operationId": "listEventDomains",
+        "summary": "Requests grouped by host over a bounded window",
+        "description": "Groups requests of [from, to) by host across retained monthly files with the same filters and manager scope as /events: requests, denied, bytes, last request, ports, distinct source addresses and the 20 busiest sources. Busiest hosts first, at most 500 (truncated=true when more); summary totals cover every matching request. Window is required and capped at 7 days. Client names are resolved from the active snapshot; unmatched sources have client_id:null. Available to admin and manager (manager sees only his scope).",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "description": "Inclusive event timestamp, RFC3339 with timezone.",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "description": "Exclusive event timestamp, RFC3339 with timezone; later than from.",
+            "schema": {
+              "type": "string",
+              "format": "date-time",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 128
+              }
+            },
+            "description": "Exact stored client ID, including deleted clients; repeat to match any of several. Empty values are ignored."
+          },
+          {
+            "name": "unmatched",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Also match unmatched (unknown) sources; alone it selects only them. A manager sees those inside his networks."
+          },
+          {
+            "name": "failures_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          },
+          {
+            "name": "allowed_only",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            },
+            "description": "Only requests that did not fail; together with failures_only=true it is 400 invalid_filter."
+          },
+          {
+            "name": "source_ip",
+            "in": "query",
+            "description": "Exact source IPv4/IPv6 address.",
+            "schema": {
+              "type": "string",
+              "maxLength": 45
+            }
+          },
+          {
+            "name": "destination",
+            "in": "query",
+            "description": "Case-insensitive literal substring of stored sanitized destination; no wildcards.",
+            "schema": {
+              "type": "string",
+              "maxLength": 253
+            }
+          },
+          {
+            "name": "method",
+            "in": "query",
+            "description": "Exact method, e.g. GET, HEAD or CONNECT; repeat to match any of several.",
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "maxLength": 24
+              }
+            }
+          },
+          {
+            "name": "result",
+            "in": "query",
+            "description": "Exact Squid result, e.g. TCP_DENIED/403.",
+            "schema": {
+              "type": "string",
+              "maxLength": 64
+            }
+          },
+          {
+            "name": "deny_reason",
+            "in": "query",
+            "required": false,
+            "style": "form",
+            "explode": true,
+            "schema": {
+              "type": "array",
+              "maxItems": 64,
+              "items": {
+                "type": "string",
+                "enum": [
+                  "port",
+                  "connect_port",
+                  "manager",
+                  "protected",
+                  "private",
+                  "blocked",
+                  "tls_required",
+                  "no_rule"
+                ]
+              }
+            },
+            "description": "Only events denied by one of these squid.conf rules (logged %{sc_deny}note); repeat to match any of several."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventDomains"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_filter: missing/invalid from or to, window over 7 days, or an invalid filter value.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3861,7 +4122,8 @@
           "entity",
           "id",
           "action",
-          "text"
+          "text",
+          "details"
         ],
         "properties": {
           "entity": {
@@ -3892,6 +4154,13 @@
           "text": {
             "type": "string",
             "description": "Short user-visible change description. Untrusted display text (contains object names)."
+          },
+          "details": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "What exactly differs, one line each (fields, added and removed list members; for a removed client or policy, what it had). Untrusted display text."
           }
         }
       },
@@ -4410,6 +4679,178 @@
           "record_limit": {
             "type": "integer",
             "const": 50000
+          }
+        }
+      },
+      "EventDomains": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "items",
+          "truncated",
+          "summary"
+        ],
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "host",
+                "requests",
+                "denied",
+                "bytes",
+                "last_seen",
+                "ports",
+                "source_count",
+                "sources"
+              ],
+              "properties": {
+                "host": {
+                  "type": "string"
+                },
+                "requests": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "denied": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Failed requests, as in /events/facets."
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": 0
+                },
+                "last_seen": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "ports": {
+                  "type": "array",
+                  "items": {
+                    "type": "integer"
+                  }
+                },
+                "source_count": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "description": "Distinct source addresses."
+                },
+                "sources": {
+                  "type": "array",
+                  "maxItems": 20,
+                  "description": "Busiest sources first.",
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": [
+                      "client_id",
+                      "client_name",
+                      "source_ip",
+                      "requests",
+                      "denied"
+                    ],
+                    "properties": {
+                      "client_id": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "client_name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "source_ip": {
+                        "type": "string"
+                      },
+                      "requests": {
+                        "type": "integer",
+                        "minimum": 0
+                      },
+                      "denied": {
+                        "type": "integer",
+                        "minimum": 0
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": false,
+            "description": "Totals over every matching request, not only the listed hosts.",
+            "required": [
+              "requests",
+              "denied",
+              "bytes",
+              "unmatched_sources",
+              "clients"
+            ],
+            "properties": {
+              "requests": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "denied": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "unmatched_sources": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Distinct addresses of unmatched (unknown) sources."
+              },
+              "clients": {
+                "type": "array",
+                "description": "Per client, busiest first; client_id null groups unmatched sources.",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "required": [
+                    "client_id",
+                    "client_name",
+                    "requests",
+                    "denied"
+                  ],
+                  "properties": {
+                    "client_id": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "client_name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "requests": {
+                      "type": "integer",
+                      "minimum": 0
+                    },
+                    "denied": {
+                      "type": "integer",
+                      "minimum": 0
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       },
@@ -6017,6 +6458,7 @@
           "domain",
           "include_subdomains",
           "hits_24h",
+          "denied_24h",
           "hits_7d"
         ],
         "properties": {
@@ -6029,6 +6471,11 @@
           "hits_24h": {
             "type": "integer",
             "minimum": 0
+          },
+          "denied_24h": {
+            "type": "integer",
+            "minimum": 0,
+            "description": "Denied requests among hits_24h."
           },
           "hits_7d": {
             "type": "integer",

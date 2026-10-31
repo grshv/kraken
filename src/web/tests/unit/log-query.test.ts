@@ -1,219 +1,182 @@
 import { describe, expect, it } from "vitest";
+import { denyReasonLabel, isDenied } from "../../src/log/query";
 import {
-  buildEventsParams,
-  buildFacetsParams,
-  denyReasonLabel,
-  FACET_WINDOWS,
-  isDenied,
-  parseLogQuery,
-  toEventsQuery,
-  toFacetsQuery,
-  type LogEvent,
-} from "../../src/log/query";
+  decodeState,
+  defaultFilters,
+  facetStep,
+  hashFor,
+  logIntent,
+  periodWindow,
+  stateFromHash,
+  toQuery,
+  type Filters,
+} from "../../src/log/filters";
+import { hostOf, portOf, formatBytes } from "../../src/log/data";
+import { fromMoscow } from "../../src/log/DateRangePicker";
 
-// ev uses explicit undefined checks (not ??) so callers can override fields
-// back to null, which `null ?? default` would otherwise undo.
-function ev(over: Partial<LogEvent> = {}): LogEvent {
-  const o = (k: keyof LogEvent, d: LogEvent[typeof k]) =>
-    over[k] !== undefined ? over[k]! : d;
-  return {
-    id: o("id", "e1"),
-    timestamp: o("timestamp", "2026-10-29T13:00:00Z"),
-    client_id: o("client_id", "c1"),
-    client_name: o("client_name", "ci-01"),
-    source_ip: o("source_ip", "10.0.0.5"),
-    destination: o("destination", "example.com:443"),
-    method: o("method", "CONNECT"),
-    proxy_result: o("proxy_result", "TCP_TUNNEL/200"),
-    proxy_http_status: o("proxy_http_status", 200),
-  };
-}
-
-describe("parseLogQuery", () => {
-  it("parses every typed token", () => {
-    const q = parseLogQuery(
-      "client:ci-01 host:example.com method:GET ip:10.0.0.5 result:denied free1 free2",
-    );
-    expect(q).toEqual({
-      client: "ci-01",
-      host: "example.com",
-      method: "GET",
-      source: "10.0.0.5",
-      result: "denied",
-      free: ["free1", "free2"],
-    });
-  });
-  it("accepts Russian result synonyms and source alias", () => {
-    expect(parseLogQuery("результат:разрешено").result).toBe("allowed");
-    expect(parseLogQuery("результат:отказ").result).toBe("denied");
-    expect(parseLogQuery("source:10.1.2.3").source).toBe("10.1.2.3");
-  });
-  it("ignores empty values and unknown result values", () => {
-    const q = parseLogQuery("client: host: method: result:bogus ip:");
-    expect(q).toEqual({ free: [] });
-    expect(q.result).toBeUndefined();
-  });
-  it("drops unknown prefixes into free", () => {
-    expect(parseLogQuery("port:443 hello").free).toEqual(["port:443", "hello"]);
-  });
-  it("returns empty for blank input", () => {
-    expect(parseLogQuery("")).toEqual({ free: [] });
-    expect(parseLogQuery("   \t  ")).toEqual({ free: [] });
-  });
-  it("last value wins for repeated typed fields", () => {
-    expect(parseLogQuery("client:a client:b").client).toBe("b");
-    expect(parseLogQuery("result:allowed result:отказ").result).toBe("denied");
-  });
+const NOW = new Date("2026-10-29T13:00:00Z");
+const f = (over: Partial<Filters> = {}): Filters => ({
+  ...defaultFilters(),
+  ...over,
 });
 
 describe("isDenied", () => {
-  it("matches DENIED and FAIL in proxy_result", () => {
+  it("matches DENIED and FAIL in proxy_result and status >= 400", () => {
     expect(
-      isDenied(ev({ proxy_result: "TCP_DENIED/403", proxy_http_status: 403 })),
+      isDenied({ proxy_result: "TCP_DENIED/403", proxy_http_status: 403 }),
     ).toBe(true);
     expect(
-      isDenied(ev({ proxy_result: "FAIL/500", proxy_http_status: 500 })),
+      isDenied({ proxy_result: "tcp_denied/403", proxy_http_status: null }),
+    ).toBe(true);
+    expect(isDenied({ proxy_result: "FAIL/500", proxy_http_status: 500 })).toBe(
+      true,
+    );
+    expect(
+      isDenied({ proxy_result: "TCP_MISS/000", proxy_http_status: 503 }),
     ).toBe(true);
     expect(
-      isDenied(ev({ proxy_result: "tcp_denied/403", proxy_http_status: null })),
-    ).toBe(true);
-  });
-  it("treats status >= 400 as denied even with a passing result", () => {
-    expect(
-      isDenied(ev({ proxy_result: "TCP_MISS/000", proxy_http_status: 503 })),
-    ).toBe(true);
-    expect(
-      isDenied(ev({ proxy_result: "TCP_TUNNEL/200", proxy_http_status: 200 })),
+      isDenied({ proxy_result: "TCP_TUNNEL/200", proxy_http_status: 200 }),
     ).toBe(false);
   });
-  it("allows ok results", () => {
-    expect(
-      isDenied(ev({ proxy_result: "TCP_TUNNEL/200", proxy_http_status: 200 })),
-    ).toBe(false);
+  it("labels reasons that are not filters too", () => {
+    expect(denyReasonLabel("no_rule")).toBe("Нет правила для клиента");
+    expect(denyReasonLabel("proxy_auth")).toBe(
+      "Нет или неверный пароль прокси",
+    );
+    expect(denyReasonLabel("something")).toBe("something");
   });
 });
 
-describe("buildEventsParams", () => {
-  const resolve = (name: string) =>
-    name.toLowerCase() === "ci-01" ? "uuid-ci-01" : undefined;
-  it("maps client name to client_id, denied -> failures_only, free/host -> destination", () => {
-    const q = parseLogQuery(
-      "client:ci-01 результат:отказ method:CONNECT ip:10.0.0.5 host:example.com free1 free2",
-    );
-    const p = buildEventsParams(q, resolve, { limit: 200 });
-    expect(p).toEqual({
-      client_id: "uuid-ci-01",
-      failures_only: true,
-      method: "CONNECT",
-      source_ip: "10.0.0.5",
-      destination: "example.com",
-      limit: 200,
-    });
-  });
-  it("drops an unresolved client name and uses free text for destination", () => {
-    const q = parseLogQuery("client:ghost hello world");
-    const p = buildEventsParams(q, resolve);
-    expect(p.client_id).toBeUndefined();
-    expect(p.destination).toBe("hello world");
-  });
-  it("host wins over free for destination", () => {
-    const q = parseLogQuery("host:a.com free word");
-    expect(buildEventsParams(q, resolve).destination).toBe("a.com");
-  });
-  it("no failures_only when result omitted or allowed", () => {
+describe("toQuery", () => {
+  it("presets end now and pick the histogram step", () => {
+    const q = toQuery(f({ period: "24 ч" }), NOW, { step: true });
+    expect(q.get("to")).toBe(NOW.toISOString());
+    expect(q.get("from")).toBe("2026-10-28T13:00:00.000Z");
+    expect(q.get("step")).toBe("15m");
+    expect(toQuery(f({ period: "1 ч" }), NOW, { step: true }).get("step")).toBe("1m");
     expect(
-      buildEventsParams(parseLogQuery(""), resolve).failures_only,
-    ).toBeUndefined();
-    expect(
-      buildEventsParams(parseLogQuery("результат:разрешено"), resolve)
-        .failures_only,
-    ).toBeUndefined();
+      toQuery(f({ period: "7 дн" }), NOW, { step: true }).get("step"),
+    ).toBe("1h");
   });
-  it("serializes with toEventsQuery skipping undefined", () => {
-    const q = parseLogQuery("client:ci-01 результат:отказ");
-    const s = toEventsQuery(buildEventsParams(q, resolve, { limit: 200 }));
-    expect(s).toContain("client_id=uuid-ci-01");
-    expect(s).toContain("failures_only=true");
-    expect(s).toContain("limit=200");
-    expect(s).not.toContain("destination");
-    expect(s).not.toContain("cursor");
-  });
-});
 
-describe("buildFacetsParams", () => {
-  const resolve = (name: string) =>
-    name.toLowerCase() === "ci-01" ? "uuid-ci-01" : undefined;
-  const NOW = new Date("2026-10-29T13:00:00Z");
-  const HOUR = FACET_WINDOWS[0];
-  const DAY = FACET_WINDOWS[1];
-  const WEEK = FACET_WINDOWS[2];
-
-  it("builds from/to/step from the window end and mirrors /events filters", () => {
-    const q = parseLogQuery(
-      "client:ci-01 результат:отказ method:CONNECT ip:10.0.0.5 host:example.com free1 free2",
-    );
-    const p = buildFacetsParams(q, resolve, NOW, HOUR);
-    expect(p.from).toBe("2026-10-29T12:00:00.000Z");
-    expect(p.to).toBe("2026-10-29T13:00:00.000Z");
-    expect(p.step).toBe("1m");
-    expect(p.client_id).toBe("uuid-ci-01");
-    expect(p.failures_only).toBe(true);
-    expect(p.method).toBe("CONNECT");
-    expect(p.source_ip).toBe("10.0.0.5");
-    expect(p.destination).toBe("example.com");
-  });
-  it("24h window uses 15m step and spans a day back", () => {
-    const p = buildFacetsParams(parseLogQuery(""), resolve, NOW, DAY);
-    expect(p.from).toBe("2026-10-28T13:00:00.000Z");
-    expect(p.step).toBe("15m");
-  });
-  it("7d window uses 1h step and spans a week back", () => {
-    const p = buildFacetsParams(parseLogQuery(""), resolve, NOW, WEEK);
-    expect(p.from).toBe("2026-10-22T13:00:00.000Z");
-    expect(p.step).toBe("1h");
-  });
-  it("omits failures_only when result is allowed or absent", () => {
-    expect(
-      buildFacetsParams(
-        parseLogQuery("результат:разрешено"),
-        resolve,
-        NOW,
-        HOUR,
-      ).failures_only,
-    ).toBeUndefined();
-    expect(
-      buildFacetsParams(parseLogQuery(""), resolve, NOW, HOUR).failures_only,
-    ).toBeUndefined();
-  });
-  it("drops an unresolved client name", () => {
-    const p = buildFacetsParams(
-      parseLogQuery("client:ghost"),
-      resolve,
+  it("repeats multi-select values; unmatched sources are their own flag", () => {
+    const q = toQuery(
+      f({
+        clients: ["c1", "", "c2"],
+        methods: ["GET", "CONNECT"],
+        reasons: ["no_rule"],
+      }),
       NOW,
-      HOUR,
     );
-    expect(p.client_id).toBeUndefined();
+    expect(q.getAll("client_id")).toEqual(["c1", "c2"]);
+    expect(q.get("unmatched")).toBe("true");
+    expect(q.getAll("method")).toEqual(["GET", "CONNECT"]);
+    expect(q.getAll("deny_reason")).toEqual(["no_rule"]);
   });
-  it("serializes required keys with toFacetsQuery", () => {
-    const q = parseLogQuery("client:ci-01 результат:отказ");
-    const s = toFacetsQuery(buildFacetsParams(q, resolve, NOW, HOUR));
-    expect(s).toContain("from=2026-10-29T12%3A00%3A00.000Z");
-    expect(s).toContain("to=2026-10-29T13%3A00%3A00.000Z");
-    expect(s).toContain("step=1m");
-    expect(s).toContain("client_id=uuid-ci-01");
-    expect(s).toContain("failures_only=true");
-    expect(s).not.toContain("cursor");
-    expect(s).not.toContain("limit");
+
+  it("maps the result to failures_only / allowed_only", () => {
+    expect(toQuery(f({ result: "denied" }), NOW).get("failures_only")).toBe(
+      "true",
+    );
+    const allowed = toQuery(f({ result: "allowed" }), NOW);
+    expect(allowed.get("allowed_only")).toBe("true");
+    expect(allowed.has("failures_only")).toBe(false);
+    expect(
+      toQuery(f({ result: "denied" }), NOW, { except: "result" }).has(
+        "failures_only",
+      ),
+    ).toBe(false);
+  });
+
+  it("leaves out the facet's own selection", () => {
+    const q = toQuery(f({ clients: ["c1"], methods: ["GET"] }), NOW, {
+      except: "clients",
+    });
+    expect(q.has("client_id")).toBe(false);
+    expect(q.getAll("method")).toEqual(["GET"]);
+  });
+
+  it("a client tab always narrows to its client", () => {
+    const q = toQuery(f({ clients: ["other"] }), NOW, {
+      clientID: "c9",
+      except: "clients",
+    });
+    expect(q.getAll("client_id")).toEqual(["c9"]);
+  });
+
+  it("search is a source IP when it is an address, else a domain; host wins", () => {
+    expect(toQuery(f({ search: "10.1.2.3" }), NOW).get("source_ip")).toBe(
+      "10.1.2.3",
+    );
+    expect(toQuery(f({ search: "fd00::1" }), NOW).get("source_ip")).toBe(
+      "fd00::1",
+    );
+    expect(toQuery(f({ search: " npmjs " }), NOW).get("destination")).toBe(
+      "npmjs",
+    );
+    const both = toQuery(f({ search: "npmjs", host: "pypi.org" }), NOW);
+    expect(both.get("destination")).toBe("pypi.org");
+  });
+
+  it("a custom range is used as is", () => {
+    const range = {
+      from: "2026-10-27T09:00:00.000Z",
+      to: "2026-10-27T10:30:00.000Z",
+    };
+    const q = toQuery(f({ period: "custom", range }), NOW, { step: true });
+    expect(q.get("from")).toBe(range.from);
+    expect(q.get("to")).toBe(range.to);
+    expect(q.get("step")).toBe("15m");
+    expect(facetStep(new Date(range.from), new Date(range.from))).toBe("1m");
+  });
+
+  it("a custom period without a range falls back to an hour", () => {
+    const w = periodWindow(f({ period: "custom" }), NOW);
+    expect(NOW.getTime() - w.from.getTime()).toBe(3600_000);
   });
 });
 
-describe("deny reason token", () => {
-  it("maps reason:/причина: to deny_reason and drops unknown values", () => {
-    const q = parseLogQuery("reason:private host:x.example");
-    expect(q.reason).toBe("private");
-    expect(buildEventsParams(q, () => undefined).deny_reason).toBe("private");
-    expect(parseLogQuery("причина:no_rule").reason).toBe("no_rule");
-    expect(parseLogQuery("reason:proxy_auth").reason).toBeUndefined();
-    expect(denyReasonLabel("proxy_auth")).toBe("Нет или неверный пароль прокси");
+describe("journal state", () => {
+  it("round-trips through the hash and the intent", () => {
+    const s = {
+      view: "domains" as const,
+      filters: f({ clients: ["c1", ""], result: "denied", host: "a.test" }),
+    };
+    expect(stateFromHash(hashFor(s))).toEqual(s);
+    expect(decodeState(logIntent(s).slice(4))).toEqual(s);
+  });
+
+  it("drops malformed state and unknown values", () => {
+    expect(stateFromHash("#log=%7Bbad")).toBeNull();
+    expect(stateFromHash("#other")).toBeNull();
+    expect(decodeState('{"v":"pairs","f":{}}')).toBeNull();
+    const s = decodeState(
+      '{"v":"events","f":{"result":"x","period":"9 лет","clients":[1,"c"]}}',
+    );
+    expect(s?.filters.result).toBe("all");
+    expect(s?.filters.period).toBe("24 ч");
+    expect(s?.filters.clients).toEqual(["c"]);
+    expect(
+      decodeState('{"v":"events","f":{"period":"custom"}}')?.filters.period,
+    ).toBe("24 ч");
+  });
+});
+
+describe("destinations and units", () => {
+  it("splits host and port, IPv6 in brackets", () => {
+    expect(hostOf("pypi.org:443")).toBe("pypi.org");
+    expect(portOf("pypi.org:443")).toBe("443");
+    expect(hostOf("[2001:db8::1]:443")).toBe("2001:db8::1");
+    expect(portOf("[2001:db8::1]:443")).toBe("443");
+    expect(hostOf("example.com")).toBe("example.com");
+  });
+  it("formats bytes", () => {
+    expect(formatBytes(0)).toBe("0 Б");
+    expect(formatBytes(1536)).toBe("1,5 КБ");
+  });
+  it("custom range times are Moscow time", () => {
+    expect(fromMoscow(new Date(2026, 9, 27), "12:30")).toBe(
+      "2026-10-27T09:30:00.000Z",
+    );
   });
 });

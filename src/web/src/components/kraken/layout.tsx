@@ -1,25 +1,39 @@
+import { Tooltip, TooltipTrigger, TooltipContent } from "../ui/tooltip";
 import * as React from "react";
 import { cn } from "cn";
-import { PaneResizer } from "../../shell/PaneResizer";
-import { usePaneWidth } from "../../shell/usePaneWidth";
+import { ResizablePanel, ResizableHandle } from "../ui/resizable";
+import { Button } from "../ui/button";
+import { ScrollArea } from "../ui/scroll-area";
 
-// Section layout from the prototype: a list pane (left, resizable through
-// --list-w set by InspectorShell) and an inspector pane (rest). Sections compose
-// these instead of styling their own containers.
+// Shared section wrappers compose shadcn Resizable panels.
 
 export function ListPane({
   className,
   ...props
 }: React.ComponentProps<"aside">) {
   return (
-    <aside
-      data-slot="list-pane"
-      className={cn(
-        "flex min-h-0 w-[var(--list-w,300px)] min-w-0 shrink-0 flex-col overflow-hidden border-r",
-        className,
-      )}
-      {...props}
-    />
+    <>
+      <ResizablePanel
+        id="list"
+        defaultSize={300}
+        minSize={220}
+        maxSize={440}
+        groupResizeBehavior="preserve-pixel-size"
+      >
+        <aside
+          data-slot="list-pane"
+          className={cn(
+            "flex h-full min-h-0 min-w-0 flex-col overflow-hidden bg-list text-list-foreground",
+            className,
+          )}
+          {...props}
+        />
+      </ResizablePanel>
+      <ResizableHandle
+        aria-label="Ширина списка"
+        className="focus-visible:ring-0 focus-visible:ring-offset-0"
+      />
+    </>
   );
 }
 
@@ -52,13 +66,15 @@ export function ListPaneHeader({
 
 export function ListPaneBody({
   className,
+  children,
   ...props
 }: React.ComponentProps<"div">) {
   return (
-    <div
-      className={cn("min-h-0 flex-1 overflow-y-auto", className)}
-      {...props}
-    />
+    <ScrollArea className="min-h-0 flex-1">
+      <div className={className} {...props}>
+        {children}
+      </div>
+    </ScrollArea>
   );
 }
 
@@ -90,42 +106,57 @@ export function ListRow({
   aside?: React.ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      aria-current={selected ? "true" : undefined}
-      data-selected={selected ? "" : undefined}
-      className={cn(
-        "grid w-full cursor-pointer items-center gap-x-2 gap-y-px border-b px-3.5 py-2 text-left text-base outline-none hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset data-[selected]:bg-sel data-[selected]:shadow-[inset_2px_0_0_var(--accent)]",
-        leading
-          ? "grid-cols-[auto_minmax(0,1fr)_auto]"
-          : "grid-cols-[minmax(0,1fr)_auto]",
-        className,
-      )}
-      {...props}
-    >
-      {leading && (
-        <span
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          variant="ghost"
+          aria-current={selected ? "true" : undefined}
+          data-selected={selected ? "" : undefined}
           className={cn(
-            "flex text-muted-foreground [&_svg]:size-3.5",
-            (subtitle || aside) && "row-span-2",
+            "grid h-auto w-full cursor-pointer items-center gap-x-2 gap-y-px rounded-none border-b px-3.5 py-2 text-left text-base font-normal whitespace-normal hover:bg-hover data-[selected]:bg-sel data-[selected]:text-sel-foreground data-[selected]:[&_.text-muted-foreground]:text-muted-on-sel",
+            leading
+              ? "grid-cols-[auto_minmax(0,1fr)_auto]"
+              : "grid-cols-[minmax(0,1fr)_auto]",
+            className,
           )}
+          {...props}
         >
-          {leading}
-        </span>
-      )}
-      <span className="min-w-0 truncate">{title}</span>
-      <span className="justify-self-end text-sm whitespace-nowrap">{meta}</span>
-      {(subtitle || aside) && (
-        <>
-          <span className="min-w-0 truncate text-sm text-muted-foreground">
-            {subtitle}
+          {leading && (
+            <span
+              className={cn(
+                "flex text-muted-foreground [&_svg]:size-3.5",
+                (subtitle || aside) && "row-span-2",
+              )}
+            >
+              {leading}
+            </span>
+          )}
+          <span className="min-w-0 truncate">{title}</span>
+          <span className="justify-self-end text-sm whitespace-nowrap">
+            {meta}
           </span>
-          <span className="justify-self-end text-sm whitespace-nowrap tabular-nums">
-            {aside}
-          </span>
-        </>
-      )}
-    </button>
+          {(subtitle || aside) && (
+            <>
+              <span className="min-w-0 truncate text-sm text-muted-foreground">
+                {subtitle}
+              </span>
+              <span className="justify-self-end text-sm whitespace-nowrap tabular-nums">
+                {aside}
+              </span>
+            </>
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent
+        side="right"
+        align="start"
+        sideOffset={8}
+        className="max-w-sm text-sm [overflow-wrap:anywhere]"
+      >
+        <div className="font-medium">{title}</div>
+        {subtitle && <div className="mt-1 font-normal">{subtitle}</div>}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 
@@ -134,11 +165,16 @@ export function InspectorPane({
   ...props
 }: React.ComponentProps<"section">) {
   return (
-    <section
-      data-slot="inspector-pane"
-      className={cn("flex min-h-0 min-w-0 flex-1 flex-col", className)}
-      {...props}
-    />
+    <ResizablePanel id="inspector" minSize={500}>
+      <section
+        data-slot="inspector-pane"
+        className={cn(
+          "flex h-full min-h-0 min-w-0 flex-1 flex-col bg-main",
+          className,
+        )}
+        {...props}
+      />
+    </ResizablePanel>
   );
 }
 
@@ -179,46 +215,50 @@ export function InspectorHeader({
 
 export function InspectorBody({
   className,
+  children,
   ...props
 }: React.ComponentProps<"div">) {
   return (
-    <div
-      className={cn(
-        "@container flex min-h-0 min-w-0 flex-1 flex-col gap-3.5 overflow-y-auto px-5 pt-4 pb-5 [&>*]:shrink-0",
-        className,
-      )}
-      {...props}
-    />
+    <ScrollArea className="min-h-0 min-w-0 flex-1">
+      <div
+        className={cn(
+          "@container flex min-h-0 min-w-0 flex-col gap-3.5 px-5 pt-4 pb-5 [&>*]:shrink-0",
+          className,
+        )}
+        {...props}
+      >
+        {children}
+      </div>
+    </ScrollArea>
   );
 }
 
-// Right-hand detail pane (e.g. the selected log record). Its width is shared
-// across sections through usePaneWidth("detail") and resized by the splitter
-// on its left edge, like the list pane on the left.
+// Right-hand shadcn panel in the requests panel group.
 export function DetailPane({
   className,
   children,
   ...props
 }: React.ComponentProps<"aside">) {
-  const detail = usePaneWidth("detail");
   return (
-    <aside
-      data-slot="detail-pane"
-      className={cn(
-        "relative flex min-h-0 shrink-0 flex-col gap-3 overflow-y-auto border-l bg-card p-4",
-        className,
-      )}
-      style={{ width: detail.width }}
-      {...props}
+    <ResizablePanel
+      id="request-detail"
+      defaultSize={340}
+      minSize={280}
+      maxSize={520}
+      groupResizeBehavior="preserve-pixel-size"
     >
-      <PaneResizer
-        kind="detail"
-        direction="left"
-        onDrag={detail.onDrag}
-        onCommit={detail.onCommit}
-        onReset={detail.reset}
-      />
-      {children}
-    </aside>
+      <ScrollArea className="h-full">
+        <aside
+          data-slot="detail-pane"
+          className={cn(
+            "flex min-h-full flex-col gap-3 bg-card p-4",
+            className,
+          )}
+          {...props}
+        >
+          {children}
+        </aside>
+      </ScrollArea>
+    </ResizablePanel>
   );
 }

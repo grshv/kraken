@@ -28,8 +28,11 @@ export type SectionProps = {
   onConfirm: (options: ConfirmOptions) => void;
   // One-shot hint from the command palette or another section: "new-client",
   // "new-proxy-login", "blocked-domains", "client:<id>" / "policy:<id>" to
-  // select an entity, or "source:<ip>" to describe an unknown source. The section consumes it in an effect and calls
-  // onIntentHandled so the shell clears it for the next use.
+  // select an entity, "source:<ip>" to describe an unknown source,
+  // "account:<username>" or "setting:<id>" to open one, "log:<filters>" (see
+  // log/filters.ts) to open the journal on given filters, "help:<slug>" an
+  // article (the shell keeps it for HelpView). The section consumes
+  // it in an effect and calls onIntentHandled so the shell clears it.
   intent?: SectionIntent;
   onIntentHandled?: () => void;
   // Opens another section with an intent, e.g. a client from a policy.
@@ -42,7 +45,11 @@ export type SectionIntent =
   | "blocked-domains"
   | `client:${string}`
   | `source:${string}`
-  | `policy:${string}`;
+  | `policy:${string}`
+  | `account:${string}`
+  | `setting:${string}`
+  | `log:${string}`
+  | `help:${string}`;
 
 // Manager scope extracted from the session for source-network checks.
 export function managerScope(session: Session): {

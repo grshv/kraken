@@ -126,15 +126,17 @@ func (t *Store) Ingest(ctx context.Context, items []events.Event, cp events.Chec
 	return nil
 }
 
-// EventQuery filters the journal. Zero times mean no bound.
+// EventQuery filters the journal. Zero times mean no bound. ClientIDs,
+// Methods and DenyReasons (policy.DenyReasons values) match any listed value;
+// "" in ClientIDs selects unmatched (unknown) sources.
 type EventQuery struct {
-	SourceIP, Destination, Method, Result, ClientID string
-	DenyReason                                      string // policy.DenyReasons value
-	From, To                                        time.Time
-	Failures                                        bool
-	Cursor                                          string
-	Limit                                           int // 1..200
-	Scope                                           *Scope
+	SourceIP, Destination, Result   string
+	ClientIDs, Methods, DenyReasons []string
+	From, To                        time.Time
+	Failures, Allowed               bool // failed only / not failed only
+	Cursor                          string
+	Limit                           int // 1..200
+	Scope                           *Scope
 }
 
 // Page is one journal page.

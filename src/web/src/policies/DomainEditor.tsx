@@ -17,7 +17,11 @@ import type { Destination } from "../model";
 import { mergeDestinations, parseDomainInput } from "../policies/domains";
 
 // Hit counts per domain (24h / 7d) from /inspector/policies/{id}/hits.
-export type DomainHits = Record<string, { hits_24h: number; hits_7d: number }>;
+// denied_24h, when known, splits the bar into allowed and denied requests.
+export type DomainHits = Record<
+  string,
+  { hits_24h: number; hits_7d: number; denied_24h?: number }
+>;
 
 // DomainEditor is the shared allowlist editor used by the Clients "Доступ" tab
 // and the Policies screen. Adding parses raw input (URLs, "*.x", paste blobs),
@@ -82,6 +86,7 @@ export function DomainEditor({
         <TableBody>
           {destinations.map((d) => {
             const h = hits?.[d.domain]?.hits_24h ?? 0;
+            const denied = Math.min(h, hits?.[d.domain]?.denied_24h ?? 0);
             // Only flagged once hit counts have loaded.
             const unused =
               !!hits &&
@@ -93,7 +98,6 @@ export function DomainEditor({
                   <Chip
                     className={unused ? "text-muted-foreground" : undefined}
                   >
-                    {d.include_subdomains ? "*." : ""}
                     {d.domain}
                   </Chip>
                   {unused && (
@@ -123,14 +127,29 @@ export function DomainEditor({
                 </TableCell>
                 <TableCell>
                   <div className="flex items-center gap-2">
-                    <div className="h-1.5 min-w-[50px] flex-1 overflow-hidden rounded-full bg-muted">
+                    <div
+                      className={
+                        "flex h-1.5 min-w-[50px] flex-1 overflow-hidden rounded-full" +
+                        (h ? " bg-muted" : "")
+                      }
+                      aria-hidden
+                    >
                       <div
-                        className="h-full rounded-full bg-s-allow"
-                        style={{ width: `${(h / max) * 100}%` }}
+                        className="h-full bg-s-allow"
+                        style={{ width: `${((h - denied) / max) * 100}%` }}
+                      />
+                      <div
+                        className="h-full bg-s-deny"
+                        style={{ width: `${(denied / max) * 100}%` }}
                       />
                     </div>
-                    <span className="w-[52px] text-right tabular-nums">
-                      {h ? h : "—"}
+                    <span
+                      className={
+                        "w-[72px] text-right tabular-nums" +
+                        (denied ? " text-bad" : "")
+                      }
+                    >
+                      {!h ? "—" : denied ? `${h} · ${denied} отк.` : h}
                     </span>
                   </div>
                 </TableCell>
@@ -165,6 +184,7 @@ export function DomainEditor({
       {!readOnly && (
         <div className="mt-1 flex items-center gap-2">
           <Input
+            aria-label="Добавить домены"
             className="font-mono text-sm"
             placeholder="домен; несколько через пробел или с новой строки"
             value={draft}

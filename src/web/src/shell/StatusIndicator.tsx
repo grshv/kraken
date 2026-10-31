@@ -1,12 +1,13 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { KeyValue } from "@/components/kraken/blocks";
+import { Timestamp } from "@/components/kraken/timestamp";
 import { cn } from "cn";
 import type { Request } from "../api";
 import type { Settings, Status } from "../model";
@@ -18,15 +19,12 @@ type SquidMetrics = {
   available: boolean;
   squid_version?: string;
   uptime_seconds?: number;
-  active_requests?: number;
-  origin_requests_per_second?: number;
-  cpu_usage_5m_percent?: number;
-  memory_peak_bytes?: number;
 };
 
-// Header status indicator. The popover follows the prototype: instance,
-// applied revision, Squid version and uptime, ports, current load, resources,
-// log ingestion and data volume. Metrics load when the popover opens.
+// Header status indicator. The popover follows the prototype: Squid state with
+// the check time, then instance, applied revision, Squid version and uptime,
+// ports, log ingestion and data volume; links to the apply history and (admin)
+// instance settings. Metrics load when the popover opens.
 export function StatusIndicator({
   status,
   settings,
@@ -56,7 +54,6 @@ export function StatusIndicator({
       live = false;
     };
   }, [open, request]);
-  const squidUp = status?.squid.state === "up";
   const state = status?.squid.state ?? "unknown";
   const label =
     state === "up"
@@ -66,12 +63,21 @@ export function StatusIndicator({
         : state === "degraded"
           ? "Ограничен"
           : "Нет данных";
-  const dotClass =
-    state === "up"
-      ? "bg-ok"
-      : state === "down" || state === "degraded"
-        ? "bg-bad"
-        : "bg-muted-foreground";
+  const dot = (
+    <span
+      className={cn(
+        "size-2 shrink-0 rounded-full",
+        state === "up"
+          ? "bg-ok"
+          : state === "down" || state === "degraded"
+            ? "bg-bad"
+            : "bg-muted-foreground",
+      )}
+      aria-hidden
+    />
+  );
+  const links: [string, () => void][] = [["История применений", onOpenAudit]];
+  if (onOpenSettings) links.push(["Настройки экземпляра", onOpenSettings]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -82,77 +88,87 @@ export function StatusIndicator({
           className="h-8 gap-2 px-2.5 text-base"
           aria-label={`Состояние сервера: ${label}`}
         >
-          <span className={cn("size-2 rounded-full", dotClass)} aria-hidden />
+          {dot}
           {label}
         </Button>
       </PopoverTrigger>
       <PopoverContent
         align="end"
-        sideOffset={4}
-        className="w-[340px] px-3.5 py-3"
+        collisionPadding={12}
+        sideOffset={6}
+        className="w-[340px] p-0"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <StatusPopoverBody
-          status={status}
-          settings={settings}
-          metrics={metrics}
-          squidUp={squidUp}
+        <div className="flex items-baseline justify-between gap-3 border-b px-4 py-3">
+          <span className="flex items-center gap-2 font-semibold">
+            {dot}
+            {state === "up"
+              ? "Squid работает"
+              : state === "unknown"
+                ? "Нет данных о Squid"
+                : "Squid не отвечает"}
+          </span>
+          {status?.squid.observed_at && (
+            <span className="text-sm text-muted-foreground">
+              проверено {relative(status.squid.observed_at)}
+            </span>
+          )}
+        </div>
+        <KeyValue
+          className="px-4 py-3"
+          items={statusItems(status, settings, metrics)}
         />
-        <div className="mt-2.5 flex justify-between gap-2 border-t pt-2.5">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              setOpen(false);
-              onOpenAudit();
-            }}
-          >
-            История применений
-          </Button>
-          {onOpenSettings && (
+        <div className="flex flex-col border-t p-1">
+          {links.map(([text, go]) => (
             <Button
+              key={text}
               variant="ghost"
               size="sm"
+              className="justify-between font-normal"
               onClick={() => {
                 setOpen(false);
-                onOpenSettings();
+                go();
               }}
             >
-              Настройки экземпляра
+              {text}
+              <ChevronRight className="text-muted-foreground" />
             </Button>
-          )}
+          ))}
         </div>
       </PopoverContent>
     </Popover>
   );
 }
 
-function StatusPopoverBody({
-  status,
-  settings,
-  metrics,
-  squidUp,
-}: {
-  status: Status | null;
-  settings?: Settings;
-  metrics: SquidMetrics | null;
-  squidUp: boolean;
-}) {
+// statusItems lists the popover rows; a row without data shows a dash or is
+// left out.
+function statusItems(
+  status: Status | null,
+  settings: Settings | undefined,
+  metrics: SquidMetrics | null,
+): [ReactNode, ReactNode][] {
   const squid = status?.squid;
   const inst = status?.instance;
   const rev = status?.applied_revision ?? null;
   const m = metrics?.available ? metrics : null;
+  const up = squid?.state === "up";
   const items: [ReactNode, ReactNode][] = [
     ["Экземпляр", inst?.name || "—"],
     [
       "Ревизия",
       rev ? (
         <>
-          <span className="font-mono text-sm">
-            {revisionLabel(rev, status?.applied_revision_number)}
-          </span>
-          {inst?.last_applied_at &&
-            ` · применена ${clock(inst.last_applied_at)}`}
+          {revisionLabel(rev, status?.applied_revision_number)}
+          {inst?.last_applied_at && (
+            <>
+              , применена{" "}
+              <Timestamp
+                value={inst.last_applied_at}
+                mode="time"
+                seconds={false}
+              />
+            </>
+          )}
         </>
       ) : (
         "—"
@@ -160,80 +176,39 @@ function StatusPopoverBody({
     ],
     [
       "Squid",
-      m?.squid_version
-        ? `${m.squid_version}${m.uptime_seconds != null ? ` · аптайм ${duration(m.uptime_seconds)}` : ""}`
-        : squidUp
-          ? "работает"
-          : "недоступен",
+      up ? (
+        [
+          m?.squid_version,
+          m?.uptime_seconds != null
+            ? `работает ${duration(m.uptime_seconds)}`
+            : "работает",
+        ]
+          .filter(Boolean)
+          .join(", ")
+      ) : (
+        <span className="text-bad">не отвечает</span>
+      ),
     ],
   ];
   if (settings)
-    items.push([
-      "Порты",
-      <span className="font-mono text-sm">
-        :{settings.http_port} · :{settings.tls_port} TLS
-      </span>,
-    ]);
-  if (m)
-    items.push(
-      [
-        "Сейчас",
-        `${m.active_requests ?? 0} активных запросов · ${num(m.origin_requests_per_second ?? 0)} запрос/с`,
-      ],
-      [
-        "Ресурсы",
-        `CPU ${num(m.cpu_usage_5m_percent ?? 0)}% · память ${bytes(m.memory_peak_bytes ?? 0)}`,
-      ],
-    );
+    items.push(["Порты", `${settings.http_port}, ${settings.tls_port} TLS`]);
   items.push([
     "Журнал",
     inst?.journal_checkpoint_at
-      ? `собран ${relative(inst.journal_checkpoint_at)}${status?.ingestion?.state === "ok" ? ", без пропусков" : ""}`
+      ? `${status?.ingestion?.state === "ok" ? "без пропусков, " : ""}${relative(inst.journal_checkpoint_at)}`
       : "—",
   ]);
   if (inst?.data_total_bytes)
     items.push([
-      "Диск /data",
-      `${bytes(inst.data_total_bytes - (inst.data_free_bytes ?? 0))} из ${bytes(inst.data_total_bytes)}`,
+      "Диск",
+      `${gigabytes(inst.data_total_bytes - (inst.data_free_bytes ?? 0))} из ${gigabytes(inst.data_total_bytes)} ГБ`,
     ]);
   if (squid?.stale) items.push(["Данные", "устаревшие"]);
-  return (
-    <div className="flex flex-col gap-2.5">
-      <div className="flex items-center justify-between gap-2.5">
-        <Badge variant={squidUp ? "ok" : "bad"}>
-          <span className="size-1.5 rounded-full bg-current" aria-hidden />
-          {squidUp ? "Squid работает" : "Squid не отвечает"}
-        </Badge>
-        {squid?.observed_at && (
-          <span className="text-sm text-muted-foreground">
-            проверено {relative(squid.observed_at)}
-          </span>
-        )}
-      </div>
-      <KeyValue items={items} />
-    </div>
-  );
+  return items;
 }
 
-const num = (n: number) =>
-  n.toLocaleString("ru-RU", { maximumFractionDigits: 1 });
-
-function bytes(n: number): string {
-  const units = ["Б", "КБ", "МБ", "ГБ", "ТБ"];
-  let i = 0;
-  while (n >= 1024 && i < units.length - 1) {
-    n /= 1024;
-    i++;
-  }
-  return `${num(n)} ${units[i]}`;
-}
-
-function clock(iso: string): string {
-  return new Date(iso).toLocaleTimeString("ru-RU", {
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
+const gigabytes = (n: number) =>
+  (n / 1024 ** 3).toLocaleString("ru-RU", { maximumFractionDigits: 1 });
 
 function duration(secs: number): string {
   const d = Math.floor(secs / 86400);

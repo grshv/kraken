@@ -61,7 +61,7 @@ func TestFacetsFiltersAndCounts(t *testing.T) {
 	}
 
 	// Filter: client_id c-a.
-	f, _ = s.Facets(ctx, telemetry.EventQuery{From: from, To: to, ClientID: "c-a"}, time.Minute)
+	f, _ = s.Facets(ctx, telemetry.EventQuery{From: from, To: to, ClientIDs: []string{"c-a"}}, time.Minute)
 	if f.Allowed != 1 || f.Denied != 1 || f.Clients["c-a"] != 2 || len(f.Clients) != 1 {
 		t.Fatalf("client c-a %+v", f)
 	}
@@ -73,7 +73,7 @@ func TestFacetsFiltersAndCounts(t *testing.T) {
 	}
 
 	// Filter: method (none match GET here, but CONNECT all).
-	f, _ = s.Facets(ctx, telemetry.EventQuery{From: from, To: to, Method: "GET"}, time.Minute)
+	f, _ = s.Facets(ctx, telemetry.EventQuery{From: from, To: to, Methods: []string{"GET"}}, time.Minute)
 	if f.Allowed+f.Denied != 0 {
 		t.Fatalf("method GET should be empty: %+v", f)
 	}

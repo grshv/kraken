@@ -1,3 +1,4 @@
+import { Button } from "@/components/ui/button";
 // Minimal, safe Markdown renderer. No raw HTML passthrough: input is treated
 // as text. Supports headings (#..######), unordered lists (-/*), ordered
 // lists (1.), fenced code blocks (```), inline `code`, **bold**, *italic* and
@@ -197,14 +198,15 @@ function inline(
     const help = /^help:(.+)$/.exec(target);
     if (help) {
       nodes.push(
-        <button
+        <Button
+          variant="ghost"
           key={`a-${key++}`}
           type="button"
-          className="cursor-pointer text-accent font-medium hover:underline"
+          className="inline h-auto p-0 text-primary font-medium whitespace-normal hover:bg-transparent hover:underline"
           onClick={() => onHelpLink?.(help[1])}
         >
           {label}
-        </button>,
+        </Button>,
       );
     } else {
       nodes.push(

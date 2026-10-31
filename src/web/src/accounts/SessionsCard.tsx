@@ -1,3 +1,4 @@
+import { Timestamp } from "@/components/kraken/timestamp";
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -18,7 +19,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ago } from "../model";
 import type { SectionProps } from "../sections/sectionProps";
 import { deviceLabel } from "./device";
 
@@ -130,17 +130,10 @@ export function SessionsCard({
                   </TableCell>
                   <TableCell className="font-mono">{s.remote ?? "—"}</TableCell>
                   <TableCell className="text-muted-foreground tabular-nums">
-                    {s.created_at
-                      ? new Date(s.created_at).toLocaleString("ru-RU", {
-                          day: "2-digit",
-                          month: "2-digit",
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })
-                      : "—"}
+                    <Timestamp value={s.created_at} seconds={false} compact />
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {seen(s.last_seen_at)}
+                    <Timestamp value={s.last_seen_at} mode="relative" />
                   </TableCell>
                   <TableCell className="text-right">
                     {!s.current && (
@@ -163,9 +156,4 @@ export function SessionsCard({
       </CardContent>
     </Card>
   );
-}
-
-function seen(iso: string): string {
-  const a = ago(iso);
-  return a === "сейчас" ? "сейчас" : `${a} назад`;
 }

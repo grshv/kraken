@@ -30,11 +30,12 @@ type journalCursor struct {
 // for one query is rejected under another.
 func cursorFingerprint(q EventQuery) string {
 	type wire struct {
-		SourceIP, Destination, Method, Result, ClientID string
-		From, To                                        int64
-		Failures                                        bool
+		SourceIP, Destination, Result   string
+		ClientIDs, Methods, DenyReasons []string
+		From, To                        int64
+		Failures, Allowed               bool
 	}
-	w := wire{q.SourceIP, q.Destination, q.Method, q.Result, q.ClientID, q.From.UnixNano(), q.To.UnixNano(), q.Failures}
+	w := wire{q.SourceIP, q.Destination, q.Result, q.ClientIDs, q.Methods, q.DenyReasons, q.From.UnixNano(), q.To.UnixNano(), q.Failures, q.Allowed}
 	b, _ := json.Marshal(w)
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:])
@@ -197,28 +198,53 @@ func buildEventWhere(q EventQuery) (where []string, args []any, destLike string)
 			}
 		}
 	}
-	if q.ClientID != "" {
-		where = append(where, "e.client_id=?")
-		args = append(args, q.ClientID)
+	if len(q.ClientIDs) > 0 {
+		var known []string
+		unmatched := false
+		for _, id := range q.ClientIDs {
+			if id == "" {
+				unmatched = true
+			} else {
+				known = append(known, id)
+			}
+		}
+		var or []string
+		if len(known) > 0 {
+			or = append(or, "e.client_id IN ("+placeholders(len(known))+")")
+			for _, id := range known {
+				args = append(args, id)
+			}
+		}
+		if unmatched {
+			or = append(or, "e.client_id IS NULL")
+		}
+		where = append(where, "("+strings.Join(or, " OR ")+")")
 	}
 	if q.Failures {
 		where = append(where, "e.failed=1")
+	}
+	if q.Allowed {
+		where = append(where, "e.failed=0")
 	}
 	if q.SourceIP != "" {
 		where = append(where, "e.source_ip=?")
 		args = append(args, q.SourceIP)
 	}
-	if q.Method != "" {
-		where = append(where, "e.method=?")
-		args = append(args, q.Method)
+	if len(q.Methods) > 0 {
+		where = append(where, "e.method IN ("+placeholders(len(q.Methods))+")")
+		for _, m := range q.Methods {
+			args = append(args, m)
+		}
 	}
 	if q.Result != "" {
 		where = append(where, "e.result=?")
 		args = append(args, q.Result)
 	}
-	if q.DenyReason != "" {
-		where = append(where, "e.deny_reason=?")
-		args = append(args, q.DenyReason)
+	if len(q.DenyReasons) > 0 {
+		where = append(where, "e.deny_reason IN ("+placeholders(len(q.DenyReasons))+")")
+		for _, r := range q.DenyReasons {
+			args = append(args, r)
+		}
 	}
 	if !q.From.IsZero() {
 		where = append(where, "e.ts>=?")

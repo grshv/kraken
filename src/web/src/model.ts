@@ -40,6 +40,7 @@ export type Change = {
   id: string | null;
   action: "add" | "mod" | "del";
   text: string;
+  details?: string[];
 };
 export type Snapshot = {
   settings?: Settings;
@@ -258,9 +259,10 @@ export function pluralRu(
 // localTime renders an RFC 3339 timestamp as local wall-clock time ("14:02:11"
 // or "14:02"); slicing the ISO string would show UTC.
 export function localTime(iso: string, seconds = true): string {
-  const d = new Date(iso);
+  const d = timestampDate(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleTimeString("ru-RU", {
+    timeZone: "Europe/Moscow",
     hour: "2-digit",
     minute: "2-digit",
     ...(seconds ? { second: "2-digit" } : {}),
@@ -270,9 +272,55 @@ export function localTime(iso: string, seconds = true): string {
 // ago renders a past timestamp as "сейчас", "N мин", "N ч" or "N д".
 export function ago(iso: string | null | undefined): string {
   if (!iso) return "—";
-  const min = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  const min = Math.max(
+    0,
+    Math.round((Date.now() - timestampDate(iso).getTime()) / 60000),
+  );
   if (min < 1) return "сейчас";
   if (min < 60) return `${min} мин`;
   if (min < 48 * 60) return `${Math.round(min / 60)} ч`;
   return `${Math.round(min / 1440)} д`;
+}
+
+// All diagnostic timestamps use the same Moscow wall-clock, including fixtures
+// without a UTC offset. Compact rows omit the year; exact tooltips retain it.
+export function timestampDate(iso: string): Date {
+  return new Date(
+    /T\d{2}:\d{2}/.test(iso) && !/(?:Z|[+-]\d{2}:\d{2})$/i.test(iso)
+      ? iso + "+03:00"
+      : iso,
+  );
+}
+export function dateTime(
+  iso: string | null | undefined,
+  seconds = true,
+  compact = false,
+): string {
+  if (!iso) return "—";
+  const date = timestampDate(iso);
+  if (Number.isNaN(date.getTime())) return "—";
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("ru-RU", {
+      timeZone: "Europe/Moscow",
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      ...(seconds ? { second: "2-digit" } : {}),
+    })
+      .formatToParts(date)
+      .map((p) => [p.type, p.value]),
+  );
+  return (
+    parts.day +
+    "." +
+    parts.month +
+    (compact ? "" : "." + parts.year) +
+    " " +
+    parts.hour +
+    ":" +
+    parts.minute +
+    (seconds ? ":" + parts.second : "")
+  );
 }

@@ -19,7 +19,7 @@ export function paletteIntent(id: string, role: Role): PaletteIntent | null {
   if (id === "act:new-login")
     return { kind: "nav", nav: "accounts", intent: "new-proxy-login" };
   if (id === "act:block-domain" && role === "admin")
-    return { kind: "nav", nav: "settings", intent: "blocked-domains" };
+    return { kind: "nav", nav: "policies", intent: "blocked-domains" };
   if (id.startsWith("nav:")) {
     const nav = id.slice(4) as NavId;
     if (navItems(role).some((n) => n.id === nav)) return { kind: "nav", nav };

@@ -63,7 +63,7 @@ func TestOutcomesDenyReasonsAndSiteErrors(t *testing.T) {
 		t.Fatalf("scoped: %+v %v", o.DenyReasons, e)
 	}
 	// Filtered by reason, the journal returns only those events.
-	p, e := s.Events(ctx, telemetry.EventQuery{DenyReason: "private", Limit: 50})
+	p, e := s.Events(ctx, telemetry.EventQuery{DenyReasons: []string{"private"}, Limit: 50})
 	if e != nil || len(p.Items) != 2 || p.Items[0].DenyReason == nil || *p.Items[0].DenyReason != "private" {
 		t.Fatalf("events by reason: %+v %v", p.Items, e)
 	}

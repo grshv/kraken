@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { LogOut, KeyRound, UserRound, X } from "lucide-react";
+import { LogOut, KeyRound, Moon, Sun, UserRound, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   DropdownMenu,
@@ -9,10 +10,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import type { Session } from "../model";
+import { useTheme } from "../ThemeProvider";
 import { PasswordDialog } from "./PasswordDialog";
 
-// Avatar with profile menu. Closes on outside click, Escape, or action. The
-// avatar initial is the first letter of the username (Latin fallback "A").
+// Avatar with profile menu (account, password, sessions, theme, logout).
+// Closes on outside click, Escape, or action. The avatar initial is the first letter of the username (Latin fallback "A").
 export function ProfileMenu({
   session,
   onOpenAccount,
@@ -30,13 +32,15 @@ export function ProfileMenu({
   const role = session.role === "manager" ? "Менеджер" : "Администратор";
   const initial = (name[0] || "A").toUpperCase();
   const [pwdOpen, setPwdOpen] = useState(false);
+  const { dark, setTheme } = useTheme();
   return (
     <>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            className="relative mb-1 mt-1.5 flex size-8 items-center justify-center rounded-full border border-border bg-transparent hover:border-ring focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+          <Button
+            variant="ghost"
+            size="icon"
+            className="relative mt-1.5 mb-1 size-8 rounded-full border border-border p-0 hover:border-ring"
             aria-label={`Профиль ${name}`}
           >
             <Avatar className="size-full">
@@ -48,7 +52,7 @@ export function ProfileMenu({
               className="absolute -bottom-px -right-px z-10 size-2.5 rounded-full border-2 border-sidebar bg-ok"
               aria-hidden
             />
-          </button>
+          </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent
           align="end"
@@ -75,6 +79,10 @@ export function ProfileMenu({
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => onEndOtherSessions()}>
             <X aria-hidden /> Завершить другие сессии
+          </DropdownMenuItem>
+          <DropdownMenuItem onSelect={() => setTheme(dark ? "light" : "dark")}>
+            {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
+            {dark ? "Светлая тема" : "Тёмная тема"}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem variant="destructive" onSelect={() => onLogout()}>

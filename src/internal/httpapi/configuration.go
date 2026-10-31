@@ -305,6 +305,8 @@ type Change struct {
 	ID     *string `json:"id"`     // client or policy id; nil for the others
 	Action string  `json:"action"` // add | mod | del
 	Text   string  `json:"text"`
+	// Details say what exactly differs, one line each (change_details.go).
+	Details []string `json:"details"`
 }
 
 func semanticChanges(a, b policy.Snapshot) []Change {
@@ -328,13 +330,13 @@ func semanticChangesAll(a, b policy.Snapshot) []Change {
 		previous, exists := old[c.ID]
 		if !exists {
 			id := c.ID
-			out = append(out, Change{Entity: "client", ID: &id, Action: "add", Text: "Добавлен клиент: " + c.Name})
+			out = append(out, Change{Entity: "client", ID: &id, Action: "add", Text: "Добавлен клиент: " + c.Name, Details: clientDetails(nil, c, a, b)})
 		} else {
 			aa, _ := json.Marshal(previous)
 			bb, _ := json.Marshal(c)
 			if string(aa) != string(bb) {
 				id := c.ID
-				out = append(out, Change{Entity: "client", ID: &id, Action: "mod", Text: "Изменён клиент: " + c.Name})
+				out = append(out, Change{Entity: "client", ID: &id, Action: "mod", Text: "Изменён клиент: " + c.Name, Details: clientDetails(&previous, c, a, b)})
 			}
 		}
 		delete(old, c.ID)
@@ -342,7 +344,7 @@ func semanticChangesAll(a, b policy.Snapshot) []Change {
 	for _, c := range a.Clients {
 		if _, ok := old[c.ID]; ok {
 			id := c.ID
-			out = append(out, Change{Entity: "client", ID: &id, Action: "del", Text: "Удалён клиент: " + c.Name})
+			out = append(out, Change{Entity: "client", ID: &id, Action: "del", Text: "Удалён клиент: " + c.Name, Details: removedClientDetails(c, a)})
 		}
 	}
 	pold := map[string]policy.Policy{}
@@ -353,13 +355,13 @@ func semanticChangesAll(a, b policy.Snapshot) []Change {
 		previous, exists := pold[p.ID]
 		if !exists {
 			id := p.ID
-			out = append(out, Change{Entity: "policy", ID: &id, Action: "add", Text: "Добавлена политика: " + p.Name})
+			out = append(out, Change{Entity: "policy", ID: &id, Action: "add", Text: "Добавлена политика: " + p.Name, Details: policyDetails(nil, p)})
 		} else {
 			aa, _ := json.Marshal(previous)
 			bb, _ := json.Marshal(p)
 			if string(aa) != string(bb) {
 				id := p.ID
-				out = append(out, Change{Entity: "policy", ID: &id, Action: "mod", Text: "Изменена политика: " + p.Name})
+				out = append(out, Change{Entity: "policy", ID: &id, Action: "mod", Text: "Изменена политика: " + p.Name, Details: policyDetails(&previous, p)})
 			}
 		}
 		delete(pold, p.ID)
@@ -367,21 +369,20 @@ func semanticChangesAll(a, b policy.Snapshot) []Change {
 	for _, p := range a.Policies {
 		if _, ok := pold[p.ID]; ok {
 			id := p.ID
-			out = append(out, Change{Entity: "policy", ID: &id, Action: "del", Text: "Удалена политика: " + p.Name})
+			out = append(out, Change{Entity: "policy", ID: &id, Action: "del", Text: "Удалена политика: " + p.Name, Details: removedPolicyDetails(p, a)})
 		}
 	}
-	sa, _ := json.Marshal(policy.EffectiveSettings(a))
-	sb, _ := json.Marshal(policy.EffectiveSettings(b))
-	if string(sa) != string(sb) {
-		out = append(out, Change{Entity: "settings", ID: nil, Action: "mod", Text: "Изменены настройки Squid"})
+	sa, sb := policy.EffectiveSettings(a), policy.EffectiveSettings(b)
+	if !sameJSON(sa, sb) {
+		out = append(out, Change{Entity: "settings", ID: nil, Action: "mod", Text: settingsText(sa, sb), Details: settingsDetails(sa, sb)})
 	}
 	if a.Mode != b.Mode || a.Expert != b.Expert {
-		out = append(out, Change{Entity: "configuration", ID: nil, Action: "mod", Text: "Изменён режим конфигурации или экспертный squid.conf"})
+		out = append(out, Change{Entity: "configuration", ID: nil, Action: "mod", Text: "Изменён режим конфигурации или экспертный squid.conf", Details: configurationDetails(a, b)})
 	}
 	ta, _ := json.Marshal(a.TLSProfiles)
 	tb, _ := json.Marshal(b.TLSProfiles)
 	if string(ta) != string(tb) {
-		out = append(out, Change{Entity: "tls_profiles", ID: nil, Action: "mod", Text: "Изменены TLS-профили"})
+		out = append(out, Change{Entity: "tls_profiles", ID: nil, Action: "mod", Text: "Изменены TLS-профили", Details: tlsProfileDetails(a, b)})
 	}
 	return out
 }

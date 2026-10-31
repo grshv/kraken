@@ -1,10 +1,19 @@
-import { useEffect, useRef, useState } from "react";
-import { Ban, Check, KeyRound, Plus, X } from "lucide-react";
+import { Timestamp } from "@/components/kraken/timestamp";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useEffect, useState } from "react";
+import { Ban, KeyRound, Plus, X } from "lucide-react";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from "@/components/ui/dropdown-menu";
 import {
   Card,
   CardAction,
@@ -17,8 +26,6 @@ import {
   Table,
   TableBody,
   TableCell,
-  TableHead,
-  TableHeader,
   TableRow,
 } from "@/components/ui/table";
 import {
@@ -106,11 +113,17 @@ export function AccountsSection(props: SectionProps) {
   const snap = draft?.snapshot;
   const clients = snap?.clients ?? [];
 
-  // Command palette "new-proxy-login": open the proxy login form once.
+  // Command palette "new-proxy-login" opens the proxy login form once;
+  // "account:<username>" (the profile menu) selects that account.
   useEffect(() => {
-    if (intent !== "new-proxy-login") return;
-    setCreating("proxy");
-    onIntentHandled?.();
+    if (intent === "new-proxy-login") {
+      setCreating("proxy");
+      onIntentHandled?.();
+    } else if (intent?.startsWith("account:")) {
+      setSelected(intent.slice("account:".length));
+      setCreating(null);
+      onIntentHandled?.();
+    }
   }, [intent, onIntentHandled]);
 
   useEffect(() => {
@@ -224,9 +237,21 @@ export function AccountsSection(props: SectionProps) {
           }
           action={
             canManageUsers ? (
-              <Button size="xs" onClick={() => setCreating("panel")}>
-                <Plus aria-hidden /> Пользователь
-              </Button>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button size="xs">
+                    <Plus aria-hidden /> Создать
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem onSelect={() => setCreating("panel")}>
+                    Пользователь панели
+                  </DropdownMenuItem>
+                  <DropdownMenuItem onSelect={() => setCreating("proxy")}>
+                    Логин прокси
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             ) : (
               <Button size="xs" onClick={() => setCreating("proxy")}>
                 <Plus aria-hidden /> Логин
@@ -396,9 +421,7 @@ function AccountDetail({
   );
 }
 
-// RoleOption keeps the original button[aria-pressed] a11y pattern from the
-// prototype's .opt, restyled with Tailwind; the radio dot is a plain span so
-// roles and aria-pressed are unchanged.
+// A role choice composes the shared shadcn RadioGroupItem and Label.
 function RoleOption({
   selected,
   disabled,
@@ -415,30 +438,27 @@ function RoleOption({
   hint?: string;
 }) {
   return (
-    <button
-      type="button"
-      aria-pressed={selected}
-      disabled={disabled}
+    <Label
       title={title}
-      onClick={onClick}
       className={cn(
-        "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 rounded-lg border p-3 text-left disabled:cursor-not-allowed",
-        selected
-          ? "border-muted-foreground/45 bg-hover"
-          : "border-border disabled:opacity-60",
+        "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 rounded-lg border p-3 text-left",
+        selected ? "border-muted-foreground/45 bg-hover" : "border-border",
+        disabled && "opacity-60",
       )}
     >
-      <span
-        aria-hidden
-        className="mt-px grid size-4 place-items-center rounded-full border border-input"
-      >
-        {selected && <span className="size-2 rounded-full bg-foreground" />}
-      </span>
+      <RadioGroupItem
+        value={label === "Администратор" ? "admin" : "manager"}
+        disabled={disabled}
+        onClick={onClick}
+        className="mt-px"
+      />
       <span>
-        <div className="font-medium">{label}</div>
-        {hint && <div className="text-sm text-muted-foreground">{hint}</div>}
+        <span className="block font-medium">{label}</span>
+        {hint && (
+          <span className="block text-sm text-muted-foreground">{hint}</span>
+        )}
       </span>
-    </button>
+    </Label>
   );
 }
 
@@ -576,7 +596,7 @@ function PanelUserDetail({
               size="sm"
               onClick={() => setPwdOpen(true)}
             >
-              <KeyRound aria-hidden /> Сменить пароль
+              <KeyRound aria-hidden /> Сбросить пароль
             </Button>
             {!self && (
               <Button
@@ -602,14 +622,15 @@ function PanelUserDetail({
             )}
           </>
         }
-        meta="Пароль хранится только как Argon2id; смена сразу завершает все сессии."
+        meta="Административный сброс пароля завершает все сессии пользователя."
       />
       <Dialog open={pwdOpen} onOpenChange={setPwdOpen}>
         <DialogContent className="sm:max-w-[420px]">
           <DialogHeader>
-            <DialogTitle>Новый пароль для {user.username}</DialogTitle>
+            <DialogTitle>Сброс пароля: {user.username}</DialogTitle>
             <DialogDescription>
-              Все сессии пользователя завершатся сразу после смены.
+              Все сессии пользователя завершатся. Для смены своего пароля с
+              сохранением текущей сессии используйте меню профиля.
             </DialogDescription>
           </DialogHeader>
           <form
@@ -636,7 +657,7 @@ function PanelUserDetail({
                 Отмена
               </Button>
               <Button type="submit" disabled={!pwd}>
-                Сменить пароль
+                Сбросить пароль
               </Button>
             </DialogFooter>
           </form>
@@ -661,7 +682,7 @@ function PanelUserDetail({
               </div>
             </CardHeader>
             <CardContent>
-              <div className="grid grid-cols-2 gap-2">
+              <RadioGroup value={user.role} className="grid grid-cols-2 gap-2">
                 <RoleOption
                   selected={user.role === "admin"}
                   disabled={user.role === "admin"}
@@ -681,7 +702,7 @@ function PanelUserDetail({
                   label="Менеджер"
                   hint="Только назначенные клиенты"
                 />
-              </div>
+              </RadioGroup>
               <dl className="mt-3 flex flex-col text-sm">
                 {PERMS.map(([p, ad, mg]) => (
                   <div
@@ -707,14 +728,7 @@ function PanelUserDetail({
                   items={[
                     [
                       "Последний",
-                      logins.last
-                        ? new Date(logins.last).toLocaleString("ru-RU", {
-                            day: "2-digit",
-                            month: "2-digit",
-                            hour: "2-digit",
-                            minute: "2-digit",
-                          })
-                        : "—",
+                      <Timestamp value={logins.last} seconds={false} compact />,
                     ],
                     [
                       "Неудачных за 24 ч",
@@ -926,28 +940,18 @@ function ManagerScopeEditor({
                 return (
                   <TableRow key={c.id}>
                     <TableCell className="py-1.5 px-2">
-                      <button
-                        type="button"
-                        aria-pressed={checked}
-                        onClick={() => toggleClient(c.id)}
-                        className="flex items-center gap-2 text-left"
-                      >
-                        <span
-                          aria-hidden
-                          className={cn(
-                            "grid size-3.5 shrink-0 place-content-center rounded-sm border",
-                            checked
-                              ? "border-primary bg-primary text-primary-foreground"
-                              : "border-input",
-                          )}
-                        >
-                          {checked && <Check className="size-3" />}
-                        </span>
+                      <Label className="flex items-center gap-2 text-left">
+                        <Checkbox
+                          checked={checked}
+                          onCheckedChange={() => toggleClient(c.id)}
+                          aria-label={"Назначить " + c.name}
+                        />
+
                         <span>{c.name}</span>
                         <span className="font-mono text-sm text-muted-foreground">
                           {c.id}
                         </span>
-                      </button>
+                      </Label>
                     </TableCell>
                   </TableRow>
                 );
@@ -997,7 +1001,7 @@ function ProxyAccountDetail({
   const ownerIsSelf = session.role === "manager" && owner === session.username;
   const [pwd, setPwd] = useState("");
   const activity = useProxyActivity(request, account.username);
-  const pwdRef = useRef<HTMLInputElement>(null);
+  const [pwdOpen, setPwdOpen] = useState(false);
 
   async function patch(payload: Record<string, unknown>, ok: string) {
     setError(null);
@@ -1006,8 +1010,10 @@ function ProxyAccountDetail({
       onToast(ok);
       await onMutated();
       setPwd("");
+      return true;
     } catch (e) {
       setError((e as Error).message);
+      return false;
     }
   }
 
@@ -1030,12 +1036,69 @@ function ProxyAccountDetail({
           <Button
             variant="outline"
             size="sm"
-            onClick={() => pwdRef.current?.focus()}
+            onClick={() => {
+              setError(null);
+              setPwdOpen(true);
+            }}
           >
             <KeyRound aria-hidden /> Сменить пароль
           </Button>
         }
       />
+      <Dialog
+        open={pwdOpen}
+        onOpenChange={(open) => {
+          setPwdOpen(open);
+          if (!open) setPwd("");
+        }}
+      >
+        <DialogContent className="sm:max-w-[420px]">
+          <DialogHeader>
+            <DialogTitle>Пароль прокси: {account.username}</DialogTitle>
+            <DialogDescription>
+              Новый пароль заменит прежний сразу. Открытые туннели сохранятся.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (
+                pwd &&
+                (await patch({ password: pwd }, "Пароль прокси изменён"))
+              )
+                setPwdOpen(false);
+            }}
+          >
+            <Label htmlFor="proxy-new-password">Новый пароль</Label>
+            <Input
+              id="proxy-new-password"
+              type="password"
+              autoComplete="new-password"
+              autoFocus
+              value={pwd}
+              onChange={(e) => setPwd(e.target.value)}
+              aria-invalid={!!error}
+            />
+            {error && <Callout tone="bad">{error}</Callout>}
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setPwdOpen(false);
+                  setPwd("");
+                }}
+              >
+                Отмена
+              </Button>
+              <Button type="submit" disabled={!pwd}>
+                Сменить пароль
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <InspectorBody>
         {error && (
           <Callout tone="bad" icon={<Ban aria-hidden />}>
@@ -1080,36 +1143,6 @@ function ProxyAccountDetail({
 
         <Card>
           <CardHeader>
-            <CardTitle>Смена пароля</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <Label>
-              Новый пароль
-              <Input
-                ref={pwdRef}
-                type="password"
-                value={pwd}
-                autoComplete="new-password"
-                onChange={(e) => setPwd(e.target.value)}
-              />
-            </Label>
-            <div className="mt-2 flex items-center gap-2">
-              <Button
-                size="sm"
-                onClick={() => patch({ password: pwd }, "Пароль изменён")}
-                disabled={!pwd}
-              >
-                <KeyRound aria-hidden /> Сменить пароль
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                Смена сразу закрывает старый пароль у прокси.
-              </span>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>Состояние</CardTitle>
           </CardHeader>
           <CardContent>
@@ -1132,7 +1165,7 @@ function ProxyAccountDetail({
   );
 }
 
-function NewAccountForm({
+export function NewAccountForm({
   kind,
   onCancel,
   onCreate,
@@ -1183,7 +1216,12 @@ function NewAccountForm({
               />
             </Label>
             {kind === "panel" && (
-              <div className="mt-2 grid grid-cols-2 gap-2 max-[1180px]:grid-cols-1">
+              <RadioGroup
+                aria-label="Роль пользователя"
+                value={role}
+                onValueChange={(value) => setRole(value as "admin" | "manager")}
+                className="mt-2 grid grid-cols-2 gap-2 max-[1180px]:grid-cols-1"
+              >
                 <RoleOption
                   selected={role === "admin"}
                   onClick={() => setRole("admin")}
@@ -1194,7 +1232,7 @@ function NewAccountForm({
                   onClick={() => setRole("manager")}
                   label="Менеджер"
                 />
-              </div>
+              </RadioGroup>
             )}
             <div className="mt-3 flex justify-end gap-2">
               <Button variant="ghost" onClick={onCancel}>

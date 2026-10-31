@@ -1,21 +1,37 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Moon, Search, Settings2, Sun } from "lucide-react";
+import { Search } from "lucide-react";
+import { toast as showToast } from "sonner";
+import { useDefaultLayout } from "react-resizable-panels";
 import { Button } from "@/components/ui/button";
+import { ResizablePanelGroup } from "@/components/ui/resizable";
+import {
+  Sidebar,
+  SidebarContent,
+  SidebarFooter,
+  SidebarInset,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarProvider,
+} from "@/components/ui/sidebar";
+import { Toaster } from "@/components/ui/sonner";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { Callout } from "@/components/kraken/blocks";
 import { cn } from "cn";
-import type { NavId, Role } from "./nav";
+import type { NavId, NavItem, Role } from "./nav";
 import { navItems } from "./nav";
 import { navIcons } from "./navIcons";
 import { KrakenMark } from "./KrakenMark";
-import { PaneResizer } from "./PaneResizer";
-import { usePaneWidth } from "./usePaneWidth";
 import { StatusIndicator } from "./StatusIndicator";
 import { ProfileMenu } from "./ProfileMenu";
 import { CommandPalette } from "./CommandPalette";
 import { DraftTray } from "../draft/DraftTray";
 import { ReviewSheet } from "../draft/ReviewSheet";
 import { ConfirmDialog, type ConfirmOptions } from "./ConfirmDialog";
-import { Toast } from "./Toast";
-import { useTheme } from "../ThemeProvider";
 import type {
   Draft,
   Operation,
@@ -40,9 +56,10 @@ export type ShellHandlers = {
   onAction: (id: string) => void;
 };
 
-// Inspector shell: header (logo + word + ⌘K + status), left rail (sections +
-// theme + avatar), content area (list/detail panes with resizer), bottom
-// draft tray, command palette, confirm dialog and toast.
+// Inspector shell from the prototype: header (logo, ⌘K, status), a 48 px rail
+// of section icons with the profile menu at the bottom, the section's
+// resizable panels with banners above them, the draft tray, the command
+// palette, the review sheet, the confirm dialog and toasts.
 export function InspectorShell({
   session,
   status,
@@ -74,10 +91,10 @@ export function InspectorShell({
   operation: Operation | null;
   applyRun: ApplyRun;
   navId: NavId;
-  // Counters on rail items, e.g. undescribed sources on Клиенты.
+  // Counters on rail items, e.g. new notifications on Клиенты.
   badges?: Partial<Record<NavId, number>>;
   request: Request;
-  // Opens a section with an entity selected (palette client search).
+  // Opens a section with an entity selected (palette search).
   onOpen?: (nav: NavId, intent: SectionIntent) => void;
   // Applied settings: ports for the status popover.
   settings?: Settings;
@@ -96,13 +113,11 @@ export function InspectorShell({
 }) {
   const role: Role = session.role === "manager" ? "manager" : "admin";
   const items = useMemo(() => navItems(role), [role]);
-  const list = usePaneWidth("list");
-  const detail = usePaneWidth("detail");
+  const layout = useDefaultLayout({ id: "kraken-main-panels" });
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [reviewOpen, setReviewOpen] = useState(false);
-  const { dark, setTheme } = useTheme();
 
-  // ⌘K / Ctrl+K toggles the palette; Escape closes palette/review/profile.
+  // ⌘K / Ctrl+K toggles the palette; Escape closes palette/review.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
@@ -119,57 +134,94 @@ export function InspectorShell({
     return () => window.removeEventListener("keydown", onKey);
   }, [applyRun.state.phase]);
 
-  const openReview = useCallback(() => {
-    if (status?.squid.state === "down") {
-      // Sheet still opens so the conflict banner explains why apply is blocked.
-    }
-    setReviewOpen(true);
-  }, [status?.squid.state]);
+  // The App keeps one message; sonner shows it and the App forgets it.
+  useEffect(() => {
+    if (!toast) return;
+    showToast(toast, { id: "kraken-notice" });
+    onToastDismiss();
+  }, [toast, onToastDismiss]);
 
   const act = useCallback(
     (id: string) => {
       if (id === "act:review") {
-        openReview();
+        setReviewOpen(true);
         return;
       }
       handlers.onAction(id);
     },
-    [handlers, openReview],
+    [handlers],
   );
 
+  const railItem = (n: NavItem) => {
+    const Icon = navIcons[n.id];
+    const current = navId === n.id;
+    const badge = badges?.[n.id];
+    return (
+      <SidebarMenuItem
+        key={n.id}
+        className={
+          current
+            ? "before:absolute before:top-2 before:bottom-2 before:-left-1.5 before:w-0.5 before:rounded-full before:bg-primary"
+            : undefined
+        }
+      >
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <SidebarMenuButton
+              isActive={current}
+              className={cn(
+                "relative size-9 shrink-0 justify-center rounded-md border-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[18px]",
+                current
+                  ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                  : "bg-transparent text-sidebar-foreground",
+              )}
+              aria-label={badge ? `${n.label}, ${badge} новых` : n.label}
+              aria-current={current ? "page" : undefined}
+              data-nav={n.id}
+              onClick={() => onNavigate(n.id)}
+            >
+              <Icon aria-hidden />
+              {!!badge && (
+                <span
+                  className="absolute top-0.5 right-0.5 size-2 rounded-full bg-mod-fg"
+                  aria-hidden
+                />
+              )}
+            </SidebarMenuButton>
+          </TooltipTrigger>
+          <TooltipContent side="right">
+            {n.label}
+            {!!badge && ` · ${badge} новых`}
+          </TooltipContent>
+        </Tooltip>
+      </SidebarMenuItem>
+    );
+  };
+
   return (
-    <div className="flex h-dvh flex-col bg-page">
-      <a className="skip-link" href="#main-content">
+    <div className="flex h-dvh min-w-[1024px] flex-col overflow-hidden bg-background text-foreground">
+      <a className="skip-link" href="#main">
         К содержимому
       </a>
       {/* Brand | search centred on the window | status. Equal side columns keep
           the search in the middle whatever the list width. */}
-      <header className="grid h-[52px] flex-none grid-cols-[minmax(0,1fr)_minmax(0,520px)_minmax(0,1fr)] items-center gap-4 border-b bg-card pr-4 max-[820px]:grid-cols-[auto_minmax(0,1fr)_auto] max-[820px]:gap-2.5">
+      <header className="grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,520px)_minmax(0,1fr)] items-center gap-4 border-b border-header-border bg-header pr-4 text-header-foreground">
         <div className="flex min-w-0 items-center">
-          <span
-            className="grid w-[72px] shrink-0 place-items-center text-foreground"
-            aria-hidden
-          >
-            <KrakenMark title="" className="size-[30px]" />
+          <span className="grid w-12 shrink-0 place-items-center" aria-hidden>
+            <KrakenMark title="" className="size-[26px]" />
           </span>
-          <span className="whitespace-nowrap pl-3 text-sm font-semibold uppercase tracking-[0.24em] text-foreground max-[820px]:hidden">
-            Kraken
-          </span>
+          <strong className="pl-2 text-sm tracking-[.24em]">KRAKEN</strong>
         </div>
-        <button
-          type="button"
-          className="flex h-[34px] min-w-0 cursor-text items-center gap-2 justify-self-stretch rounded-md border bg-background px-3 text-base text-muted-foreground hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring"
+        <Button
+          variant="outline"
+          className="h-[34px] min-w-0 justify-start border-transparent bg-header-field font-normal text-header-muted shadow-none hover:bg-header-field hover:text-header-foreground"
           onClick={() => setPaletteOpen(true)}
         >
-          <Search aria-hidden className="size-3.5" />
-          <span className="grow text-left">
-            Клиент, IP, домен или действие…
-          </span>
-          <kbd className="rounded-[6px] border bg-muted px-[5px] font-mono text-xs text-muted-foreground">
-            ⌘K
-          </kbd>
-        </button>
-        <div className="flex justify-end">
+          <Search aria-hidden />
+          Клиент, IP, домен или действие…
+          <span className="ml-auto text-xs">⌘K</span>
+        </Button>
+        <div className="flex items-center justify-end">
           <StatusIndicator
             status={status}
             settings={settings}
@@ -177,116 +229,80 @@ export function InspectorShell({
             onOpenAudit={handlers.onOpenAudit}
             onOpenSettings={
               items.some((n) => n.id === "settings")
-                ? () => onNavigate("settings")
+                ? () =>
+                    onOpen
+                      ? onOpen("settings", "setting:ports")
+                      : onNavigate("settings")
                 : undefined
             }
           />
         </div>
       </header>
-      {status?.squid.state === "down" && (
-        <div
-          className="flex flex-none items-center gap-2.5 border-b bg-bad-bg px-4 py-2 text-sm text-bad"
-          role="alert"
-        >
-          <strong>Squid не отвечает.</strong> Трафик клиентов сейчас не
-          проходит. Kraken перезапускает Squid с последней рабочей ревизией.
-        </div>
-      )}
-      <div className="grid min-h-0 flex-1 grid-cols-[72px_minmax(0,1fr)]">
-        <nav
-          className="flex flex-col items-center gap-0.5 overflow-y-auto border-r bg-sidebar py-2"
+      <SidebarProvider
+        style={{ "--sidebar-width": "48px" } as React.CSSProperties}
+        className="min-h-0 flex-1"
+      >
+        <Sidebar
+          collapsible="none"
+          role="navigation"
           aria-label="Разделы"
+          className="items-center gap-0.5 border-r py-2"
         >
-          {items
-            .filter((n) => n.group === "main")
-            .map((n) => {
-              const Icon = navIcons[n.id];
-              return (
-                <RailItem
-                  key={n.id}
-                  id={n.id}
-                  label={n.label}
-                  active={navId === n.id}
-                  badge={badges?.[n.id]}
-                  onClick={() => onNavigate(n.id)}
-                >
-                  <Icon aria-hidden />
-                </RailItem>
-              );
-            })}
-          <span className="grow" />
-          {items
-            .filter((n) => n.group === "bottom")
-            .map((n) => {
-              const Icon = navIcons[n.id];
-              return (
-                <RailItem
-                  key={n.id}
-                  id={n.id}
-                  label={n.label}
-                  active={navId === n.id}
-                  badge={badges?.[n.id]}
-                  onClick={() => onNavigate(n.id)}
-                >
-                  <Icon aria-hidden />
-                </RailItem>
-              );
-            })}
-          <button
-            type="button"
-            className="flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-4"
-            aria-label={dark ? "Светлая тема" : "Тёмная тема"}
-            aria-pressed={dark}
-            onClick={() => setTheme(dark ? "light" : "dark")}
-          >
-            {dark ? <Sun aria-hidden /> : <Moon aria-hidden />}
-            <span>{dark ? "Светлая" : "Тёмная"}</span>
-          </button>
-          <ProfileMenu
-            session={session}
-            onOpenAccount={handlers.onOpenAccount}
-            onChangePassword={handlers.onChangePassword}
-            onLogout={handlers.onLogout}
-            onEndOtherSessions={handlers.onEndOtherSessions}
-          />
-        </nav>
-        <div
-          className="flex min-h-0 min-w-0 flex-col bg-background"
-          id="main-content"
-          tabIndex={-1}
-          style={
-            {
-              "--list-w": `${list.width}px`,
-              "--detail-w": `${detail.width}px`,
-            } as React.CSSProperties
-          }
-        >
-          {banner}
-          <div className="pane-frame">
-            {children}
-            <PaneResizer
-              kind="list"
-              direction="right"
-              onDrag={list.onDrag}
-              onCommit={list.onCommit}
-              onReset={list.reset}
+          <SidebarContent className="w-full items-center">
+            <SidebarMenu className="w-9 gap-1">
+              {items.filter((n) => n.group === "main").map(railItem)}
+            </SidebarMenu>
+          </SidebarContent>
+          <SidebarFooter className="items-center p-0">
+            <SidebarMenu className="w-9 gap-1">
+              {items.filter((n) => n.group === "bottom").map(railItem)}
+            </SidebarMenu>
+            <ProfileMenu
+              session={session}
+              onOpenAccount={handlers.onOpenAccount}
+              onChangePassword={handlers.onChangePassword}
+              onLogout={handlers.onLogout}
+              onEndOtherSessions={handlers.onEndOtherSessions}
             />
-          </div>
-        </div>
-      </div>
-      <DraftTray
-        status={status}
-        onReview={openReview}
-        onDiscard={handlers.onDiscardDraft}
-      />
+          </SidebarFooter>
+        </Sidebar>
+        <SidebarInset id="main" tabIndex={-1} className="min-h-0 min-w-0">
+          {status?.squid.state === "down" && (
+            <Callout
+              tone="bad"
+              className="rounded-none border-x-0 border-t-0 px-4 py-2 text-sm"
+            >
+              Squid не отвечает. Трафик клиентов сейчас не проходит. Kraken
+              перезапускает Squid с последней рабочей ревизией.
+            </Callout>
+          )}
+          {banner}
+          <ResizablePanelGroup
+            orientation="horizontal"
+            id="kraken-main"
+            defaultLayout={layout.defaultLayout}
+            onLayoutChanged={layout.onLayoutChanged}
+            className="min-h-0 flex-1"
+          >
+            {children}
+          </ResizablePanelGroup>
+          <DraftTray
+            status={status}
+            onReview={() => setReviewOpen(true)}
+            onDiscard={handlers.onDiscardDraft}
+          />
+        </SidebarInset>
+      </SidebarProvider>
       <CommandPalette
         role={role}
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         onNavigate={onNavigate}
         onAction={act}
-        clients={draft?.snapshot.clients ?? []}
-        onOpenClient={(id) => onOpen?.("clients", `client:${id}`)}
+        snapshot={draft?.snapshot ?? null}
+        request={request}
+        onOpen={onOpen}
+        onCommit={onCommit}
       />
       <ReviewSheet
         open={reviewOpen}
@@ -299,13 +315,17 @@ export function InspectorShell({
         onRefreshDraft={handlers.onRefreshDraft}
         active={active}
         onCommit={onCommit}
+        onOpenAudit={() => {
+          setReviewOpen(false);
+          handlers.onOpenAudit();
+        }}
       />
       <ConfirmDialog
         options={confirm}
         onConfirm={onConfirm}
         onCancel={onConfirmCancel}
       />
-      <Toast message={toast} onDismiss={onToastDismiss} />
+      <Toaster offset={{ bottom: 72 }} />
       {/* operation is read by useOperationRecovery in App; expose for tests */}
       <input
         type="hidden"
@@ -315,46 +335,3 @@ export function InspectorShell({
     </div>
   );
 }
-
-function RailItem({
-  id,
-  label,
-  active,
-  badge,
-  onClick,
-  children,
-}: {
-  id: NavId;
-  label: string;
-  active: boolean;
-  badge?: number;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "relative flex w-16 flex-col items-center gap-[3px] rounded-md border-0 bg-transparent pb-[6px] pt-[7px] text-xs font-medium text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring [&_svg]:size-4",
-        active && "bg-[var(--accent-soft)] text-accent",
-      )}
-      aria-current={active ? "page" : undefined}
-      data-nav={id}
-      onClick={onClick}
-    >
-      {children}
-      <span>{label}</span>
-      {!!badge && (
-        <span
-          className="absolute top-[3px] right-[9px] grid h-[15px] min-w-[15px] place-items-center rounded-lg bg-mod-bg px-[3px] text-xs text-mod-fg"
-          aria-label={`${badge} новых`}
-        >
-          {badge}
-        </span>
-      )}
-    </button>
-  );
-}
-
-// Re-export Settings2 so the icon map intent is visible at the import site.
-export { Settings2 };

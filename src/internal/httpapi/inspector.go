@@ -363,7 +363,7 @@ func (s *Server) inspectorClientHits(w http.ResponseWriter, r *http.Request, v s
 	respond(w, 200, map[string]any{"domains": domains})
 }
 
-// destinationHits sums the requests of clientIDs to hosts matching each
+// destinationHits sums the requests (and 24 h denials) of clientIDs to hosts matching each
 // destination over the last 24 hours and 7 days (top 500 hosts per window).
 func (s *Server) destinationHits(ctx context.Context, clientIDs []string, ts *telemetry.Scope, destinations []policy.Destination) ([]map[string]any, error) {
 	now := s.now().UTC()
@@ -378,8 +378,10 @@ func (s *Server) destinationHits(ctx context.Context, clientIDs []string, ts *te
 		return nil, e
 	}
 	m24 := map[string]int64{}
+	d24 := map[string]int64{}
 	for _, h := range h24 {
 		m24[h.Host] = h.Requests
+		d24[h.Host] = h.Denied
 	}
 	m7 := map[string]int64{}
 	for _, h := range h7 {
@@ -387,10 +389,11 @@ func (s *Server) destinationHits(ctx context.Context, clientIDs []string, ts *te
 	}
 	domains := make([]map[string]any, len(destinations))
 	for i, d := range destinations {
-		h24hits, h7hits := int64(0), int64(0)
+		h24hits, h24denied, h7hits := int64(0), int64(0), int64(0)
 		for host, n := range m24 {
 			if policy.DomainMatches(host, d.Domain, d.IncludeSubdomains) {
 				h24hits += n
+				h24denied += d24[host]
 			}
 		}
 		for host, n := range m7 {
@@ -398,7 +401,7 @@ func (s *Server) destinationHits(ctx context.Context, clientIDs []string, ts *te
 				h7hits += n
 			}
 		}
-		domains[i] = map[string]any{"domain": d.Domain, "include_subdomains": d.IncludeSubdomains, "hits_24h": h24hits, "hits_7d": h7hits}
+		domains[i] = map[string]any{"domain": d.Domain, "include_subdomains": d.IncludeSubdomains, "hits_24h": h24hits, "denied_24h": h24denied, "hits_7d": h7hits}
 	}
 	return domains, nil
 }

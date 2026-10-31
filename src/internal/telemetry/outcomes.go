@@ -27,7 +27,7 @@ func (t *Store) Outcomes(ctx context.Context, q EventQuery) (Outcomes, error) {
 	if q.Scope != nil && len(q.Scope.ClientIDs) == 0 && len(q.Scope.Networks) == 0 {
 		return out, nil
 	}
-	if q.ClientID != "" && q.Scope != nil && !scopeClientAllowed(q.Scope, q.ClientID) {
+	if clientsOutsideScope(q) {
 		return out, nil
 	}
 	nets := parseNetworks(q.Scope)

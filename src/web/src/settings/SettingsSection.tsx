@@ -40,11 +40,9 @@ import {
 import { Callout, KeyValue, SettingRow } from "@/components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
-import { BlockedDomainEditor } from "./BlockedDomainEditor";
 import {
   effectiveSettings,
   patchSettings,
-  setBlockedDomains,
   setUpstream,
   setExpertConfig,
 } from "./edits";
@@ -53,9 +51,10 @@ import {
   parseDuration,
   parseNameservers,
   parsePortList,
+  parseUpstream,
 } from "./units";
 import type { SectionProps } from "../sections/sectionProps";
-import type { Settings, Snapshot, UpstreamProxy } from "../model";
+import type { Settings, Snapshot } from "../model";
 import type { NavId } from "../shell/nav";
 
 // Certificate (from /certificates): public metadata only.
@@ -70,7 +69,6 @@ type Cert = {
 };
 
 type SetId =
-  | "blocked"
   | "protect"
   | "upstream"
   | "privacy"
@@ -88,7 +86,6 @@ const SECTIONS: {
   label: string;
   count?: number;
 }[] = [
-  { id: "blocked", icon: Ban, label: "Запрещено для всех" },
   { id: "protect", icon: ShieldCheck, label: "Встроенная защита" },
   { id: "upstream", icon: Network, label: "Вышестоящий прокси" },
   { id: "privacy", icon: Eye, label: "Приватность" },
@@ -116,7 +113,7 @@ export function SettingsSection(props: SectionProps) {
     intent,
     onIntentHandled,
   } = props;
-  const [active_id, setActiveId] = useState<SetId>("blocked");
+  const [active_id, setActiveId] = useState<SetId>("protect");
   const [instanceName, setInstanceName] = useState<string>("");
   const [certs, setCerts] = useState<Cert[] | null>(null);
   const [expertTemplate, setExpertTemplate] = useState<string>("");
@@ -126,11 +123,18 @@ export function SettingsSection(props: SectionProps) {
   const activeSnap = active;
   const s = snap ? effectiveSettings(snap) : null;
 
-  // Command palette "blocked-domains": switch to the blocked list once.
+  // "setting:<id>" opens that settings section (the status popover opens
+  // ports). The global deny list moved to Policies; forward a stale intent.
   useEffect(() => {
+    if (intent?.startsWith("setting:")) {
+      const id = intent.slice("setting:".length) as SetId;
+      if (SECTIONS.some((x) => x.id === id)) setActiveId(id);
+      onIntentHandled?.();
+      return;
+    }
     if (intent !== "blocked-domains") return;
-    setActiveId("blocked");
     onIntentHandled?.();
+    props.onOpen?.("policies", "blocked-domains");
   }, [intent, onIntentHandled]);
 
   useEffect(() => {
@@ -190,9 +194,6 @@ export function SettingsSection(props: SectionProps) {
 
   const sectionMeta = SECTIONS.find((x) => x.id === active_id)!;
 
-  // Count of blocked domains for the list counter.
-  const blockedCount = s.blocked_domains?.length ?? 0;
-
   return (
     <>
       <ListPane>
@@ -208,9 +209,6 @@ export function SettingsSection(props: SectionProps) {
               onClick={() => setActiveId(sec.id)}
               leading={<sec.icon aria-hidden />}
               title={sec.label}
-              meta={
-                sec.id === "blocked" && blockedCount ? blockedCount : undefined
-              }
             />
           ))}
         </ListPaneBody>
@@ -222,14 +220,6 @@ export function SettingsSection(props: SectionProps) {
             <Callout tone="bad" icon={<Ban aria-hidden />}>
               <span className="text-sm">{error}</span>
             </Callout>
-          )}
-          {active_id === "blocked" && (
-            <BlockedSection
-              snap={snap}
-              s={s}
-              dirty={dirty("blocked_domains")}
-              onCommit={commit}
-            />
           )}
           {active_id === "protect" && (
             <ProtectSection
@@ -325,53 +315,6 @@ function DiffBadge({ show }: { show: boolean }) {
   return show ? <Badge variant="mod">в черновике</Badge> : null;
 }
 
-function BlockedSection({
-  snap,
-  s,
-  dirty,
-  onCommit,
-}: {
-  snap: Snapshot;
-  s: Settings;
-  dirty: boolean;
-  onCommit: (
-    next: Snapshot,
-    ok: string,
-  ) => Promise<{ ok: boolean; code?: string }>;
-}) {
-  const blocked = s.blocked_domains ?? [];
-  return (
-    <>
-      <Callout tone="info" icon={<Info aria-hidden />}>
-        <span className="text-sm">
-          Эти домены закрыты для всех клиентов, включая «весь веб» и squid.conf
-          вручную. Проверяются сразу после встроенной защиты.
-        </span>
-      </Callout>
-      <Card>
-        {dirty && (
-          <CardHeader>
-            <CardAction>
-              <DiffBadge show />
-            </CardAction>
-          </CardHeader>
-        )}
-        <CardContent>
-          <BlockedDomainEditor
-            destinations={blocked}
-            onChange={async (next) => {
-              await onCommit(
-                setBlockedDomains(snap, next),
-                "Список обновлён в черновике",
-              );
-            }}
-          />
-        </CardContent>
-      </Card>
-    </>
-  );
-}
-
 function ProtectSection({
   snap,
   s,
@@ -453,7 +396,7 @@ function UpstreamSection({
   ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const up = s.upstream_proxy ?? null;
-  const enabled = up !== null;
+  const [enabled, setEnabled] = useState(up !== null);
   const [addr, setAddr] = useState(up?.address ?? "");
   const [port, setPort] = useState<string>(up ? String(up.port) : "");
   const [exclusive, setExclusive] = useState(up?.exclusive ?? false);
@@ -461,6 +404,7 @@ function UpstreamSection({
 
   // Keep local inputs in sync when the upstream value changes after commit.
   useEffect(() => {
+    setEnabled(up !== null);
     setAddr(up?.address ?? "");
     setPort(up ? String(up.port) : "");
     setExclusive(up?.exclusive ?? false);
@@ -474,20 +418,11 @@ function UpstreamSection({
       onCommit(setUpstream(snap, null), "Вышестоящий прокси выключен");
       return;
     }
-    if (!addr.trim()) {
-      setAddrErr("Укажите IP-адрес вышестоящего прокси");
+    const next = parseUpstream(addr, port, exclusive);
+    if (!next) {
+      setAddrErr("Укажите IP-адрес без префикса и порт от 1 до 65535");
       return;
     }
-    const portNum = Number(port);
-    if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) {
-      setAddrErr("Порт: целое число 1–65535");
-      return;
-    }
-    const next: UpstreamProxy = {
-      address: addr.trim(),
-      port: portNum,
-      exclusive,
-    };
     onCommit(setUpstream(snap, next), "Вышестоящий прокси сохранён");
   }
 
@@ -509,6 +444,8 @@ function UpstreamSection({
               checked={enabled}
               aria-label="Вышестоящий прокси"
               onCheckedChange={(v) => {
+                setEnabled(v);
+                setAddrErr(null);
                 if (!v)
                   onCommit(
                     setUpstream(snap, null),
@@ -525,6 +462,9 @@ function UpstreamSection({
                 Адрес
                 <Input
                   className="font-mono"
+                  aria-label="Адрес вышестоящего прокси"
+                  aria-invalid={!!addrErr}
+                  aria-describedby={addrErr ? "upstream-error" : undefined}
                   value={addr}
                   onChange={(e) => setAddr(e.target.value)}
                   placeholder="10.0.0.10"
@@ -535,13 +475,24 @@ function UpstreamSection({
                 Порт
                 <Input
                   className="font-mono"
+                  aria-label="Порт вышестоящего прокси"
+                  aria-invalid={!!addrErr}
+                  aria-describedby={addrErr ? "upstream-error" : undefined}
                   value={port}
                   onChange={(e) => setPort(e.target.value)}
                   placeholder="3128"
                 />
               </Label>
             </div>
-            {addrErr && <div className="text-sm text-bad">{addrErr}</div>}
+            {addrErr && (
+              <div
+                id="upstream-error"
+                role="alert"
+                className="text-sm text-bad"
+              >
+                {addrErr}
+              </div>
+            )}
             <SettingRow
               title="Только через вышестоящий"
               help="Если он недоступен, клиенты получат отказ, а не выйдут напрямую"
@@ -664,7 +615,14 @@ function PortsSection({
         <SettingRow
           title="Имя экземпляра"
           help="Показывается в панели состояния сервера; помогает различать прокси. Задаётся переменной окружения KRAKEN_INSTANCE_NAME"
-          control={<Input value={instanceName} readOnly className="w-[200px]" />}
+          control={
+            <Input
+              aria-label="Имя экземпляра"
+              value={instanceName}
+              readOnly
+              className="w-[200px]"
+            />
+          }
         />
         <SettingRow
           title="Порты сайтов для HTTP"
@@ -673,15 +631,26 @@ function PortsSection({
           control={
             <Input
               className="font-mono w-[200px]"
+              aria-label="Порты сайтов для HTTP"
+              aria-invalid={!!safeErr}
+              aria-describedby={safeErr ? "safe-ports-error" : undefined}
               value={safePorts}
               onChange={(e) => setSafePorts(e.target.value)}
             />
           }
         />
-        {safeErr && <div className="text-sm text-bad">{safeErr}</div>}
-        {dirtySafe && (
+        {safeErr && (
+          <div id="safe-ports-error" role="alert" className="text-sm text-bad">
+            {safeErr}
+          </div>
+        )}
+        {safePorts !== s.safe_ports.join(", ") && (
           <div className="mt-1.5 flex items-center gap-2">
-            <Button size="sm" onClick={saveSafe}>
+            <Button
+              size="sm"
+              onClick={saveSafe}
+              aria-label="Сохранить порты HTTP"
+            >
               Сохранить порты
             </Button>
           </div>
@@ -693,15 +662,30 @@ function PortsSection({
           control={
             <Input
               className="font-mono w-[200px]"
+              aria-label="Порты для HTTPS (CONNECT)"
+              aria-invalid={!!connectErr}
+              aria-describedby={connectErr ? "connect-ports-error" : undefined}
               value={connectPorts}
               onChange={(e) => setConnectPorts(e.target.value)}
             />
           }
         />
-        {connectErr && <div className="text-sm text-bad">{connectErr}</div>}
-        {dirtyConnect && (
+        {connectErr && (
+          <div
+            id="connect-ports-error"
+            role="alert"
+            className="text-sm text-bad"
+          >
+            {connectErr}
+          </div>
+        )}
+        {connectPorts !== s.connect_ports.join(", ") && (
           <div className="mt-1.5 flex items-center gap-2">
-            <Button size="sm" onClick={saveConnect}>
+            <Button
+              size="sm"
+              onClick={saveConnect}
+              aria-label="Сохранить порты CONNECT"
+            >
               Сохранить порты
             </Button>
           </div>
@@ -804,7 +788,11 @@ function CertsSection({
         tone="info"
         icon={<Info aria-hidden />}
         actions={
-          <Button size="xs" variant="outline" onClick={() => onNavigate("help")}>
+          <Button
+            size="xs"
+            variant="outline"
+            onClick={() => onNavigate("help")}
+          >
             Как заменить
           </Button>
         }
@@ -903,15 +891,26 @@ function DnsSection({
             <Input
               className="font-mono w-[260px]"
               placeholder="10.0.0.53, 2001:db8::53"
+              aria-label="DNS-серверы"
+              aria-invalid={!!dnsErr}
+              aria-describedby={dnsErr ? "dns-servers-error" : undefined}
               value={dns}
               onChange={(e) => setDns(e.target.value)}
             />
           }
         />
-        {dnsErr && <div className="text-sm text-bad">{dnsErr}</div>}
-        {dirtyDns && (
+        {dnsErr && (
+          <div id="dns-servers-error" role="alert" className="text-sm text-bad">
+            {dnsErr}
+          </div>
+        )}
+        {dns !== s.dns_nameservers.join(", ") && (
           <div className="mt-1.5 flex items-center gap-2">
-            <Button size="sm" onClick={saveDns}>
+            <Button
+              size="sm"
+              onClick={saveDns}
+              aria-label="Сохранить DNS-серверы"
+            >
               Сохранить
             </Button>
           </div>
@@ -923,6 +922,7 @@ function DnsSection({
           control={
             <Input
               className="font-mono w-[140px]"
+              aria-label="Кеш успешных ответов"
               value={positive}
               onChange={(e) => setPositive(e.target.value)}
             />
@@ -934,6 +934,7 @@ function DnsSection({
           control={
             <Input
               className="font-mono w-[140px]"
+              aria-label="Кеш ошибок"
               value={negative}
               onChange={(e) => setNegative(e.target.value)}
             />
@@ -996,7 +997,7 @@ function TimeoutsSection({
       setErr("Введите длительность, например 60 с или 15 мин");
       return;
     }
-    if (!Number.isInteger(b) || b < 0 || b > 10240) {
+    if (!body.trim() || !Number.isInteger(b) || b < 0 || b > 10240) {
       setErr("Размер тела: целое 0–10240 МБ");
       return;
     }
@@ -1020,6 +1021,7 @@ function TimeoutsSection({
           control={
             <Input
               className="font-mono w-[140px]"
+              aria-label="Подключение к сайту"
               value={connect}
               onChange={(e) => setConnect(e.target.value)}
             />
@@ -1032,6 +1034,7 @@ function TimeoutsSection({
           control={
             <Input
               className="font-mono w-[140px]"
+              aria-label="Чтение ответа"
               value={read}
               onChange={(e) => setRead(e.target.value)}
             />
@@ -1043,6 +1046,7 @@ function TimeoutsSection({
           control={
             <Input
               className="font-mono w-[140px]"
+              aria-label="Ожидание запроса"
               value={request}
               onChange={(e) => setRequest(e.target.value)}
             />
@@ -1055,6 +1059,7 @@ function TimeoutsSection({
           control={
             <Input
               className="font-mono w-[140px]"
+              aria-label="Размер тела запроса, МБ"
               value={body}
               onChange={(e) => setBody(e.target.value)}
             />
@@ -1088,14 +1093,17 @@ function CacheSection({
   ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const [mem, setMem] = useState(String(s.cache_memory_mb));
+  const [memErr, setMemErr] = useState<string | null>(null);
   useEffect(() => {
     setMem(String(s.cache_memory_mb));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.cache_memory_mb]);
 
   function saveMem() {
+    setMemErr(null);
     const v = Number(mem);
-    if (!Number.isInteger(v) || v < 1 || v > 1024) {
+    if (!mem.trim() || !Number.isInteger(v) || v < 1 || v > 1024) {
+      setMemErr("Объём кеша: целое число 1–1024 МБ");
       return;
     }
     onCommit(
@@ -1131,6 +1139,9 @@ function CacheSection({
             <>
               <Input
                 className="font-mono w-[140px]"
+                aria-label="Объём кеша, МБ"
+                aria-invalid={!!memErr}
+                aria-describedby={memErr ? "cache-memory-error" : undefined}
                 value={mem}
                 onChange={(e) => setMem(e.target.value)}
               />
@@ -1138,7 +1149,12 @@ function CacheSection({
             </>
           }
         />
-        {dirtyMem && (
+        {memErr && (
+          <p id="cache-memory-error" role="alert" className="text-sm text-bad">
+            {memErr}
+          </p>
+        )}
+        {mem !== String(s.cache_memory_mb) && (
           <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={saveMem}>
               Сохранить
@@ -1165,13 +1181,18 @@ function LogsSection({
   ) => Promise<{ ok: boolean; code?: string }>;
 }) {
   const [v, setV] = useState(String(s.log_rotations));
+  const [logErr, setLogErr] = useState<string | null>(null);
   useEffect(() => {
     setV(String(s.log_rotations));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [s.log_rotations]);
   function save() {
+    setLogErr(null);
     const n = Number(v);
-    if (!Number.isInteger(n) || n < 0 || n > 30) return;
+    if (!v.trim() || !Number.isInteger(n) || n < 0 || n > 30) {
+      setLogErr("Число ротаций: целое от 0 до 30");
+      return;
+    }
     onCommit(
       patchSettings(snap, { log_rotations: n }),
       "Настройки журналов сохранены",
@@ -1182,17 +1203,25 @@ function LogsSection({
       <CardContent>
         <SettingRow
           title="Хранить ротаций access.log"
-          help="История запросов в панели хранится отдельно: 30 дней"
+          help="История запросов хранится отдельно: до 90 дней, в пределах лимита диска 5 ГБ. Агрегаты — до 3 лет"
           badge={<DiffBadge show={dirty} />}
           control={
             <Input
               className="font-mono w-[140px]"
+              aria-label="Хранить ротаций access.log"
+              aria-invalid={!!logErr}
+              aria-describedby={logErr ? "log-rotations-error" : undefined}
               value={v}
               onChange={(e) => setV(e.target.value)}
             />
           }
         />
-        {dirty && (
+        {logErr && (
+          <p id="log-rotations-error" role="alert" className="text-sm text-bad">
+            {logErr}
+          </p>
+        )}
+        {v !== String(s.log_rotations) && (
           <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={save}>
               Сохранить
@@ -1263,6 +1292,7 @@ function ExpertSection({
           <Textarea
             className="mt-3 font-mono"
             rows={8}
+            aria-label="Конфигурация squid.conf"
             value={text}
             onChange={(e) => setText(e.target.value)}
             placeholder="acl office src 10.8.0.0/16&#10;http_access allow office"

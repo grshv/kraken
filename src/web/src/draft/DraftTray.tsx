@@ -1,6 +1,4 @@
-import { Eye } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import type { Status } from "../model";
 
 // Bottom tray: appears only when /status.has_unapplied_changes is true and
@@ -16,19 +14,20 @@ export function DraftTray({
 }) {
   if (status?.has_unapplied_changes !== true) return null;
   return (
-    <div className="flex flex-none items-center gap-2.5 border-t bg-card px-4 py-[9px]">
-      <Badge variant="mod" className="rounded-full px-2.5">
+    <div className="flex shrink-0 items-center gap-2.5 border-t bg-card px-4 py-[9px]">
+      <span className="inline-flex items-center gap-2 font-medium text-mod-fg">
+        <span className="size-2 rounded-full bg-mod-fg" aria-hidden />
         Есть неприменённые изменения
-      </Badge>
-      <span className="text-sm text-muted-foreground max-[1180px]:hidden">
+      </span>
+      <span className="text-sm text-muted-foreground">
         Трафик не изменится, пока изменения не применены
       </span>
       <span className="grow" />
       <Button size="sm" variant="ghost" onClick={onDiscard}>
         Сбросить черновик
       </Button>
-      <Button size="sm" variant="default" onClick={onReview}>
-        <Eye aria-hidden /> Проверить и применить
+      <Button size="sm" onClick={onReview}>
+        Проверить и применить
       </Button>
     </div>
   );

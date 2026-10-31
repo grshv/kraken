@@ -1,3 +1,4 @@
+import { Timestamp } from "@/components/kraken/timestamp";
 import { useMemo, useState } from "react";
 import {
   Ban,
@@ -37,7 +38,7 @@ import {
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import type { Client, Snapshot } from "../model";
-import { ago, pluralRu } from "../model";
+import { pluralRu } from "../model";
 import type { CommitResult } from "../sections/sectionProps";
 import {
   addDomainsToClient,
@@ -105,10 +106,6 @@ export function DeniedDomains({
     const hosts = hostsOf(list);
     const res = await onCommit(addDomainsToClient(snap, client.id, hosts));
     if (!res.ok) return;
-    await onMark(
-      list.filter((n) => n.status === "new").map((n) => n.id),
-      "seen",
-    );
     onToast(
       hosts.length === 1
         ? `Домен ${hosts[0]} добавлен клиенту`
@@ -120,10 +117,6 @@ export function DeniedDomains({
     const hosts = hostsOf(list);
     const res = await onCommit(blockDomainsForAll(snap, hosts));
     if (!res.ok) return;
-    await onMark(
-      list.map((n) => n.id),
-      "ignored",
-    );
     onToast(
       `${pluralRu(hosts.length, "домен", "домена", "доменов")} запрещено для всех`,
     );
@@ -143,7 +136,11 @@ export function DeniedDomains({
       <span className="text-sm text-muted-foreground">
         {n.status === "seen" ? "просмотрено" : "игнорируется"}
         {who}
-        {n.marked_at ? `, ${ago(n.marked_at)}` : ""}
+        {n.marked_at && (
+          <>
+            , <Timestamp value={n.marked_at} mode="relative" />
+          </>
+        )}
       </span>
     );
   };
@@ -192,6 +189,7 @@ export function DeniedDomains({
               className="pointer-events-none absolute top-1/2 left-2.5 size-3.5 -translate-y-1/2 text-muted-foreground"
             />
             <Input
+              aria-label="Поиск отказанных доменов"
               className="pl-8"
               placeholder="Найти домен"
               value={query}
@@ -254,7 +252,7 @@ export function DeniedDomains({
             </>
           )}
         </div>
-        <Table className="table-fixed">
+        <Table className="min-w-[860px] table-fixed">
           <TableHeader>
             <TableRow>
               <TableHead className="w-8">
@@ -296,7 +294,10 @@ export function DeniedDomains({
                       onCheckedChange={(on) => toggle(n.id, on === true)}
                     />
                   </TableCell>
-                  <TableCell className="truncate font-mono text-sm">
+                  <TableCell
+                    className="truncate font-mono text-sm"
+                    title={host}
+                  >
                     {host}
                     {drafted && (
                       <Badge variant="mod" className="ml-1.5 font-sans">
@@ -308,7 +309,7 @@ export function DeniedDomains({
                     {n.denied.toLocaleString("ru-RU")}
                   </TableCell>
                   <TableCell className="text-muted-foreground">
-                    {ago(n.last_seen)}
+                    <Timestamp value={n.last_seen} mode="relative" />
                   </TableCell>
                   <TableCell className="truncate">{statusBadge(n)}</TableCell>
                   <TableCell className="text-right">

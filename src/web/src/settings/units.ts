@@ -11,6 +11,27 @@
 // clients/networks.ts so the server's netip.ParseAddr sees normalized text.
 
 import { fmtIPv4, fmtIPv6, parseIPv4, parseIPv6 } from "../clients/networks";
+import type { UpstreamProxy } from "../model";
+
+// A peer is a single IP literal, not a DNS name, network or URL.
+export function parseUpstream(
+  address: string,
+  port: string,
+  exclusive: boolean,
+): UpstreamProxy | null {
+  const addresses = parseNameservers(address);
+  if (
+    !address.trim() ||
+    /[\s,]/.test(address.trim()) ||
+    !addresses ||
+    addresses.length !== 1
+  )
+    return null;
+  if (!/^\d+$/.test(port.trim())) return null;
+  const value = Number(port);
+  if (!Number.isInteger(value) || value < 1 || value > 65535) return null;
+  return { address: addresses[0], port: value, exclusive };
+}
 
 // parsePortList: "80, 443,443,8080" → [80,443,8080]; "" → null.
 export function parsePortList(text: string): number[] | null {

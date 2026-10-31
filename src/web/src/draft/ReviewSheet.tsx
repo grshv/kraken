@@ -1,5 +1,18 @@
+import {
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { useEffect, useState } from "react";
-import { Check, Info, Play, RefreshCw, TriangleAlert, X } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  Info,
+  Play,
+  RefreshCw,
+  TriangleAlert,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Sheet,
@@ -11,10 +24,9 @@ import {
 } from "@/components/ui/sheet";
 import { Callout } from "@/components/kraken/blocks";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { cn } from "cn";
 import type { Draft, Operation, Preview, Snapshot, Status } from "../model";
-import { revisionLabel } from "../model";
+import { pluralRu, revisionLabel } from "../model";
 import type { Request } from "../api";
 import type { CommitResult } from "../sections/sectionProps";
 import { ChangeList } from "./ChangeList";
@@ -64,6 +76,7 @@ export function ReviewSheet({
   onRefreshDraft,
   active,
   onCommit,
+  onOpenAudit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -75,6 +88,8 @@ export function ReviewSheet({
   onRefreshDraft: () => void;
   active?: Snapshot | null;
   onCommit?: (next: Snapshot) => Promise<CommitResult>;
+  // Opens the audit entry of the revision just applied.
+  onOpenAudit?: () => void;
 }) {
   // The sheet loads a fresh preview (admin; a manager gets 403 and keeps the
   // prop) and the 24 h traffic impact each time it opens.
@@ -141,6 +156,21 @@ export function ReviewSheet({
         void onCommit!(revertChange(draft!.snapshot, active!, change));
       }
     : undefined;
+  // The draft empties once applied; keep what was sent so the result still
+  // shows what changed.
+  const [applied, setApplied] = useState<string[]>([]);
+  const itemsKey = changeItems.join("\n");
+  useEffect(() => {
+    if (state.phase === "idle") setApplied(changeItems);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.phase, itemsKey]);
+  const finished = state.phase === "done";
+  const rejected = state.phase === "rolled_back" || state.phase === "failed";
+  const shownItems = finished && applied.length ? applied : changeItems;
+  const appliedLabel = revisionLabel(
+    status?.applied_revision ?? "",
+    status?.applied_revision_number,
+  );
   const hunks = diffHunks(pv?.config_diff ?? []);
   const clientName = (id: string) =>
     draft?.snapshot.clients.find((c) => c.id === id)?.name ?? id;
@@ -162,9 +192,11 @@ export function ReviewSheet({
               Проверка изменений
             </SheetTitle>
             <SheetDescription id="review-desc">
-              {status?.applied_revision
-                ? `Черновик против работающей ревизии ${activeLabel}`
-                : "Черновик против пустой конфигурации"}
+              {finished
+                ? `Работает ${appliedLabel}`
+                : status?.applied_revision
+                  ? `Черновик против работающей ревизии ${activeLabel}`
+                  : "Черновик против пустой конфигурации"}
             </SheetDescription>
           </div>
           <Button
@@ -202,22 +234,48 @@ export function ReviewSheet({
           {state.phase === "rolled_back" && (
             <Callout tone="bad">
               <strong>
-                Применение отклонено, Squid вернулся к прежней ревизии.
+                Применение отклонено на шаге «Применение и подтверждение».
               </strong>{" "}
-              Трафик не прерван. {operation?.findings.join(" ") || ""}
+              Squid не подтвердил новую ревизию: наблюдаемая конфигурация не
+              совпала с отправленной. Kraken вернул {activeLabel}, трафик не
+              прерван. {operation?.findings.join(" ") || ""} Изменённые
+              фрагменты — ниже.
             </Callout>
+          )}
+          {finished && (
+            <div className="flex items-baseline justify-between gap-2">
+              <h3 className="font-semibold">Применено в {appliedLabel}</h3>
+              {onOpenAudit && (
+                <Button size="xs" variant="ghost" onClick={onOpenAudit}>
+                  Открыть в аудите
+                </Button>
+              )}
+            </div>
           )}
           <Card className="gap-0 py-0">
             <CardContent className="py-0.5">
               <ChangeList
-                items={changeItems}
-                onUndo={onUndo}
-                undoable={undoable}
+                items={shownItems}
+                onUndo={finished ? undefined : onUndo}
+                undoable={finished ? undefined : undoable}
+                details={
+                  useChanges && !finished
+                    ? pv!.changes!.map((c) => c.details)
+                    : undefined
+                }
               />
             </CardContent>
           </Card>
           <section className="flex flex-col gap-2">
             <h3 className="font-semibold">Влияние на трафик</h3>
+            {impact &&
+              impact.newly_allowed === 0 &&
+              impact.newly_denied === 0 && (
+                <p className="text-sm text-muted-foreground">
+                  По запросам за последние {impact.window_hours} ч изменений
+                  доступа не найдено.
+                </p>
+              )}
             {impact?.clients
               .filter((c) => c.newly_denied > 0)
               .map((c) => (
@@ -226,15 +284,22 @@ export function ReviewSheet({
                   tone="warn"
                   icon={<TriangleAlert aria-hidden />}
                 >
-                  <strong>{clientName(c.client_id)}:</strong> {c.newly_denied}{" "}
-                  запросов за {impact.window_hours} ч были разрешены, они начнут
-                  получать отказ.
+                  <strong>{clientName(c.client_id)}:</strong>{" "}
+                  {pluralRu(c.newly_denied, "запрос", "запроса", "запросов")} за{" "}
+                  {impact.window_hours} ч были разрешены, они начнут получать
+                  отказ.
                 </Callout>
               ))}
             {impact && impact.newly_allowed > 0 && (
               <Callout tone="info" icon={<Check aria-hidden />}>
-                Отказы, которые исчезнут: {impact.newly_allowed} запросов за{" "}
-                {impact.window_hours} ч
+                Отказы, которые исчезнут:{" "}
+                {pluralRu(
+                  impact.newly_allowed,
+                  "запрос",
+                  "запроса",
+                  "запросов",
+                )}{" "}
+                за {impact.window_hours} ч
                 {impact.clients.some((c) => c.newly_allowed > 0)
                   ? ` (${impact.clients
                       .filter((c) => c.newly_allowed > 0)
@@ -250,36 +315,48 @@ export function ReviewSheet({
             </Callout>
           </section>
           {hunks.length > 0 && (
-            <details>
-              <summary className="cursor-pointer font-semibold">
-                Изменённые фрагменты squid.conf
-              </summary>
-              <pre className="mt-2 overflow-x-auto rounded-lg border bg-card p-2.5 font-mono text-sm leading-relaxed">
-                {hunks.map((l, i) =>
-                  l === null ? (
-                    <div key={i} className="text-muted-foreground">
-                      …
-                    </div>
-                  ) : (
-                    <div
-                      key={i}
-                      className={cn(
-                        "whitespace-pre",
-                        l.kind === "added" && "bg-add-bg text-add-fg",
-                        l.kind === "removed" && "bg-del-bg text-del-fg",
-                      )}
-                    >
-                      {l.kind === "added"
-                        ? "+ "
-                        : l.kind === "removed"
-                          ? "− "
-                          : "  "}
-                      {l.text}
-                    </div>
-                  ),
-                )}
-              </pre>
-            </details>
+            <Collapsible
+              key={rejected ? "open" : "closed"}
+              defaultOpen={rejected}
+              className="group/diff"
+            >
+              <CollapsibleTrigger asChild>
+                <Button
+                  variant="ghost"
+                  className="h-auto justify-start px-0 py-1 font-semibold"
+                >
+                  <ChevronDown className="transition-transform group-data-[state=open]/diff:rotate-180" />
+                  Изменённые фрагменты squid.conf
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent>
+                <pre className="mt-2 overflow-x-auto rounded-lg border bg-card p-2.5 font-mono text-sm leading-relaxed">
+                  {hunks.map((l, i) =>
+                    l === null ? (
+                      <div key={i} className="text-muted-foreground">
+                        …
+                      </div>
+                    ) : (
+                      <div
+                        key={i}
+                        className={cn(
+                          "whitespace-pre",
+                          l.kind === "added" && "bg-add-bg text-add-fg",
+                          l.kind === "removed" && "bg-del-bg text-del-fg",
+                        )}
+                      >
+                        {l.kind === "added"
+                          ? "+ "
+                          : l.kind === "removed"
+                            ? "− "
+                            : "  "}
+                        {l.text}
+                      </div>
+                    ),
+                  )}
+                </pre>
+              </CollapsibleContent>
+            </Collapsible>
           )}
           {showSteps && (
             <Card className="gap-0 py-0">
@@ -287,7 +364,7 @@ export function ReviewSheet({
                 <ol className="m-0 flex list-none flex-col gap-2 p-0">
                   <StepRow
                     label="Создание ревизии"
-                    done={isStepDone(state.step, "revision", running)}
+                    done={isStepDone(state.step, "revision", state.phase)}
                     active={running && state.step === "revision"}
                     failed={
                       state.phase === "failed" && state.step === "revision"
@@ -295,7 +372,7 @@ export function ReviewSheet({
                   />
                   <StepRow
                     label="Проверка конфигурации в Squid"
-                    done={isStepDone(state.step, "validate", running)}
+                    done={isStepDone(state.step, "validate", state.phase)}
                     active={running && state.step === "validate"}
                     failed={
                       state.phase === "failed" && state.step === "validate"
@@ -305,7 +382,7 @@ export function ReviewSheet({
                     label="Применение и подтверждение"
                     done={state.phase === "done"}
                     active={running && state.step === "apply"}
-                    failed={state.phase === "failed" && state.step === "apply"}
+                    failed={rejected && state.step === "apply"}
                   />
                 </ol>
               </CardContent>
@@ -320,7 +397,7 @@ export function ReviewSheet({
           ) : state.phase === "done" ? (
             <>
               <span className="grow text-sm text-muted-foreground">
-                Ревизия применена и подтверждена Squid
+                {appliedLabel} применена и подтверждена Squid
               </span>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
                 Закрыть
@@ -395,17 +472,17 @@ function FailureCallout({
 function isStepDone(
   step: string | undefined,
   target: string,
-  running: boolean,
+  phase: string,
 ): boolean {
+  if (phase === "done") return true;
   if (step === undefined) return false;
   const order = ["revision", "validate", "apply"];
   const cur = order.indexOf(step);
   const tgt = order.indexOf(target);
   if (cur === -1 || tgt === -1) return false;
-  // A step is "done" if we have moved past it while running, or any step is
-  // done once the flow reached the terminal "done" phase (handled by callers
-  // via the explicit done flag). During running, lower steps are done.
-  return running ? cur > tgt : false;
+  // Steps before the current one are done while running and after a failure
+  // or rollback on a later step.
+  return cur > tgt;
 }
 
 function StepRow({

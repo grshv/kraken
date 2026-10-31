@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/netip"
+	"slices"
 	"strings"
 	"time"
 )
@@ -76,7 +77,7 @@ func (t *Store) Facets(ctx context.Context, q EventQuery, step time.Duration) (F
 		return f, nil
 	}
 	// A client filter outside scope: no rows can contribute.
-	if q.ClientID != "" && q.Scope != nil && !scopeClientAllowed(q.Scope, q.ClientID) {
+	if clientsOutsideScope(q) {
 		return f, nil
 	}
 	// Long-window fast path: when the window is over 24h, aligned to 15-minute
@@ -98,7 +99,7 @@ func (t *Store) Facets(ctx context.Context, q EventQuery, step time.Duration) (F
 	// sources stay hidden, matching Events/Series. Admin (scope == nil) folds
 	// NULL-client rows into "" via COALESCE in facetsKnown.
 	needsKnownQuery := q.Scope == nil || len(q.Scope.ClientIDs) > 0
-	needsUnknownQuery := q.ClientID == "" && q.Scope != nil && len(q.Scope.Networks) > 0
+	needsUnknownQuery := (len(q.ClientIDs) == 0 || slices.Contains(q.ClientIDs, "")) && q.Scope != nil && len(q.Scope.Networks) > 0
 	excludeNullClients := q.Scope != nil
 	nets := parseNetworks(q.Scope)
 
@@ -247,7 +248,7 @@ func useFacetAggregate(q EventQuery, from, to time.Time, step time.Duration, fro
 	if to.Sub(from) <= 24*time.Hour {
 		return false
 	}
-	if q.Destination != "" || q.SourceIP != "" || q.DenyReason != "" {
+	if q.Destination != "" || q.SourceIP != "" || len(q.DenyReasons) > 0 {
 		return false
 	}
 	if step != 15*time.Minute && step != time.Hour {
@@ -269,13 +270,19 @@ func (t *Store) facetsAggregate(ctx context.Context, q EventQuery, from, to time
 	var b strings.Builder
 	args := []any{fromSecs, toSecs}
 	b.WriteString("SELECT COALESCE(client_id,'') AS cid, COALESCE(source_ip,'') AS src, COALESCE(method,'') AS m, failed, bucket, requests FROM facet_15m WHERE bucket>=? AND bucket<?")
-	if q.ClientID != "" {
-		b.WriteString(" AND client_id=?")
-		args = append(args, q.ClientID)
+	// facet_15m keeps unmatched sources under client_id "", so the filter
+	// values map onto it directly.
+	if len(q.ClientIDs) > 0 {
+		b.WriteString(" AND client_id IN (" + placeholders(len(q.ClientIDs)) + ")")
+		for _, id := range q.ClientIDs {
+			args = append(args, id)
+		}
 	}
-	if q.Method != "" {
-		b.WriteString(" AND method=?")
-		args = append(args, q.Method)
+	if len(q.Methods) > 0 {
+		b.WriteString(" AND method IN (" + placeholders(len(q.Methods)) + ")")
+		for _, m := range q.Methods {
+			args = append(args, m)
+		}
 	}
 	if q.Result != "" {
 		b.WriteString(" AND proxy_result=?")
@@ -283,6 +290,9 @@ func (t *Store) facetsAggregate(ctx context.Context, q EventQuery, from, to time
 	}
 	if q.Failures {
 		b.WriteString(" AND failed=1")
+	}
+	if q.Allowed {
+		b.WriteString(" AND failed=0")
 	}
 	nets := parseNetworks(q.Scope)
 	n := int64(len(f.Histogram))

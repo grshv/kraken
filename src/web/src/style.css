@@ -1,8 +1,8 @@
-@import "@fontsource/geist/400.css";
-@import "@fontsource/geist/500.css";
-@import "@fontsource/geist/600.css";
-@import "@fontsource/geist-mono/400.css";
-@import "@fontsource/geist-mono/500.css";
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+/* sonner injects this as an inline <style>, which the CSP blocks. */
+@import "sonner/dist/styles.css";
 
 /* Shell styles live in cascade layers so shadcn/Tailwind utilities on components win. */
 @layer base {
@@ -16,6 +16,9 @@
     font-family: var(--font-sans);
     font-synthesis: none;
     -webkit-font-smoothing: antialiased;
+    /* One face for prose and machine values; tabular figures keep IPs, times and
+       counts aligned in columns. */
+    font-variant-numeric: tabular-nums;
   }
 
   * {
@@ -68,69 +71,14 @@
     min-width: 0;
   }
 
-  /* ---------- inspector shell ---------- */
-  .pane-frame {
-    position: relative;
-    flex: 1;
-    min-height: 0;
-    display: flex;
+  /* Radix ScrollArea injects this as an inline <style>, which the CSP blocks;
+     without it the native scrollbar shows next to the custom one. */
+  [data-radix-scroll-area-viewport] {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
   }
-
-  /* ---------- pane resizer ---------- */
-  .pane-resizer {
-    position: absolute;
-    top: 0;
-    bottom: 0;
-    left: calc(var(--list-w, 300px) - 5px);
-    width: 9px;
-    cursor: col-resize;
-    z-index: 6;
-    display: flex;
-    justify-content: center;
-    border: 0;
-    background: transparent;
-    padding: 0;
-  }
-  /* Sections without a list pane (the log) have nothing to resize here. */
-  .pane-frame:not(:has([data-slot="list-pane"])) > .pane-resizer {
+  [data-radix-scroll-area-viewport]::-webkit-scrollbar {
     display: none;
-  }
-  .pane-resizer::before {
-    content: "";
-    width: 1px;
-    height: 100%;
-    background: transparent;
-    transition: background 0.12s;
-  }
-  .pane-resizer:hover::before,
-  .pane-resizer.drag::before {
-    background: var(--accent);
-    width: 2px;
-  }
-  .pane-resizer::after {
-    content: "";
-    position: absolute;
-    top: 50%;
-    width: 4px;
-    height: 28px;
-    margin-top: -14px;
-    border-radius: 3px;
-    background: var(--input);
-    opacity: 0;
-    transition: opacity 0.12s;
-  }
-  .pane-resizer:hover::after,
-  .pane-resizer.drag::after {
-    opacity: 1;
-    background: var(--accent);
-  }
-  .pane-resizer:focus-visible {
-    outline: 2px solid var(--ring);
-    outline-offset: 2px;
-  }
-  body.resizing {
-    cursor: col-resize;
-    user-select: none;
   }
 
   /* ---------- skip link ---------- */
@@ -156,11 +104,5 @@
       transition-duration: 0.01ms !important;
       animation-duration: 0.01ms !important;
     }
-  }
-
-  /* The detail pane splitter sits on its LEFT edge. */
-  [data-slot="detail-pane"] > .pane-resizer {
-    left: -5px;
-    right: auto;
   }
 }

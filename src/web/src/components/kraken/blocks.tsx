@@ -1,90 +1,157 @@
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "cn";
+import { Button } from "../ui/button";
+import { Input } from "../ui/input";
+import { Textarea } from "../ui/textarea";
+import { Switch } from "../ui/switch";
+import { Checkbox } from "../ui/checkbox";
+import { SelectTrigger } from "../ui/select";
+import { RadioGroup } from "../ui/radio-group";
 
-// Small building blocks from the prototype, built on Tailwind tokens from
-// theme.css. Sections use these together with shadcn components (Card, Badge,
-// Table, Tabs, Switch, Select, RadioGroup) instead of their own CSS classes.
-
-const calloutVariants = cva(
-  "flex items-start gap-2.5 rounded-lg border px-3 py-2.5 text-base [&>svg]:mt-0.5 [&>svg]:size-4 [&>svg]:shrink-0",
-  {
-    variants: {
-      tone: {
-        info: "border-info/20 bg-info-bg",
-        warn: "border-warn/25 bg-warn-bg [&>svg]:text-warn",
-        bad: "border-bad/25 bg-bad-bg [&>svg]:text-bad",
-      },
-    },
-    defaultVariants: { tone: "info" },
-  },
-);
-
-// Tinted notice: optional icon, then content; `actions` sit on the right.
+// Wire the shared shadcn field composition to its controls, including fragments.
+function describeControls(
+  node: React.ReactNode,
+  labelId: string,
+  descriptionId: string | undefined,
+  baseId: string,
+) {
+  let firstId: string | undefined,
+    index = 0;
+  const visit = (children: React.ReactNode): React.ReactNode =>
+    React.Children.map(children, (child) => {
+      if (!React.isValidElement(child)) return child;
+      const el = child as React.ReactElement<Record<string, unknown>>;
+      if (el.type === React.Fragment)
+        return React.cloneElement(
+          el,
+          {},
+          visit(el.props.children as React.ReactNode),
+        );
+      if (
+        ![
+          Input,
+          Textarea,
+          Switch,
+          Checkbox,
+          SelectTrigger,
+          RadioGroup,
+        ].includes(el.type as typeof Input)
+      )
+        return child;
+      const ordinal = index++;
+      const id =
+        typeof el.props.id === "string"
+          ? el.props.id
+          : ordinal === 0
+            ? baseId
+            : baseId + "-" + ordinal;
+      firstId ??= id;
+      return React.cloneElement(el, {
+        id,
+        "aria-labelledby":
+          el.props["aria-labelledby"] ||
+          (el.props["aria-label"] ? undefined : labelId),
+        "aria-describedby":
+          [el.props["aria-describedby"], descriptionId]
+            .filter(Boolean)
+            .join(" ") || undefined,
+      });
+    });
+  const children = visit(node);
+  return { children, firstId };
+}
+import { Alert, AlertDescription } from "../ui/alert";
+import { Card, CardContent } from "../ui/card";
+import {
+  Field as FormField,
+  FieldContent,
+  FieldDescription,
+  FieldError,
+  FieldLabel,
+} from "../ui/field";
+// Product wrappers compose shadcn primitives; they contain no control logic.
 export function Callout({
-  tone,
+  tone = "info",
   icon,
   actions,
   className,
   children,
   ...props
-}: React.ComponentProps<"div"> &
-  VariantProps<typeof calloutVariants> & {
-    icon?: React.ReactNode;
-    actions?: React.ReactNode;
-  }) {
+}: React.ComponentProps<"div"> & {
+  tone?: "info" | "warn" | "bad";
+  icon?: React.ReactNode;
+  actions?: React.ReactNode;
+}) {
   return (
-    <div
+    <Alert
       role={tone === "bad" ? "alert" : undefined}
-      className={cn(calloutVariants({ tone }), className)}
+      className={cn(
+        "px-3 py-2.5",
+        tone === "bad"
+          ? "border-bad/25 bg-bad-bg"
+          : tone === "warn"
+            ? "border-warn/25 bg-warn-bg"
+            : "border-info/20 bg-info-bg",
+        className,
+      )}
       {...props}
     >
-      {icon}
-      <div className="min-w-0 grow">{children}</div>
-      {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
-    </div>
+      <AlertDescription className="flex items-start gap-2.5 text-base">
+        {icon && (
+          <span
+            className={cn(
+              "mt-0.5 shrink-0 [&>svg]:size-4",
+              tone === "bad" ? "text-bad" : tone === "warn" ? "text-warn" : "",
+            )}
+          >
+            {icon}
+          </span>
+        )}
+        <div className="min-w-0 grow">{children}</div>
+        {actions && <div className="flex shrink-0 gap-2">{actions}</div>}
+      </AlertDescription>
+    </Alert>
   );
 }
-
-// Machine value in a muted pill: domain, IP, CIDR.
 export function Chip({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
+      data-slot="chip"
       className={cn(
-        "inline-flex h-[22px] items-center gap-1 rounded-md bg-muted px-1.5 font-mono text-sm whitespace-nowrap",
+        "inline-flex items-center gap-1 text-base whitespace-nowrap tabular-nums",
         className,
       )}
       {...props}
     />
   );
 }
-
-// Row of KPI cells sharing one border (4 across, 2 when narrow).
 export function KpiGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <div
+    <Card
       className={cn(
-        "grid grid-cols-2 overflow-hidden rounded-lg border bg-card @[600px]:grid-cols-4 [&>*]:border-l [&>*:first-child]:border-l-0",
+        "grid grid-cols-2 gap-0 overflow-hidden py-0 @[600px]:grid-cols-4 [&>*]:border-l [&>*:first-child]:border-l-0",
         className,
       )}
       {...props}
     />
   );
 }
-
+// onClick turns the figure into a link to the requests it counts.
 export function Kpi({
   label,
   value,
   hint,
   tone,
+  onClick,
 }: {
   label: React.ReactNode;
   value: React.ReactNode;
   hint?: React.ReactNode;
   tone?: "bad";
+  onClick?: () => void;
 }) {
-  return (
-    <div className="flex min-w-0 flex-col gap-px px-3.5 py-2.5">
+  const body = (
+    <>
       <span className="truncate text-sm font-medium text-muted-foreground">
         {label}
       </span>
@@ -99,11 +166,24 @@ export function Kpi({
       {hint && (
         <span className="truncate text-sm text-muted-foreground">{hint}</span>
       )}
-    </div>
+    </>
+  );
+  return onClick ? (
+    <CardContent className="flex min-w-0 p-0">
+      <Button
+        variant="ghost"
+        onClick={onClick}
+        className="h-auto w-full min-w-0 flex-col items-start gap-px rounded-none px-3.5 py-2.5 text-left font-normal"
+      >
+        {body}
+      </Button>
+    </CardContent>
+  ) : (
+    <CardContent className="flex min-w-0 flex-col gap-px px-3.5 py-2.5">
+      {body}
+    </CardContent>
   );
 }
-
-// Definition list: muted terms on the left, values on the right.
 export function KeyValue({
   items,
   className,
@@ -118,17 +198,15 @@ export function KeyValue({
         className,
       )}
     >
-      {items.map(([k, v], i) => (
+      {items.map(([key, value], i) => (
         <React.Fragment key={i}>
-          <dt className="text-muted-foreground">{k}</dt>
-          <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{v}</dd>
+          <dt className="text-muted-foreground">{key}</dt>
+          <dd className="m-0 min-w-0 [overflow-wrap:anywhere]">{value}</dd>
         </React.Fragment>
       ))}
     </dl>
   );
 }
-
-// Form field: label above the control, help or error below.
 export function Field({
   label,
   htmlFor,
@@ -144,22 +222,36 @@ export function Field({
   className?: string;
   children: React.ReactNode;
 }) {
+  const uid = React.useId(),
+    labelId = uid + "-label",
+    descriptionId = help || error ? uid + "-description" : undefined;
+  const controls = describeControls(
+    children,
+    labelId,
+    descriptionId,
+    htmlFor || uid,
+  );
   return (
-    <div className={cn("flex min-w-0 flex-col gap-1.5", className)}>
-      <label htmlFor={htmlFor} className="text-base font-medium">
+    <FormField
+      data-invalid={!!error || undefined}
+      className={cn("min-w-0 gap-1.5", className)}
+    >
+      <FieldLabel
+        id={labelId}
+        htmlFor={htmlFor || controls.firstId}
+        className="text-base font-medium"
+      >
         {label}
-      </label>
-      {children}
+      </FieldLabel>
+      {controls.children}
       {error ? (
-        <div className="text-sm text-bad">{error}</div>
+        <FieldError id={descriptionId}>{error}</FieldError>
       ) : (
-        help && <div className="text-sm text-muted-foreground">{help}</div>
+        help && <FieldDescription id={descriptionId}>{help}</FieldDescription>
       )}
-    </div>
+    </FormField>
   );
 }
-
-// Settings row: title and help on the left, control (Switch, Input) on the right.
 export function SettingRow({
   title,
   help,
@@ -171,16 +263,27 @@ export function SettingRow({
   badge?: React.ReactNode;
   control: React.ReactNode;
 }) {
+  const uid = React.useId(),
+    labelId = uid + "-label",
+    descriptionId = help ? uid + "-description" : undefined;
+  const controls = describeControls(control, labelId, descriptionId, uid);
   return (
-    <div className="flex items-start gap-3 border-b py-2.5 last:border-b-0">
-      <div className="min-w-0 grow">
-        <div className="flex items-center gap-2 font-medium">
+    <FormField
+      orientation="horizontal"
+      className="items-start gap-3 border-b py-2.5 last:border-b-0"
+    >
+      <FieldContent>
+        <FieldLabel
+          id={labelId}
+          htmlFor={controls.firstId}
+          className="flex items-center gap-2 text-base font-medium"
+        >
           {title}
           {badge}
-        </div>
-        {help && <div className="text-sm text-muted-foreground">{help}</div>}
-      </div>
-      <div className="shrink-0">{control}</div>
-    </div>
+        </FieldLabel>
+        {help && <FieldDescription id={descriptionId}>{help}</FieldDescription>}
+      </FieldContent>
+      <div className="shrink-0">{controls.children}</div>
+    </FormField>
   );
 }

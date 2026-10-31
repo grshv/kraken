@@ -1,7 +1,13 @@
 import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
-
-// Empty-state card: icon, short title, helper text, optional action.
+import {
+  Empty,
+  EmptyHeader,
+  EmptyMedia,
+  EmptyTitle,
+  EmptyDescription,
+  EmptyContent,
+} from "@/components/ui/empty";
 export function EmptyState({
   icon,
   title,
@@ -16,17 +22,19 @@ export function EmptyState({
   onAction?: () => void;
 }) {
   return (
-    <div className="flex max-w-[560px] flex-col items-start gap-2 rounded-lg border border-dashed p-6 text-muted-foreground">
-      {icon && (
-        <div className="text-muted-foreground [&_svg]:size-[22px]">{icon}</div>
-      )}
-      <div className="text-lg font-semibold text-foreground">{title}</div>
-      {children && <div>{children}</div>}
+    <Empty className="max-w-[560px] items-start border border-dashed p-6">
+      <EmptyHeader className="items-start text-left">
+        {icon && <EmptyMedia variant="icon">{icon}</EmptyMedia>}
+        <EmptyTitle>{title}</EmptyTitle>
+        {children && <EmptyDescription>{children}</EmptyDescription>}
+      </EmptyHeader>
       {actionLabel && onAction && (
-        <Button size="sm" variant="outline" onClick={onAction}>
-          {actionLabel}
-        </Button>
+        <EmptyContent className="items-start">
+          <Button size="sm" variant="outline" onClick={onAction}>
+            {actionLabel}
+          </Button>
+        </EmptyContent>
       )}
-    </div>
+    </Empty>
   );
 }

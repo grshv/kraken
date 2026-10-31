@@ -1,6 +1,9 @@
+import { Timestamp } from "@/components/kraken/timestamp";
+import { Progress } from "@/components/ui/progress";
+import { Journal } from "../log/Journal";
+import { defaultFilters, logIntent, type JournalState } from "../log/filters";
 import { useEffect, useId, useMemo, useState } from "react";
 import {
-  ArrowRight,
   Ban,
   Check,
   Info,
@@ -54,14 +57,6 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-  BreadcrumbPage,
-  BreadcrumbSeparator,
-} from "@/components/ui/breadcrumb";
 import {
   ListPane,
   ListPaneBody,
@@ -120,7 +115,7 @@ import {
   shareClientDomains,
 } from "../draft/edits";
 import type { Access, Client, Event, Session, Snapshot } from "../model";
-import { ago, pluralRu, revisionLabel } from "../model";
+import { pluralRu, revisionLabel } from "../model";
 import type { NavId } from "../shell/nav";
 
 // Inspector shapes (subset of fields the screens render).
@@ -299,7 +294,7 @@ export function ClientsSection(props: SectionProps) {
   // Empty state: no clients at all (first run). Show unknown sources if any.
   if (clients.length === 0 && !creating) {
     return (
-      <div className="flex w-full min-h-0">
+      <>
         <ListPane>
           <ListPaneHeader
             title="Клиенты"
@@ -347,7 +342,7 @@ export function ClientsSection(props: SectionProps) {
             </EmptyState>
           </InspectorBody>
         </InspectorPane>
-      </div>
+      </>
     );
   }
 
@@ -439,7 +434,7 @@ export function ClientsSection(props: SectionProps) {
   };
 
   return (
-    <div className="flex w-full min-h-0">
+    <>
       <ListPane>
         <ListPaneHeader
           title={session.role === "manager" ? "Мои клиенты" : "Клиенты"}
@@ -465,27 +460,49 @@ export function ClientsSection(props: SectionProps) {
               onChange={(e) => setQuery(e.target.value)}
             />
           </div>
-          <ToggleGroup
-            type="single"
-            variant="chip"
-            size="xs"
-            spacing={1}
+          <Select
             value={filter}
-            onValueChange={(v) => {
-              if (v) setFilter(v as "all" | "denied" | "draft");
-            }}
-            className="gap-1.5"
+            onValueChange={(v) => setFilter(v as "all" | "denied" | "draft")}
           >
-            <ToggleGroupItem value="all">все {clients.length}</ToggleGroupItem>
-            <ToggleGroupItem value="denied">
-              с отказами {clients.filter((c) => stats[c.id]?.denied > 0).length}
-            </ToggleGroupItem>
-            <ToggleGroupItem value="draft">
-              в черновике {clients.filter((c) => clientMarks[c.id]).length}
-            </ToggleGroupItem>
-          </ToggleGroup>
+            <SelectTrigger
+              className="h-8 w-full"
+              aria-label="Показать клиентов"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(
+                [
+                  ["all", "Все клиенты", clients.length],
+                  [
+                    "denied",
+                    "С отказами за 24 ч",
+                    clients.filter((c) => stats[c.id]?.denied > 0).length,
+                  ],
+                  [
+                    "draft",
+                    "Изменены в черновике",
+                    clients.filter((c) => clientMarks[c.id]).length,
+                  ],
+                ] as const
+              ).map(([id, label, count]) => (
+                <SelectItem key={id} value={id}>
+                  {label}
+                  <span className="ml-1.5 text-muted-foreground tabular-nums">
+                    {count}
+                  </span>
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </ListPaneHeader>
         <ListPaneBody>
+          <div className="flex justify-between gap-2 px-3.5 pt-2 pb-1 text-sm text-muted-foreground">
+            <span>Клиент</span>
+            <span className="truncate" title="Отказы или запросы за 24 ч">
+              за 24 ч
+            </span>
+          </div>
           {filtered.map((c) => {
             const st = stats[c.id];
             return (
@@ -497,7 +514,7 @@ export function ClientsSection(props: SectionProps) {
                   setSelected(c.id);
                   setTab("overview");
                 }}
-                title={<SpanMark mark={clientMarks[c.id]} name={c.name} />}
+                title={<span className="truncate font-medium">{c.name}</span>}
                 meta={<Sparkline series={st?.series} />}
                 subtitle={
                   <span className="font-mono">
@@ -546,7 +563,7 @@ export function ClientsSection(props: SectionProps) {
                   subtitle={u.top_destinations.map((d) => d.host).join(", ")}
                   aside={
                     <span className="text-muted-foreground">
-                      {ago(u.last_seen)}
+                      <Timestamp value={u.last_seen} mode="relative" />
                     </span>
                   }
                   onClick={() =>
@@ -560,7 +577,8 @@ export function ClientsSection(props: SectionProps) {
                 />
               ))}
               {ignoredCount > 0 && (
-                <button
+                <Button
+                  variant="ghost"
                   type="button"
                   className="px-3.5 py-2 text-left text-sm text-muted-foreground hover:text-foreground"
                   onClick={() => setShowIgnored((v) => !v)}
@@ -568,7 +586,7 @@ export function ClientsSection(props: SectionProps) {
                   {showIgnored
                     ? "Скрыть игнорируемые"
                     : `Показать игнорируемые (${ignoredCount})`}
-                </button>
+                </Button>
               )}
             </>
           )}
@@ -649,27 +667,17 @@ export function ClientsSection(props: SectionProps) {
           setConfirmFn(null);
         }}
       />
-    </div>
+    </>
   );
 }
 
-function SpanMark({ mark, name }: { mark?: Mark; name: string }) {
-  return (
-    <span className="truncate font-medium">
-      {name}
-      {mark === "new" && <Badge variant="add">новый</Badge>}
-      {mark === "changed" && <Badge variant="mod">изменён</Badge>}
-      {mark === "deleted" && <Badge variant="del">удалён</Badge>}
-    </span>
-  );
-}
-
-// Radio option card: RadioGroupItem inside a label styled like .opt.
+// Radio option row: RadioGroupItem inside a label, filled when chosen.
 function RadioCard({
   value,
   active,
   title,
   hint,
+  tone,
   disabled,
   children,
 }: {
@@ -677,6 +685,7 @@ function RadioCard({
   active: boolean;
   title: string;
   hint?: string;
+  tone?: "warn";
   disabled?: boolean;
   children?: React.ReactNode;
 }) {
@@ -686,8 +695,9 @@ function RadioCard({
   return (
     <div
       className={cn(
-        "rounded-lg border px-3 py-2.5",
-        active ? "border-muted-foreground/45 bg-hover" : "border-border",
+        // An option row, not a nested card: no border, the choice is the fill.
+        "rounded-md px-3 py-2.5",
+        active ? (tone === "warn" ? "bg-warn-bg" : "bg-sel") : "hover:bg-hover",
         disabled && "opacity-60",
       )}
     >
@@ -705,7 +715,9 @@ function RadioCard({
           className="mt-px"
         />
         <span className="min-w-0">
-          <div className="font-medium">{title}</div>
+          <div className={cn("font-medium", tone === "warn" && "text-warn")}>
+            {title}
+          </div>
           {hint && <div className="text-sm text-muted-foreground">{hint}</div>}
         </span>
       </label>
@@ -755,6 +767,12 @@ function ClientDetail({
   onDuplicate: () => void;
 }) {
   const scope = managerScope(session);
+  // "Все" in the overview opens the requests tab on a view.
+  const [requestsView, setRequestsView] = useState<JournalState>();
+  const openRequests = (view: JournalState["view"]) => {
+    setRequestsView({ view, filters: defaultFilters() });
+    onTab("requests");
+  };
   const [recent, setRecent] = useState<Event[] | null>(null);
   useEffect(() => {
     let live = true;
@@ -785,25 +803,6 @@ function ClientDetail({
   return (
     <>
       <InspectorHeader
-        crumbs={
-          <Breadcrumb>
-            <BreadcrumbList>
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <button type="button" onClick={() => onNavigate("clients")}>
-                    Клиенты
-                  </button>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator>/</BreadcrumbSeparator>
-              <BreadcrumbItem>
-                <BreadcrumbPage className="truncate">
-                  {client.name}
-                </BreadcrumbPage>
-              </BreadcrumbItem>
-            </BreadcrumbList>
-          </Breadcrumb>
-        }
         title={client.name}
         status={
           <>
@@ -812,7 +811,7 @@ function ClientDetail({
             ) : lastSeen ? (
               <Badge variant="ok">
                 <span className="size-1.5 rounded-full bg-current" />
-                последний запрос {ago(lastSeen)}
+                последний запрос <Timestamp value={lastSeen} mode="relative" />
               </Badge>
             ) : recent ? (
               <Badge variant="secondary">запросов не было</Badge>
@@ -827,8 +826,20 @@ function ClientDetail({
         }
         actions={
           <>
-            <Button size="sm" variant="outline" onClick={onToggleEnabled}>
-              <Power aria-hidden /> {client.enabled ? "Отключить" : "Включить"}
+            {/* Disabling is a temporary switch: rules and mode stay as they
+                are and come back on enable. «Нет доступа» is a mode instead. */}
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={onToggleEnabled}
+              title={
+                client.enabled
+                  ? "Временно: все запросы клиента получают отказ, режим и списки сохраняются до включения"
+                  : "Вернуть клиенту его режим и списки"
+              }
+            >
+              <Power aria-hidden />{" "}
+              {client.enabled ? "Временно выключить" : "Включить"}
             </Button>
             <Button size="sm" variant="outline" onClick={onDuplicate}>
               <Copy aria-hidden /> Дублировать
@@ -881,17 +892,17 @@ function ClientDetail({
       >
         <TabsList
           variant="line"
-          className="group-data-[orientation=horizontal]/tabs:h-auto h-auto w-full p-0 justify-start gap-[18px] border-b px-5"
+          className="group-data-[orientation=horizontal]/tabs:h-auto h-auto w-full p-0 justify-start gap-[18px] overflow-x-auto overflow-y-hidden border-b px-5"
         >
           {tabs.map(([k, l]) => (
             <TabsTrigger
               key={k}
               value={k}
-              className="flex-none px-0 py-[9px] text-base after:bg-accent group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
+              className="flex-none px-0 py-[9px] text-base after:bg-primary group-data-[orientation=horizontal]/tabs:after:bottom-[-1px]"
             >
               {l}
               {k === "access" && missing > 0 && (
-                <Badge variant="bad" className="px-1.5">
+                <Badge variant="bad" className="tabular-nums">
                   {missing}
                 </Badge>
               )}
@@ -899,7 +910,7 @@ function ClientDetail({
           ))}
         </TabsList>
       </Tabs>
-      <InspectorBody>
+      <InspectorBody key={client.id + ":" + tab}>
         {tab === "overview" && (
           <OverviewTab
             client={client}
@@ -911,6 +922,8 @@ function ClientDetail({
             onCommit={onCommit}
             onToast={onToast}
             onTab={onTab}
+            onOpen={onOpen}
+            onRequests={openRequests}
           />
         )}
         {tab === "access" && (
@@ -938,9 +951,17 @@ function ClientDetail({
           />
         )}
         {tab === "requests" && (
-          <RequestsTab
-            client={client}
+          <Journal
+            key={client.id}
+            clientId={client.id}
+            initial={requestsView}
+            snap={snap}
+            active={active}
             request={request}
+            session={session}
+            onCommit={onCommit}
+            onToast={onToast}
+            onOpen={onOpen}
             onNavigate={onNavigate}
           />
         )}
@@ -982,7 +1003,7 @@ function AccessBadge({ client, snap }: { client: Client; snap: Snapshot }) {
     );
   if (client.access === "all_web")
     return (
-      <Badge variant="secondary">
+      <Badge variant="warn">
         <Globe className="size-3.5" /> Весь веб
       </Badge>
     );
@@ -994,6 +1015,43 @@ function AccessBadge({ client, snap }: { client: Client; snap: Snapshot }) {
       <ShieldCheck className="size-3.5" />
       {pluralRu(n, "домен", "домена", "доменов")}
     </Badge>
+  );
+}
+
+// blockedForAll reports whether the global deny list overrides a domain.
+function blockedForAll(snap: Snapshot, domain: string): boolean {
+  return (snap.settings?.blocked_domains ?? []).some(
+    (b) =>
+      b.domain === domain ||
+      (b.include_subdomains && domain.endsWith("." + b.domain)),
+  );
+}
+
+// BlockedLink: the global deny list as a link to it in Policies.
+function BlockedLink({
+  snap,
+  onOpen,
+  short,
+}: {
+  snap: Snapshot;
+  onOpen?: SectionProps["onOpen"];
+  // short: only the count, for a row already labelled «Запрещено для всех».
+  short?: boolean;
+}) {
+  const n = snap.settings?.blocked_domains?.length ?? 0;
+  const count = n ? pluralRu(n, "домен", "домена", "доменов") : "пусто";
+  const label = short ? count : `«запрещено для всех»${n ? ` (${count})` : ""}`;
+  return onOpen ? (
+    <Button
+      variant="link"
+      size="xs"
+      className="h-auto p-0 text-left text-[length:inherit] whitespace-normal"
+      onClick={() => onOpen("policies", "blocked-domains")}
+    >
+      {label}
+    </Button>
+  ) : (
+    <>{label}</>
   );
 }
 
@@ -1011,6 +1069,8 @@ function OverviewTab({
   onCommit,
   onToast,
   onTab,
+  onOpen,
+  onRequests,
 }: {
   client: Client;
   stats?: ClientStats;
@@ -1021,6 +1081,8 @@ function OverviewTab({
   onCommit: (next: Snapshot) => Promise<CommitResult>;
   onToast: (m: string) => void;
   onTab: (t: Tab) => void;
+  onOpen?: SectionProps["onOpen"];
+  onRequests: (view: JournalState["view"]) => void;
 }) {
   const top = stats?.top_destinations ?? [];
   const deniedTop = missingDomains(stats?.top_destinations, snap, client);
@@ -1032,7 +1094,15 @@ function OverviewTab({
   const attached = snap.policies.filter((p) =>
     client.policy_ids.includes(p.id),
   );
-  const blocked = snap.settings?.blocked_domains?.length ?? 0;
+  // KPI figures open the journal on exactly the requests they count.
+  const openJournal = (result: "all" | "denied") =>
+    onOpen?.(
+      "log",
+      logIntent({
+        view: "events",
+        filters: { ...defaultFilters(), clients: [client.id], result },
+      }),
+    );
   const allow = async (host: string) => {
     const res = await onCommit(addDomainToClient(snap, client.id, host));
     if (res.ok) onToast(`Домен ${host} добавлен клиенту`);
@@ -1092,9 +1162,11 @@ function OverviewTab({
         <Kpi
           label="Запросы, 24 ч"
           value={stats?.requests ? stats.requests.toLocaleString("ru-RU") : "—"}
+          onClick={stats?.requests ? () => openJournal("all") : undefined}
         />
         <Kpi
           label="Отказы, 24 ч"
+          onClick={stats?.denied ? () => openJournal("denied") : undefined}
           value={stats?.denied ? stats.denied.toLocaleString("ru-RU") : "—"}
           hint={
             stats?.denied
@@ -1136,6 +1208,15 @@ function OverviewTab({
                   Топ назначений за 24 ч, включая отказы
                 </CardDescription>
               </div>
+              <CardAction>
+                <Button
+                  size="xs"
+                  variant="ghost"
+                  onClick={() => onRequests("domains")}
+                >
+                  Все
+                </Button>
+              </CardAction>
             </CardHeader>
             <CardContent>
               {top.length === 0 ? (
@@ -1166,17 +1247,16 @@ function OverviewTab({
                           )}
                         </TableCell>
                         <TableCell>
-                          <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-                            <div
-                              className={cn(
-                                "h-full rounded-full",
-                                d.denied > 0 ? "bg-s-deny" : "bg-s-allow",
-                              )}
-                              style={{
-                                width: `${Math.max(2, (d.requests / max) * 100)}%`,
-                              }}
-                            />
-                          </div>
+                          <Progress
+                            value={Math.max(2, (d.requests / max) * 100)}
+                            aria-label={"Доля запросов к " + d.host}
+                            className={cn(
+                              "h-1.5 bg-muted",
+                              d.denied > 0
+                                ? "[&_[data-slot=progress-indicator]]:bg-s-deny"
+                                : "[&_[data-slot=progress-indicator]]:bg-s-allow",
+                            )}
+                          />
                         </TableCell>
                         <TableCell
                           className={cn(
@@ -1248,26 +1328,30 @@ function OverviewTab({
               )}
               <KeyValue
                 items={[
+                  ...(client.access === "list"
+                    ? ([
+                        [
+                          "Политики",
+                          attached.length
+                            ? attached.map((p) => p.name).join(", ")
+                            : "—",
+                        ],
+                        [
+                          "Свои домены",
+                          client.destinations.length
+                            ? pluralRu(
+                                client.destinations.length,
+                                "домен",
+                                "домена",
+                                "доменов",
+                              )
+                            : "—",
+                        ],
+                      ] as [string, React.ReactNode][])
+                    : []),
                   [
-                    "Политики",
-                    client.access !== "list" || attached.length === 0
-                      ? "—"
-                      : attached.map((p) => p.name).join(", "),
-                  ],
-                  [
-                    "Свои домены",
-                    client.access !== "list" || client.destinations.length === 0
-                      ? "—"
-                      : pluralRu(
-                          client.destinations.length,
-                          "домен",
-                          "домена",
-                          "доменов",
-                        ),
-                  ],
-                  [
-                    "Поверх неё",
-                    `${blocked ? pluralRu(blocked, "запрещённый домен", "запрещённых домена", "запрещённых доменов") + ", " : ""}встроенная защита`,
+                    "Запрещено для всех",
+                    <BlockedLink key="b" snap={snap} onOpen={onOpen} short />,
                   ],
                   ["Подключение", connectionLabel(snap, client)],
                 ]}
@@ -1281,7 +1365,7 @@ function OverviewTab({
                 <Button
                   size="xs"
                   variant="ghost"
-                  onClick={() => onTab("requests")}
+                  onClick={() => onRequests("events")}
                 >
                   Все
                 </Button>
@@ -1302,7 +1386,7 @@ function OverviewTab({
                         className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b py-1.5 last:border-b-0"
                       >
                         <span className="text-sm text-muted-foreground tabular-nums">
-                          {new Date(e.timestamp).toLocaleTimeString("ru-RU")}
+                          <Timestamp value={e.timestamp} mode="time" />
                         </span>
                         <span
                           className="truncate font-mono text-sm"
@@ -1359,13 +1443,22 @@ function AccessTab({
   useEffect(() => {
     let live = true;
     request<{
-      domains: { domain: string; hits_24h: number; hits_7d: number }[];
+      domains: {
+        domain: string;
+        hits_24h: number;
+        hits_7d: number;
+        denied_24h?: number;
+      }[];
     }>(`/inspector/clients/${encodeURIComponent(client.id)}/hits`)
       .then((r) => {
         if (!live) return;
         const next: DomainHits = {};
         for (const d of r.domains ?? [])
-          next[d.domain] = { hits_24h: d.hits_24h, hits_7d: d.hits_7d };
+          next[d.domain] = {
+            hits_24h: d.hits_24h,
+            hits_7d: d.hits_7d,
+            denied_24h: d.denied_24h,
+          };
         setOwnHits(next);
       })
       .catch(() => {
@@ -1387,6 +1480,11 @@ function AccessTab({
   const editableBy = (id: string) =>
     !scope || usersOf(id).every((c) => scope.clientIDs.includes(c.id));
   const final = effectiveDestinations(snap, client);
+  const deniedHosts = [
+    ...new Set(
+      (notices ?? []).map((n) => n.host).filter((h): h is string => !!h),
+    ),
+  ];
   const policyName = (id: string) =>
     snap.policies.find((p) => p.id === id)?.name ?? id;
   const select = async (v: string) => {
@@ -1400,7 +1498,8 @@ function AccessTab({
           <div>
             <CardTitle>Доступ</CardTitle>
             <CardDescription>
-              Встроенная защита и «запрещено для всех» действуют в любом режиме
+              Раньше правил клиента проверяются встроенная защита и{" "}
+              <BlockedLink snap={snap} onOpen={onOpen} />
             </CardDescription>
           </div>
         </CardHeader>
@@ -1420,22 +1519,39 @@ function AccessTab({
               value="all_web"
               active={client.access === "all_web"}
               title="Весь веб"
-              hint="Кроме запрещённого для всех"
+              hint="Любые сайты, кроме запрещённого для всех"
+              tone="warn"
             />
             <RadioCard
               value="none"
               active={client.access === "none"}
               title="Нет доступа"
-              hint="Клиент описан, но всё закрыто"
+              hint="Постоянный режим: клиент описан, всё закрыто"
             />
           </RadioGroup>
         </CardContent>
       </Card>
       {client.access === "all_web" && (
-        <Callout tone="info" icon={<Globe aria-hidden />}>
+        <Callout tone="warn" icon={<Globe aria-hidden />}>
           <div className="text-sm">
-            Разрешены любые внешние сайты. Списки клиента сохранены и снова
-            действуют, если вернуть режим «Список доменов».
+            <div className="font-medium">
+              Клиенту открыты любые внешние сайты
+            </div>
+            {deniedHosts.length > 0 && (
+              <div>
+                Откроются{" "}
+                {pluralRu(deniedHosts.length, "домен", "домена", "доменов")},
+                которые клиент запрашивал и получил отказ:{" "}
+                <span className="font-mono">
+                  {deniedHosts.slice(0, 4).join(", ")}
+                </span>
+                {deniedHosts.length > 4 && ` и ещё ${deniedHosts.length - 4}`}
+              </div>
+            )}
+            <div className="text-muted-foreground">
+              Списки клиента сохранены и снова действуют, если вернуть режим
+              «Список доменов».
+            </div>
           </div>
         </Callout>
       )}
@@ -1660,7 +1776,8 @@ function AccessTab({
             <div>
               <CardTitle>Итоговый список</CardTitle>
               <CardDescription>
-                Что открыто клиенту: свои домены и политики без повторов
+                Свои домены и политики без повторов. Зачёркнутые перекрывает
+                «запрещено для всех»
               </CardDescription>
             </div>
           </CardHeader>
@@ -1685,16 +1802,23 @@ function AccessTab({
                       }
                     >
                       <TableCell className="pl-0">
-                        <Chip>
+                        <Chip
+                          className={cn(
+                            blockedForAll(snap, e.destination.domain) &&
+                              "text-muted-foreground line-through",
+                          )}
+                        >
                           {e.destination.include_subdomains ? "*." : ""}
                           {e.destination.domain}
                         </Chip>
                       </TableCell>
                       <TableCell className="truncate pr-0 text-sm text-muted-foreground">
-                        {[
-                          ...(e.own ? ["свой"] : []),
-                          ...e.policyIDs.map((id) => `«${policyName(id)}»`),
-                        ].join(", ")}
+                        {blockedForAll(snap, e.destination.domain)
+                          ? "перекрыт: запрещено для всех"
+                          : [
+                              ...(e.own ? ["свой"] : []),
+                              ...e.policyIDs.map((id) => `«${policyName(id)}»`),
+                            ].join(", ")}
                       </TableCell>
                     </TableRow>
                   ))}
@@ -2017,132 +2141,6 @@ function SourceTab({
   );
 }
 
-// RequestsTab: the client's recent events with a destination filter and an
-// all/denied switch; the full search lives in the log.
-function RequestsTab({
-  client,
-  request,
-  onNavigate,
-}: {
-  client: Client;
-  request: SectionProps["request"];
-  onNavigate: (id: NavId) => void;
-}) {
-  const [items, setItems] = useState<Event[]>([]);
-  const [dest, setDest] = useState("");
-  const [only, setOnly] = useState<"all" | "denied">("all");
-  useEffect(() => {
-    let live = true;
-    const q = new URLSearchParams({ client_id: client.id, limit: "50" });
-    if (dest.trim()) q.set("destination", dest.trim());
-    if (only === "denied") q.set("failures_only", "true");
-    const t = setTimeout(() => {
-      request<{ items: Event[] }>(`/events?${q}`)
-        .then((r) => {
-          if (live) setItems(r.items ?? []);
-        })
-        .catch(() => {});
-    }, 250);
-    return () => {
-      live = false;
-      clearTimeout(t);
-    };
-  }, [request, client.id, dest, only]);
-  return (
-    <>
-      <div className="flex flex-wrap items-center gap-2">
-        <div className="relative flex max-w-[420px] min-w-0 grow items-center">
-          <Search
-            aria-hidden
-            className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
-          />
-          <Chip className="pointer-events-none absolute left-7 h-5 text-xs">
-            клиент:{client.name}
-          </Chip>
-          <Input
-            aria-label="Фильтр по назначению"
-            className="h-8"
-            style={{ paddingLeft: `${client.name.length * 7 + 86}px` }}
-            placeholder="домен…"
-            value={dest}
-            onChange={(e) => setDest(e.target.value)}
-          />
-        </div>
-        <ToggleGroup
-          type="single"
-          variant="seg"
-          size="sm"
-          spacing={0.5}
-          className="rounded-lg bg-muted p-[3px]"
-          value={only}
-          aria-label="Какие запросы"
-          onValueChange={(v) => {
-            if (v) setOnly(v as "all" | "denied");
-          }}
-        >
-          <ToggleGroupItem value="all">Все</ToggleGroupItem>
-          <ToggleGroupItem value="denied">Отказы</ToggleGroupItem>
-        </ToggleGroup>
-        <span className="grow" />
-        <Button size="xs" variant="outline" onClick={() => onNavigate("log")}>
-          Открыть в журнале <ArrowRight aria-hidden />
-        </Button>
-      </div>
-      <div className="overflow-hidden rounded-lg border bg-card">
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Время</TableHead>
-              <TableHead>IP</TableHead>
-              <TableHead>Назначение</TableHead>
-              <TableHead>Результат</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {items.slice(0, 50).map((e) => {
-              const denied = e.proxy_result.includes("DENIED");
-              const code = e.proxy_http_status ?? (denied ? 403 : 200);
-              return (
-                <TableRow key={e.id}>
-                  <TableCell className="text-muted-foreground tabular-nums">
-                    {new Date(e.timestamp).toLocaleTimeString("ru-RU")}
-                  </TableCell>
-                  <TableCell className="font-mono text-sm">
-                    {e.source_ip}
-                  </TableCell>
-                  <TableCell className="max-w-0 truncate font-mono text-sm">
-                    {e.method !== "CONNECT" && (
-                      <span className="text-muted-foreground">{e.method} </span>
-                    )}
-                    {e.destination}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant={denied ? "bad" : "ok"}>
-                      {denied ? `${code} отказ` : code}
-                    </Badge>
-                    {e.count > 1 && (
-                      <span className="ml-1.5 text-sm text-muted-foreground">
-                        ×{e.count}
-                      </span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-            {items.length === 0 && (
-              <TableRow>
-                <TableCell colSpan={4} className="text-muted-foreground">
-                  Нет запросов
-                </TableCell>
-              </TableRow>
-            )}
-          </TableBody>
-        </Table>
-      </div>
-    </>
-  );
-}
-
 type HistoryEntry = {
   at: string;
   actor: string;
@@ -2241,14 +2239,7 @@ function HistoryTab({
             className="grid grid-cols-[98px_minmax(0,1fr)_auto] items-start gap-3 border-b py-2.5 last:border-b-0"
           >
             <span className="text-muted-foreground tabular-nums">
-              {r.at
-                ? new Date(r.at).toLocaleString("ru-RU", {
-                    day: "2-digit",
-                    month: "2-digit",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })
-                : "сейчас"}
+              <Timestamp value={r.at} compact seconds={false} />
             </span>
             <div className="min-w-0">
               <div>{r.changes.join("; ")}</div>
@@ -2286,13 +2277,6 @@ export type NewClientInput = {
 };
 
 // Numbered step marker on the creation form cards.
-function Step({ n }: { n: number }) {
-  return (
-    <span className="grid size-5 place-items-center rounded-md bg-add-bg text-sm font-semibold text-add-fg">
-      {n}
-    </span>
-  );
-}
 
 // NewClientForm follows the prototype's three steps: who (name, type,
 // source addresses), where to (own domains and attached policies, all web or
@@ -2413,7 +2397,6 @@ function NewClientForm({
       <InspectorBody className="border-t">
         <Card>
           <CardHeader className="flex items-center gap-2">
-            <Step n={1} />
             <CardTitle>Кто</CardTitle>
           </CardHeader>
           <CardContent>
@@ -2481,7 +2464,6 @@ function NewClientForm({
         </Card>
         <Card>
           <CardHeader className="flex items-center gap-2">
-            <Step n={2} />
             <CardTitle>Куда можно</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">
@@ -2500,6 +2482,7 @@ function NewClientForm({
                 value="all_web"
                 active={access === "all_web"}
                 title="Весь веб"
+                tone="warn"
                 hint="Кроме запрещённого для всех"
               />
               <RadioCard
@@ -2588,7 +2571,6 @@ function NewClientForm({
         </Card>
         <Card>
           <CardHeader className="flex items-center gap-2">
-            <Step n={3} />
             <CardTitle>Подключение</CardTitle>
           </CardHeader>
           <CardContent className="flex flex-col gap-3">

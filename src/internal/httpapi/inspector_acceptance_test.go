@@ -288,3 +288,39 @@ func TestAcceptInspectorStatusAndTemplates(t *testing.T) {
 		}
 	}
 }
+
+// denied_24h counts the denied part of hits_24h; a domain added to the draft
+// policy gets its hits from the journal at once.
+func TestAcceptInspectorPolicyHitsDenied(t *testing.T) {
+	_, h, admin := inspectorAcceptFixture(t)
+	w := request(h, "GET", "/configuration/draft", nil, admin, "", "")
+	var d Draft
+	json.Unmarshal(w.Body.Bytes(), &d)
+	for i := range d.Snapshot.Policies {
+		if d.Snapshot.Policies[i].ID == "p-apt" {
+			d.Snapshot.Policies[i].Destinations = append(d.Snapshot.Policies[i].Destinations, policy.Destination{Domain: "github.com"})
+		}
+	}
+	cookie, csrf := loginTest(t, h)
+	if w = request(h, "PUT", "/configuration/draft", map[string]any{"expected_version": d.Version, "snapshot": d.Snapshot}, cookie, csrf, "https://panel.test"); w.Code != 200 {
+		t.Fatal(w.Body.String())
+	}
+	var v struct {
+		Domains []struct {
+			Domain string `json:"domain"`
+			H24    int    `json:"hits_24h"`
+			D24    int    `json:"denied_24h"`
+		} `json:"domains"`
+	}
+	if code := inspectorAcceptGet(t, h, admin, "/inspector/policies/p-apt/hits", &v); code != 200 {
+		t.Fatal(code)
+	}
+	got := map[string][2]int{}
+	for _, d := range v.Domains {
+		got[d.Domain] = [2]int{d.H24, d.D24}
+	}
+	// github.com: two denied requests of c-a; the unknown source's are not counted.
+	if got["github.com"] != [2]int{2, 2} || got["archive.ubuntu.com"] != [2]int{2, 0} {
+		t.Fatalf("hits/denied: %+v", got)
+	}
+}

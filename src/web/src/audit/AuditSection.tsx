@@ -1,9 +1,16 @@
+import { Timestamp } from "@/components/kraken/timestamp";
 import { useEffect, useMemo, useState } from "react";
 import { Diff, History, KeyRound, Play, Search, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   Card,
   CardAction,
@@ -20,14 +27,13 @@ import {
   ListPaneBody,
   ListPaneHeader,
   ListRow,
-} from "../components/kraken/layout";
-import { KeyValue } from "../components/kraken/blocks";
+} from "@/components/kraken/layout";
+import { KeyValue } from "@/components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { ErrorState } from "../shell/ErrorState";
 import type { Preview, RevisionSummary } from "../model";
 import { revisionLabel } from "../model";
 import { ChangeList } from "../draft/ChangeList";
-import { localTime } from "../model";
 import type { SectionProps } from "../sections/sectionProps";
 import {
   AUDIT_FILTERS,
@@ -142,26 +148,9 @@ export function AuditSection(props: SectionProps) {
   const selected = filtered.find((a) => a.id === selectedID) ?? null;
 
   return (
-    <div className="grid min-h-0 w-full [grid-template-columns:var(--list-w,300px)_minmax(0,1fr)]">
+    <>
       <ListPane>
         <ListPaneHeader title="Аудит">
-          <ToggleGroup
-            type="single"
-            variant="chip"
-            size="xs"
-            spacing={1}
-            value={category}
-            onValueChange={(v) => {
-              if (v) setCategory(v as AuditCategory | "all");
-            }}
-            className="flex-wrap gap-1.5"
-          >
-            {AUDIT_FILTERS.map((f) => (
-              <ToggleGroupItem key={f.id} value={f.id} aria-label={f.label}>
-                {f.label}
-              </ToggleGroupItem>
-            ))}
-          </ToggleGroup>
           <div className="relative flex items-center">
             <Search
               aria-hidden
@@ -175,6 +164,21 @@ export function AuditSection(props: SectionProps) {
               onChange={(e) => setActor(e.target.value)}
             />
           </div>
+          <Select
+            value={category}
+            onValueChange={(v) => setCategory(v as AuditCategory | "all")}
+          >
+            <SelectTrigger className="h-8 w-full" aria-label="Тип событий">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {AUDIT_FILTERS.map((f) => (
+                <SelectItem key={f.id} value={f.id}>
+                  {f.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </ListPaneHeader>
         <ListPaneBody>
           {loadError ? (
@@ -201,7 +205,13 @@ export function AuditSection(props: SectionProps) {
                       selected={selectedID === a.id}
                       leading={<Icon aria-hidden />}
                       title={a.detail || actionLabel(a.action)}
-                      meta={localTime(a.timestamp, false)}
+                      meta={
+                        <Timestamp
+                          value={a.timestamp}
+                          mode="time"
+                          seconds={false}
+                        />
+                      }
                       subtitle={
                         a.detail
                           ? `${actionLabel(a.action)} · ${a.actor}`
@@ -243,7 +253,7 @@ export function AuditSection(props: SectionProps) {
           </InspectorBody>
         )}
       </InspectorPane>
-    </div>
+    </>
   );
 }
 
@@ -371,8 +381,7 @@ function AuditDetail({
         }
         meta={
           <>
-            {dayLabel(event.timestamp)}, {localTime(event.timestamp)} ·{" "}
-            {event.actor}
+            <Timestamp value={event.timestamp} /> · {event.actor}
           </>
         }
       />
@@ -388,7 +397,7 @@ function AuditDetail({
                 [
                   "Когда",
                   <span className="tabular-nums">
-                    {new Date(event.timestamp).toLocaleString("ru-RU")}
+                    <Timestamp value={event.timestamp} />
                   </span>,
                 ],
                 [

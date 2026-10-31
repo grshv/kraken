@@ -697,6 +697,21 @@ func inScope(clientID *string, sourceIP string, scope *Scope) bool {
 	return false
 }
 
+// clientsOutsideScope reports whether a client filter can match nothing under
+// the scope: every listed client is outside it and unmatched sources are not
+// asked for.
+func clientsOutsideScope(q EventQuery) bool {
+	if q.Scope == nil || len(q.ClientIDs) == 0 {
+		return false
+	}
+	for _, id := range q.ClientIDs {
+		if id == "" || scopeClientAllowed(q.Scope, id) {
+			return false
+		}
+	}
+	return true
+}
+
 // scopeClientAllowed reports whether clientID is listed in a non-nil scope.
 func scopeClientAllowed(scope *Scope, clientID string) bool {
 	if scope == nil {

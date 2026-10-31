@@ -154,62 +154,12 @@ func (s *Server) events(w http.ResponseWriter, r *http.Request, v session) {
 	if !ok {
 		return
 	}
-	q := r.URL.Query()
-	raw := q.Get("failures_only")
-	if raw != "" && raw != "true" && raw != "false" {
-		fail(w, 400, "invalid_filter", "Некорректный фильтр отказов")
+	filter, ok := s.parseEventQuery(w, r, v, false)
+	if !ok {
 		return
 	}
-	if len(q.Get("client_id")) > 128 {
-		fail(w, 400, "invalid_filter", "Некорректный клиент")
-		return
-	}
-	filter := telemetry.EventQuery{ClientID: q.Get("client_id"), Failures: raw == "true", Cursor: q.Get("cursor"), Limit: limit,
-		SourceIP: q.Get("source_ip"), Destination: strings.TrimSpace(q.Get("destination")), Method: q.Get("method"), Result: q.Get("result"), DenyReason: q.Get("deny_reason")}
-	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64 || !validDenyReason(filter.DenyReason)
-	if filter.SourceIP != "" {
-		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
-			invalid = true
-		}
-	}
-	for _, value := range []string{q.Get("from"), q.Get("to")} {
-		if value != "" {
-			if _, err := time.Parse(time.RFC3339Nano, value); err != nil {
-				invalid = true
-			}
-		}
-	}
-	var fromT, toT time.Time
-	if q.Get("from") != "" {
-		fromT, _ = time.Parse(time.RFC3339Nano, q.Get("from"))
-		filter.From = fromT
-	}
-	if q.Get("to") != "" {
-		toT, _ = time.Parse(time.RFC3339Nano, q.Get("to"))
-		filter.To = toT
-	}
-	if !filter.From.IsZero() && !filter.To.IsZero() && !filter.From.Before(filter.To) {
-		invalid = true
-	}
-	if invalid {
-		fail(w, 400, "invalid_filter", "Проверьте IP, длину фильтров и диапазон времени")
-		return
-	}
-	if v.Role == "manager" {
-		sc, e := s.managerScope(r.Context(), v)
-		if e != nil {
-			if s.failStorageBusy(w, e) {
-				return
-			}
-			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-			return
-		}
-		if filter.ClientID != "" && !inScope(sc, filter.ClientID) {
-			fail(w, 404, "not_found", "Клиент не найден")
-			return
-		}
-		filter.Scope = &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
-	}
+	filter.Cursor = r.URL.Query().Get("cursor")
+	filter.Limit = limit
 	ctx, cancel := context.WithTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 	p, e := s.Telemetry.Events(ctx, filter)
@@ -257,68 +207,14 @@ func (s *Server) eventClients(w http.ResponseWriter, r *http.Request, v session)
 // required from/to (RFC3339) and step (1m|15m|1h) parameters. Manager scope is
 // applied like /events; bad parameters return 400 invalid_filter.
 func (s *Server) eventFacets(w http.ResponseWriter, r *http.Request, v session) {
-	q := r.URL.Query()
-	raw := q.Get("failures_only")
-	if raw != "" && raw != "true" && raw != "false" {
-		fail(w, 400, "invalid_filter", "Некорректный фильтр отказов")
+	filter, ok := s.parseEventQuery(w, r, v, true)
+	if !ok {
 		return
 	}
-	if len(q.Get("client_id")) > 128 {
-		fail(w, 400, "invalid_filter", "Некорректный клиент")
-		return
-	}
-	filter := telemetry.EventQuery{
-		ClientID:    q.Get("client_id"),
-		Failures:    raw == "true",
-		SourceIP:    q.Get("source_ip"),
-		Destination: strings.TrimSpace(q.Get("destination")),
-		Method:      q.Get("method"),
-		Result:      q.Get("result"),
-		DenyReason:  q.Get("deny_reason"),
-	}
-	invalid := len(filter.Destination) > 253 || len(filter.Method) > 24 || len(filter.Result) > 64 || !validDenyReason(filter.DenyReason)
-	if filter.SourceIP != "" {
-		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
-			invalid = true
-		}
-	}
-	fromT, err := time.Parse(time.RFC3339Nano, q.Get("from"))
-	if err != nil {
-		invalid = true
-	}
-	toT, err := time.Parse(time.RFC3339Nano, q.Get("to"))
-	if err != nil {
-		invalid = true
-	}
-	if invalid {
-		fail(w, 400, "invalid_filter", "Проверьте IP, длину фильтров и диапазон времени")
-		return
-	}
-	filter.From = fromT
-	filter.To = toT
-	if !filter.From.Before(filter.To) {
-		fail(w, 400, "invalid_filter", "Параметр to должен быть позже from")
-		return
-	}
-	step, ok := parseFacetsStep(q.Get("step"))
+	step, ok := parseFacetsStep(r.URL.Query().Get("step"))
 	if !ok {
 		fail(w, 400, "invalid_filter", "Шаг должен быть 1m, 15m или 1h")
 		return
-	}
-	if v.Role == "manager" {
-		sc, e := s.managerScope(r.Context(), v)
-		if e != nil {
-			if s.failStorageBusy(w, e) {
-				return
-			}
-			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
-			return
-		}
-		if filter.ClientID != "" && !inScope(sc, filter.ClientID) {
-			fail(w, 404, "not_found", "Клиент не найден")
-			return
-		}
-		filter.Scope = &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
@@ -400,6 +296,110 @@ func (s *Server) eventFacets(w http.ResponseWriter, r *http.Request, v session) 
 }
 
 // validDenyReason accepts an empty filter or a reason logged by squid.conf.
+// maxFilterValues bounds repeated client_id, method and deny_reason values.
+const maxFilterValues = 64
+
+// parseEventQuery reads the filters shared by /events, /events/facets and
+// /events/domains. client_id, method and deny_reason repeat and match any
+// value; unmatched=true adds unmatched (unknown) sources to the client filter;
+// allowed_only=true is the opposite of failures_only.
+// windowRequired demands from and to. A manager's scope is applied and a
+// client outside it is 404. ok=false means the response is already written.
+func (s *Server) parseEventQuery(w http.ResponseWriter, r *http.Request, v session, windowRequired bool) (telemetry.EventQuery, bool) {
+	q := r.URL.Query()
+	raw := q.Get("failures_only")
+	if raw != "" && raw != "true" && raw != "false" {
+		fail(w, 400, "invalid_filter", "Некорректный фильтр отказов")
+		return telemetry.EventQuery{}, false
+	}
+	allowedOnly := q.Get("allowed_only")
+	if allowedOnly != "" && allowedOnly != "true" && allowedOnly != "false" || allowedOnly == "true" && raw == "true" {
+		fail(w, 400, "invalid_filter", "Некорректный фильтр разрешённых")
+		return telemetry.EventQuery{}, false
+	}
+	unmatched := q.Get("unmatched")
+	if unmatched != "" && unmatched != "true" && unmatched != "false" {
+		fail(w, 400, "invalid_filter", "Некорректный фильтр неописанных источников")
+		return telemetry.EventQuery{}, false
+	}
+	filter := telemetry.EventQuery{Failures: raw == "true", Allowed: allowedOnly == "true", SourceIP: q.Get("source_ip"),
+		Destination: strings.TrimSpace(q.Get("destination")), Result: q.Get("result")}
+	values := func(key string, max int) ([]string, bool) {
+		var out []string
+		for _, value := range q[key] {
+			if value == "" {
+				continue
+			}
+			if len(value) > max {
+				return nil, false
+			}
+			if !slices.Contains(out, value) {
+				out = append(out, value)
+			}
+		}
+		return out, len(out) <= maxFilterValues
+	}
+	var okClients, okMethods, okReasons bool
+	filter.ClientIDs, okClients = values("client_id", 128)
+	if !okClients {
+		fail(w, 400, "invalid_filter", "Некорректный клиент")
+		return telemetry.EventQuery{}, false
+	}
+	if unmatched == "true" {
+		filter.ClientIDs = append(filter.ClientIDs, "")
+	}
+	filter.Methods, okMethods = values("method", 24)
+	filter.DenyReasons, okReasons = values("deny_reason", 64)
+	invalid := !okMethods || !okReasons || len(filter.Destination) > 253 || len(filter.Result) > 64
+	for _, reason := range filter.DenyReasons {
+		if !validDenyReason(reason) {
+			invalid = true
+		}
+	}
+	if filter.SourceIP != "" {
+		if _, err := netip.ParseAddr(filter.SourceIP); err != nil {
+			invalid = true
+		}
+	}
+	for key, at := range map[string]*time.Time{"from": &filter.From, "to": &filter.To} {
+		value := q.Get(key)
+		if value == "" {
+			invalid = invalid || windowRequired
+			continue
+		}
+		t, err := time.Parse(time.RFC3339Nano, value)
+		if err != nil {
+			invalid = true
+		}
+		*at = t
+	}
+	if invalid {
+		fail(w, 400, "invalid_filter", "Проверьте IP, длину фильтров и диапазон времени")
+		return telemetry.EventQuery{}, false
+	}
+	if !filter.From.IsZero() && !filter.To.IsZero() && !filter.From.Before(filter.To) {
+		fail(w, 400, "invalid_filter", "Параметр to должен быть позже from")
+		return telemetry.EventQuery{}, false
+	}
+	if v.Role == "manager" {
+		sc, e := s.managerScope(r.Context(), v)
+		if e != nil {
+			if !s.failStorageBusy(w, e) {
+				fail(w, 503, "storage_unavailable", "Хранилище недоступно")
+			}
+			return telemetry.EventQuery{}, false
+		}
+		for _, id := range filter.ClientIDs {
+			if id != "" && !inScope(sc, id) {
+				fail(w, 404, "not_found", "Клиент не найден")
+				return telemetry.EventQuery{}, false
+			}
+		}
+		filter.Scope = &telemetry.Scope{ClientIDs: sc.ClientIDs, Networks: sc.Networks}
+	}
+	return filter, true
+}
+
 func validDenyReason(r string) bool {
 	return r == "" || slices.Contains(policy.DenyReasons, r)
 }
@@ -465,4 +465,105 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, v session) 
 		return
 	}
 	respond(w, 200, p)
+}
+
+// eventDomains handles GET /events/domains: requests grouped by host over a
+// window with the same filters and scope as /events/facets (from and to are
+// required, at most 7 days), busiest first, with the busiest sources of each,
+// plus totals for the journal summary: requests, denials, bytes, per client
+// and the number of distinct unmatched sources.
+func (s *Server) eventDomains(w http.ResponseWriter, r *http.Request, v session) {
+	filter, ok := s.parseEventQuery(w, r, v, true)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
+	defer cancel()
+	rep, e := s.Telemetry.Domains(ctx, filter)
+	if e != nil {
+		if errors.Is(e, telemetry.ErrFacetsWindow) {
+			fail(w, 400, "invalid_filter", "Окно обязательно и не длиннее 7 суток")
+			return
+		}
+		queryFailure(w, e)
+		return
+	}
+	names := map[string]string{}
+	if m, e := s.Runtime.ReadManifest(); e == nil {
+		for _, c := range m.Snapshot.Clients {
+			names[c.ID] = c.Name
+		}
+	}
+	type source struct {
+		ClientID   *string `json:"client_id"`
+		ClientName *string `json:"client_name"`
+		SourceIP   string  `json:"source_ip"`
+		Requests   int64   `json:"requests"`
+		Denied     int64   `json:"denied"`
+	}
+	type domain struct {
+		Host        string   `json:"host"`
+		Requests    int64    `json:"requests"`
+		Denied      int64    `json:"denied"`
+		Bytes       int64    `json:"bytes"`
+		LastSeen    string   `json:"last_seen"`
+		Ports       []int    `json:"ports"`
+		SourceCount int      `json:"source_count"`
+		Sources     []source `json:"sources"`
+	}
+	items := make([]domain, 0, len(rep.Items))
+	for _, st := range rep.Items {
+		d := domain{Host: st.Host, Requests: st.Requests, Denied: st.Denied, Bytes: st.Bytes,
+			LastSeen: st.Last.UTC().Format(time.RFC3339Nano), Ports: st.Ports, SourceCount: st.Sources, Sources: make([]source, 0, len(st.Top))}
+		if d.Ports == nil {
+			d.Ports = []int{}
+		}
+		for _, src := range st.Top {
+			out := source{SourceIP: src.SourceIP, Requests: src.Requests, Denied: src.Denied}
+			if src.ClientID != "" {
+				id := src.ClientID
+				out.ClientID = &id
+				if name, ok := names[id]; ok {
+					out.ClientName = &name
+				}
+			}
+			d.Sources = append(d.Sources, out)
+		}
+		items = append(items, d)
+	}
+	type clientTotal struct {
+		ClientID   *string `json:"client_id"`
+		ClientName *string `json:"client_name"`
+		Requests   int64   `json:"requests"`
+		Denied     int64   `json:"denied"`
+	}
+	clients := make([]clientTotal, 0, len(rep.Clients))
+	for id, c := range rep.Clients {
+		out := clientTotal{Requests: c.Requests, Denied: c.Denied}
+		if id != "" {
+			id := id
+			out.ClientID = &id
+			if name, ok := names[id]; ok {
+				out.ClientName = &name
+			}
+		}
+		clients = append(clients, out)
+	}
+	sort.Slice(clients, func(i, j int) bool {
+		if clients[i].Requests != clients[j].Requests {
+			return clients[i].Requests > clients[j].Requests
+		}
+		return clientKey(clients[i].ClientID) < clientKey(clients[j].ClientID)
+	})
+	respond(w, 200, map[string]any{"items": items, "truncated": rep.Truncated, "summary": map[string]any{
+		"requests": rep.Requests, "denied": rep.Denied, "bytes": rep.Bytes,
+		"unmatched_sources": rep.UnmatchedSources, "clients": clients,
+	}})
+}
+
+func clientKey(id *string) string {
+	if id == nil {
+		return ""
+	}
+	return *id
 }

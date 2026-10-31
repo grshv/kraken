@@ -4,7 +4,7 @@ import { cn } from "cn";
 import { Slot } from "radix-ui";
 
 const buttonVariants = cva(
-  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md text-base font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+  "inline-flex shrink-0 items-center justify-center gap-1.5 rounded-md text-base font-medium whitespace-nowrap transition-all outline-none focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring/50 disabled:pointer-events-none disabled:opacity-50 aria-invalid:border-destructive aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
   {
     variants: {
       variant: {
@@ -12,7 +12,7 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:bg-destructive/60 dark:focus-visible:ring-destructive/40",
         outline:
-          "border bg-background shadow-xs hover:bg-accent hover:text-accent-foreground dark:border-input dark:bg-input/30 dark:hover:bg-input/50",
+          "border border-action-border bg-action text-action-foreground shadow-xs hover:bg-accent hover:text-accent-foreground",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         ghost:
@@ -25,7 +25,8 @@ const buttonVariants = cva(
         sm: "h-7 gap-1.5 rounded-md px-2.5 text-sm has-[>svg]:px-2",
         lg: "h-9 rounded-md px-4 has-[>svg]:px-3",
         icon: "size-8",
-        "icon-xs": "size-[26px] rounded-md [&_svg:not([class*='size-'])]:size-3.5",
+        "icon-xs":
+          "size-[26px] rounded-md [&_svg:not([class*='size-'])]:size-3.5",
         "icon-sm": "size-7",
         "icon-lg": "size-9",
       },
