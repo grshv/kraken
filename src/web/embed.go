@@ -1,12 +1,16 @@
 package web
 
 import (
+	"bytes"
 	"embed"
+	"encoding/json"
 	"io/fs"
 	"log"
 	"net/http"
 	"path"
 	"strings"
+
+	"kraken.local/kraken/internal/csp"
 )
 
 //go:embed all:dist
@@ -16,6 +20,13 @@ var assets embed.FS
 // binary cannot serve the SPA and there is no safe fallback. Failing loudly at
 // startup is preferable to serving an opaque 404 from http.FileServer later.
 var root fs.FS
+
+// page is index.html; styleHashes come from csp-style-hashes.json, written by
+// the web tests from the installed component libraries.
+var (
+	page        []byte
+	styleHashes []string
+)
 
 func init() {
 	sub, e := fs.Sub(assets, "dist")
@@ -30,6 +41,32 @@ func init() {
 		log.Fatalf("web: embedded dist/ is empty; rebuild via `make web-build` before compiling")
 	}
 	root = sub
+	if page, e = fs.ReadFile(sub, "index.html"); e != nil {
+		log.Fatalf("web: embedded index.html unavailable: %v", e)
+	}
+	raw, e := fs.ReadFile(sub, "csp-style-hashes.json")
+	if e != nil {
+		log.Fatalf("web: embedded csp-style-hashes.json unavailable: %v", e)
+	}
+	byName := map[string]string{}
+	if e := json.Unmarshal(raw, &byName); e != nil {
+		log.Fatalf("web: csp-style-hashes.json: %v", e)
+	}
+	for name, h := range byName {
+		if !csp.ValidHash(h) {
+			log.Fatalf("web: csp-style-hashes.json: bad hash for %s", name)
+		}
+		styleHashes = append(styleHashes, h)
+	}
+}
+
+// StyleHashes are the CSP hashes of the inline styles the components insert.
+func StyleHashes() []string { return append([]string{}, styleHashes...) }
+
+// servePage writes index.html with the response's CSP nonce in its meta tag.
+func servePage(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write(bytes.Replace(page, []byte("__CSP_NONCE__"), []byte(csp.Nonce(r.Context())), 1))
 }
 
 func Handler() http.Handler {
@@ -63,6 +100,10 @@ func Handler() http.Handler {
 		// never masked by an intermediate proxy cache. The header set in
 		// httpapi/server.go defaulted to no-store, so only override for actual
 		// asset files confirmed to exist above.
+		if clean == "index.html" {
+			servePage(w, r)
+			return
+		}
 		if strings.HasPrefix(clean, "assets/") {
 			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}

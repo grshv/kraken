@@ -37,7 +37,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS event_source_id ON event(source_id);
 CREATE TABLE IF NOT EXISTS checkpoint (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 `
 
-// rollupsSchema is the DDL for rollups.db. All tables are WITHOUT ROWID so
+// rollupsSchema is the DDL for rollups.db. journal_1h answers journal windows
+// longer than a day (facets, outcomes, domains) by the hour with every filter
+// dimension except the exact Squid result; it has its own watermark so it
+// backfills from the retained monthly files when first created. All tables
+// are WITHOUT ROWID so
 // UPSERTs aggregate in place and there is no rowid bloat. watermark records how
 // far each month has been rolled up.
 const rollupsSchema = `
@@ -97,14 +101,21 @@ CREATE TABLE IF NOT EXISTS unknown_host_1d (
   PRIMARY KEY(day, source_ip, host)
 ) WITHOUT ROWID;
 CREATE TABLE IF NOT EXISTS watermark (month TEXT PRIMARY KEY, last_event_id INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS facet_15m (
+DROP TABLE IF EXISTS facet_15m;
+CREATE TABLE IF NOT EXISTS journal_1h (
   bucket INTEGER NOT NULL,
   client_id TEXT NOT NULL,
   source_ip TEXT NOT NULL,
+  host TEXT NOT NULL,
+  port INTEGER NOT NULL,
   method TEXT NOT NULL,
-  proxy_result TEXT NOT NULL,
   failed INTEGER NOT NULL,
+  deny_reason TEXT NOT NULL,
+  outcome TEXT NOT NULL,
   requests INTEGER NOT NULL,
-  PRIMARY KEY(bucket, client_id, source_ip, method, proxy_result, failed)
+  bytes INTEGER NOT NULL,
+  last_ts INTEGER NOT NULL,
+  PRIMARY KEY(bucket, client_id, source_ip, host, port, method, failed, deny_reason, outcome)
 ) WITHOUT ROWID;
+CREATE TABLE IF NOT EXISTS journal_watermark (month TEXT PRIMARY KEY, last_event_id INTEGER NOT NULL);
 `

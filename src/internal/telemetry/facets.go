@@ -29,7 +29,7 @@ type Facets struct {
 }
 
 const (
-	facetsMaxWindow  = 7 * 24 * time.Hour
+	facetsMaxWindow  = 31 * 24 * time.Hour
 	facetsMaxBuckets = 1440
 )
 
@@ -80,16 +80,10 @@ func (t *Store) Facets(ctx context.Context, q EventQuery, step time.Duration) (F
 	if clientsOutsideScope(q) {
 		return f, nil
 	}
-	// Long-window fast path: when the window is over 24h, aligned to 15-minute
-	// boundaries, the step is 15m or 1h and there are no Destination/SourceIP
-	// filters, read pre-aggregated 15-minute counters from rollups.db instead
-	// of scanning raw monthly files. The manager scope (his clients + unknown
-	// sources in his networks) is applied in Go, like the raw unknown path.
-	if useFacetAggregate(q, from, to, step, fromMS, toMS) {
-		if e := t.facetsAggregate(ctx, q, from, to, step, &f); e != nil {
-			return f, e
-		}
-		return f, nil
+	// Windows longer than a day on whole hours with an hourly step read the
+	// hourly journal aggregate instead of scanning raw monthly files.
+	if longWindow(q) && step%time.Hour == 0 {
+		return f, t.facetsLong(ctx, q, step, &f)
 	}
 	// Scope != nil means a manager view: unmatched (NULL-client) sources are
 	// visible only when their source_ip is inside a scope network, which SQLite
@@ -238,102 +232,4 @@ func (t *Store) facetsUnknown(ctx context.Context, mf *monthFile, q EventQuery, 
 		}
 		return rows.Err()
 	})
-}
-
-// useFacetAggregate reports whether the long-window aggregate path applies:
-// window over 24h, From and To aligned to 15-minute UTC boundaries, step 15m
-// or 1h, and no Destination/SourceIP scalar filters (those need raw host/ip
-// lookups the aggregate cannot answer).
-func useFacetAggregate(q EventQuery, from, to time.Time, step time.Duration, fromMS, toMS int64) bool {
-	if to.Sub(from) <= 24*time.Hour {
-		return false
-	}
-	if q.Destination != "" || q.SourceIP != "" || len(q.DenyReasons) > 0 {
-		return false
-	}
-	if step != 15*time.Minute && step != time.Hour {
-		return false
-	}
-	const qMS = 15 * 60 * 1000
-	return fromMS%qMS == 0 && toMS%qMS == 0
-}
-
-// facetsAggregate reads pre-aggregated 15-minute counters from facet_15m. The
-// manager scope (his clients + unknown sources in his networks) is applied in
-// Go since SQLite has no CIDR match; the histogram index maps each 15-min
-// bucket into the requested step (15m: 1:1, 1h: 4:1). Result is by-construction
-// equal to the raw path on the same data.
-func (t *Store) facetsAggregate(ctx context.Context, q EventQuery, from, to time.Time, step time.Duration, f *Facets) error {
-	fromSecs := from.Unix()
-	toSecs := to.Unix()
-	stepSecs := int64(step.Seconds())
-	var b strings.Builder
-	args := []any{fromSecs, toSecs}
-	b.WriteString("SELECT COALESCE(client_id,'') AS cid, COALESCE(source_ip,'') AS src, COALESCE(method,'') AS m, failed, bucket, requests FROM facet_15m WHERE bucket>=? AND bucket<?")
-	// facet_15m keeps unmatched sources under client_id "", so the filter
-	// values map onto it directly.
-	if len(q.ClientIDs) > 0 {
-		b.WriteString(" AND client_id IN (" + placeholders(len(q.ClientIDs)) + ")")
-		for _, id := range q.ClientIDs {
-			args = append(args, id)
-		}
-	}
-	if len(q.Methods) > 0 {
-		b.WriteString(" AND method IN (" + placeholders(len(q.Methods)) + ")")
-		for _, m := range q.Methods {
-			args = append(args, m)
-		}
-	}
-	if q.Result != "" {
-		b.WriteString(" AND proxy_result=?")
-		args = append(args, q.Result)
-	}
-	if q.Failures {
-		b.WriteString(" AND failed=1")
-	}
-	if q.Allowed {
-		b.WriteString(" AND failed=0")
-	}
-	nets := parseNetworks(q.Scope)
-	n := int64(len(f.Histogram))
-	e := t.rollReader(ctx, func(r *sql.DB) error {
-		rows, e := r.QueryContext(ctx, b.String(), args...)
-		if e != nil {
-			return e
-		}
-		defer rows.Close()
-		for rows.Next() {
-			var cid, src, mthd string
-			var failed int
-			var bucket, requests int64
-			if e = rows.Scan(&cid, &src, &mthd, &failed, &bucket, &requests); e != nil {
-				return e
-			}
-			// Manager scope: only his clients and unknown sources in his networks.
-			if q.Scope != nil {
-				if cid != "" {
-					if !scopeClientAllowed(q.Scope, cid) {
-						continue
-					}
-				} else if !sourceInNetworks(src, nets) {
-					continue
-				}
-			}
-			allowed, denied := requests, int64(0)
-			if failed != 0 {
-				allowed, denied = 0, requests
-			}
-			f.Allowed += allowed
-			f.Denied += denied
-			f.Clients[cid] += requests
-			f.Methods[mthd] += requests
-			idx := (bucket - fromSecs) / stepSecs
-			if idx >= 0 && idx < n {
-				f.Histogram[idx].Allowed += allowed
-				f.Histogram[idx].Denied += denied
-			}
-		}
-		return rows.Err()
-	})
-	return e
 }

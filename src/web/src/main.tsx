@@ -9,6 +9,7 @@ import { Field, Callout } from "@/components/kraken/blocks";
 import { ConnectionError, fetchPanel, type Request } from "./api";
 import { ThemeProvider } from "./ThemeProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { setNonce } from "get-nonce";
 import type {
   Draft,
   PanelRole,
@@ -748,6 +749,12 @@ function LoginView({
     </main>
   );
 }
+
+// Radix dialogs lock page scrolling with a <style> whose text depends on the
+// scrollbar width; it carries the page nonce so the CSP admits it.
+setNonce(
+  document.querySelector('meta[name="csp-nonce"]')?.getAttribute("content") ?? "",
+);
 
 createRoot(document.getElementById("root")!).render(
   <ThemeProvider>

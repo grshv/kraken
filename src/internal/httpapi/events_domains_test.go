@@ -156,7 +156,7 @@ func TestEventDomainsBadParams(t *testing.T) {
 	now := seedFacetsEvents(t, s)
 	from := url.QueryEscape(now.Add(-time.Hour).Format(time.RFC3339Nano))
 	to := url.QueryEscape(now.Format(time.RFC3339Nano))
-	long := url.QueryEscape(now.Add(-8 * 24 * time.Hour).Format(time.RFC3339Nano))
+	long := url.QueryEscape(now.Add(-32 * 24 * time.Hour).Format(time.RFC3339Nano))
 	for name, query := range map[string]string{
 		"no window":      "",
 		"no to":          "from=" + from,

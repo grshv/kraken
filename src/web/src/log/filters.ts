@@ -5,7 +5,7 @@
 // Tested by vitest without React.
 
 export type View = "events" | "domains";
-export type Period = "1 ч" | "24 ч" | "7 дн" | "custom";
+export type Period = "1 ч" | "24 ч" | "7 дн" | "30 дн" | "custom";
 export type Result = "all" | "denied" | "allowed";
 // Range is a custom period as RFC 3339 instants; presets end at "now".
 export type Range = { from: string; to: string };
@@ -24,14 +24,21 @@ export type Filters = {
   range?: Range;
 };
 
-export const PERIODS: Exclude<Period, "custom">[] = ["1 ч", "24 ч", "7 дн"];
+export const PERIODS: Exclude<Period, "custom">[] = [
+  "1 ч",
+  "24 ч",
+  "7 дн",
+  "30 дн",
+];
+const HOUR_MS = 3600_000;
 const PERIOD_MS: Record<Exclude<Period, "custom">, number> = {
-  "1 ч": 3600_000,
-  "24 ч": 24 * 3600_000,
-  "7 дн": 7 * 24 * 3600_000,
+  "1 ч": HOUR_MS,
+  "24 ч": 24 * HOUR_MS,
+  "7 дн": 7 * 24 * HOUR_MS,
+  "30 дн": 30 * 24 * HOUR_MS,
 };
-// The server bounds facets and domains to 7 days.
-export const MAX_RANGE_MS = 7 * 24 * 3600_000;
+// The server bounds facets and domains to 31 days.
+export const MAX_RANGE_MS = 31 * 24 * HOUR_MS;
 
 export function defaultFilters(): Filters {
   return {
@@ -45,15 +52,58 @@ export function defaultFilters(): Filters {
 }
 
 // periodWindow resolves the period to concrete instants; presets end at now.
+// Windows longer than a day snap to whole hours (the end rounded up), so the
+// server answers them from its hourly aggregate instead of raw events.
 export function periodWindow(f: Filters, now: Date): { from: Date; to: Date } {
-  if (f.period === "custom" && f.range) {
-    const from = new Date(f.range.from);
-    const to = new Date(f.range.to);
-    if (Number.isFinite(from.getTime()) && Number.isFinite(to.getTime()))
-      return { from, to };
+  let from: number, to: number;
+  const custom =
+    f.period === "custom" && f.range
+      ? [Date.parse(f.range.from), Date.parse(f.range.to)]
+      : null;
+  if (custom && Number.isFinite(custom[0]) && Number.isFinite(custom[1])) {
+    [from, to] = custom;
+  } else {
+    const span = f.period === "custom" ? HOUR_MS : PERIOD_MS[f.period];
+    to = now.getTime();
+    from = to - span;
   }
-  const span = f.period === "custom" ? PERIOD_MS["1 ч"] : PERIOD_MS[f.period];
-  return { from: new Date(now.getTime() - span), to: now };
+  if (to - from > 24 * HOUR_MS) {
+    const span = to - from;
+    to = Math.ceil(to / HOUR_MS) * HOUR_MS;
+    from = custom ? Math.floor(from / HOUR_MS) * HOUR_MS : to - span;
+    from = Math.max(from, to - MAX_RANGE_MS);
+  }
+  return { from: new Date(from), to: new Date(to) };
+}
+
+// shiftWindow moves the current window by its own length: back into the past
+// or forward towards now. Reaching now returns to the live preset of that
+// length, if there is one; the end never passes now.
+export function shiftWindow(
+  f: Filters,
+  now: Date,
+  direction: -1 | 1,
+): Pick<Filters, "period" | "range"> {
+  const { from, to } = periodWindow(f, now);
+  const span = to.getTime() - from.getTime();
+  let end = to.getTime() + direction * span;
+  if (end >= now.getTime()) {
+    const live = PERIODS.find((p) => PERIOD_MS[p] === span);
+    if (live) return { period: live, range: undefined };
+    end = now.getTime();
+  }
+  return {
+    period: "custom",
+    range: {
+      from: new Date(end - span).toISOString(),
+      to: new Date(end).toISOString(),
+    },
+  };
+}
+
+// isLive reports whether the window ends now (a preset, not a past range).
+export function isLive(f: Filters): boolean {
+  return f.period !== "custom";
 }
 
 // facetStep picks the histogram step the server accepts for the window:

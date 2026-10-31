@@ -46,8 +46,9 @@ const (
 // Domains groups the requests of the [q.From, q.To) window by host with the
 // same filters and scope as Events, busiest first: up to 500 hosts and the 20
 // busiest sources of each, plus totals (see DomainReport). It reads raw monthly
-// files, so the window is bounded like Facets. Unmatched sources under a
-// manager scope are kept only inside his networks.
+// files, or journal_1h for windows longer than a day (longWindow), bounded like
+// Facets. Unmatched sources under a manager scope are kept only inside his
+// networks.
 func (t *Store) Domains(ctx context.Context, q EventQuery) (DomainReport, error) {
 	rep := DomainReport{Items: []DomainStat{}, Clients: map[string]Counts{}}
 	if q.From.IsZero() || q.To.IsZero() || !q.To.After(q.From) || q.To.Sub(q.From) > facetsMaxWindow {
@@ -78,69 +79,84 @@ func (t *Store) Domains(ctx context.Context, q EventQuery) (DomainReport, error)
 	}
 	byHost := map[string]*acc{}
 	unmatched := map[string]bool{}
-	for _, key := range t.listMonths() {
-		if key < q.From.UTC().Format("2006-01") || key > q.To.UTC().Format("2006-01") {
-			continue
+	add := func(host string, port int, cid, ip string, requests, denied, bytes, last int64) {
+		rep.Requests += requests
+		rep.Denied += denied
+		rep.Bytes += bytes
+		c := rep.Clients[cid]
+		c.Requests += requests
+		c.Denied += denied
+		c.Bytes += bytes
+		rep.Clients[cid] = c
+		if cid == "" {
+			unmatched[ip] = true
 		}
-		mf, e := t.monthFor(ctx, key)
-		if e != nil {
+		a := byHost[host]
+		if a == nil {
+			a = &acc{stat: DomainStat{Host: host}, ports: map[int]bool{}, sources: map[sourceKey]*DomainSource{}}
+			byHost[host] = a
+		}
+		a.stat.Requests += requests
+		a.stat.Denied += denied
+		a.stat.Bytes += bytes
+		if at := time.UnixMilli(last).UTC(); at.After(a.stat.Last) {
+			a.stat.Last = at
+		}
+		if port > 0 {
+			a.ports[port] = true
+		}
+		k := sourceKey{cid, ip}
+		src := a.sources[k]
+		if src == nil {
+			src = &DomainSource{ClientID: cid, SourceIP: ip}
+			a.sources[k] = src
+		}
+		src.Requests += requests
+		src.Denied += denied
+	}
+	if longWindow(q) {
+		if e := t.journalRows(ctx, q, func(v journalRow) {
+			denied := int64(0)
+			if v.failed {
+				denied = v.requests
+			}
+			add(v.host, v.port, v.client, v.ip, v.requests, denied, v.bytes, v.last)
+		}); e != nil {
 			return rep, e
 		}
-		e = t.monthReader(mf, ctx, func(r *sql.DB) error {
-			rows, e := r.QueryContext(ctx, query, args...)
-			if e != nil {
-				return e
+	} else {
+		for _, key := range t.listMonths() {
+			if key < q.From.UTC().Format("2006-01") || key > q.To.UTC().Format("2006-01") {
+				continue
 			}
-			defer rows.Close()
-			for rows.Next() {
-				var host, cid, ip string
-				var port int
-				var requests, denied, bytes, last int64
-				if e = rows.Scan(&host, &port, &cid, &ip, &requests, &denied, &bytes, &last); e != nil {
+			mf, e := t.monthFor(ctx, key)
+			if e != nil {
+				return rep, e
+			}
+			e = t.monthReader(mf, ctx, func(r *sql.DB) error {
+				rows, e := r.QueryContext(ctx, query, args...)
+				if e != nil {
 					return e
 				}
-				// A manager sees unmatched sources only inside his networks.
-				if q.Scope != nil && cid == "" && !sourceInNetworks(ip, nets) {
-					continue
+				defer rows.Close()
+				for rows.Next() {
+					var host, cid, ip string
+					var port int
+					var requests, denied, bytes, last int64
+					if e = rows.Scan(&host, &port, &cid, &ip, &requests, &denied, &bytes, &last); e != nil {
+						return e
+					}
+					// A manager sees unmatched sources only inside his networks.
+					if q.Scope != nil && cid == "" && !sourceInNetworks(ip, nets) {
+						continue
+					}
+					add(host, port, cid, ip, requests, denied, bytes, last)
 				}
-				rep.Requests += requests
-				rep.Denied += denied
-				rep.Bytes += bytes
-				c := rep.Clients[cid]
-				c.Requests += requests
-				c.Denied += denied
-				c.Bytes += bytes
-				rep.Clients[cid] = c
-				if cid == "" {
-					unmatched[ip] = true
-				}
-				a := byHost[host]
-				if a == nil {
-					a = &acc{stat: DomainStat{Host: host}, ports: map[int]bool{}, sources: map[sourceKey]*DomainSource{}}
-					byHost[host] = a
-				}
-				a.stat.Requests += requests
-				a.stat.Denied += denied
-				a.stat.Bytes += bytes
-				if at := time.UnixMilli(last).UTC(); at.After(a.stat.Last) {
-					a.stat.Last = at
-				}
-				if port > 0 {
-					a.ports[port] = true
-				}
-				k := sourceKey{cid, ip}
-				src := a.sources[k]
-				if src == nil {
-					src = &DomainSource{ClientID: cid, SourceIP: ip}
-					a.sources[k] = src
-				}
-				src.Requests += requests
-				src.Denied += denied
+				return rows.Err()
+			})
+			if e != nil {
+				return rep, e
 			}
-			return rows.Err()
-		})
-		if e != nil {
-			return rep, e
 		}
 	}
 	rep.UnmatchedSources = len(unmatched)

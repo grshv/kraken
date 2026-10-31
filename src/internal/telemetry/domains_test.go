@@ -71,7 +71,7 @@ func TestDomainsWindowErrors(t *testing.T) {
 	for name, q := range map[string]telemetry.EventQuery{
 		"missing from": {To: base},
 		"reversed":     {From: base, To: base.Add(-time.Minute)},
-		"over 7 days":  {From: base, To: base.Add(7*24*time.Hour + time.Minute)},
+		"over 31 days": {From: base, To: base.Add(31*24*time.Hour + time.Minute)},
 	} {
 		if _, e := s.Domains(context.Background(), q); !errors.Is(e, telemetry.ErrFacetsWindow) {
 			t.Fatalf("%s: %v", name, e)

@@ -1186,7 +1186,7 @@
       "get": {
         "operationId": "listEventFacets",
         "summary": "Server-side facet counters and histogram over a bounded window",
-        "description": "Aggregates totals by result, client_id and method plus a stepped histogram over [from, to) using SQL GROUP BY across retained monthly files. Same filters and manager scope as /events; cursor and limit are ignored. Window is required, capped at 7 days and 1440 buckets. Client names are resolved from the active snapshot; unmatched sources collapse under id:\"\" with name:null. Available to admin and manager (manager sees only his scope).",
+        "description": "Aggregates totals by result, client_id and method plus a stepped histogram over [from, to) using SQL GROUP BY across retained monthly files; a window longer than a day on whole hours with an hourly step reads the hourly journal aggregate instead. Same filters and manager scope as /events; cursor and limit are ignored. Window is required, capped at 31 days and 1440 buckets. Client names are resolved from the active snapshot; unmatched sources collapse under id:\"\" with name:null. Available to admin and manager (manager sees only his scope).",
         "parameters": [
           {
             "name": "from",
@@ -1345,7 +1345,7 @@
             }
           },
           "400": {
-            "description": "invalid_filter: missing/invalid from, to or step, window over 7 days or over 1440 buckets, or an invalid filter value.",
+            "description": "invalid_filter: missing/invalid from, to or step, window over 31 days or over 1440 buckets, or an invalid filter value.",
             "content": {
               "application/json": {
                 "schema": {
@@ -1389,7 +1389,7 @@
       "get": {
         "operationId": "listEventDomains",
         "summary": "Requests grouped by host over a bounded window",
-        "description": "Groups requests of [from, to) by host across retained monthly files with the same filters and manager scope as /events: requests, denied, bytes, last request, ports, distinct source addresses and the 20 busiest sources. Busiest hosts first, at most 500 (truncated=true when more); summary totals cover every matching request. Window is required and capped at 7 days. Client names are resolved from the active snapshot; unmatched sources have client_id:null. Available to admin and manager (manager sees only his scope).",
+        "description": "Groups requests of [from, to) by host across retained monthly files (the hourly journal aggregate for a window longer than a day on whole hours) with the same filters and manager scope as /events: requests, denied, bytes, last request, ports, distinct source addresses and the 20 busiest sources. Busiest hosts first, at most 500 (truncated=true when more); summary totals cover every matching request. Window is required and capped at 31 days. Client names are resolved from the active snapshot; unmatched sources have client_id:null. Available to admin and manager (manager sees only his scope).",
         "parameters": [
           {
             "name": "from",
@@ -1534,7 +1534,7 @@
             }
           },
           "400": {
-            "description": "invalid_filter: missing/invalid from or to, window over 7 days, or an invalid filter value.",
+            "description": "invalid_filter: missing/invalid from or to, window over 31 days, or an invalid filter value.",
             "content": {
               "application/json": {
                 "schema": {

@@ -182,8 +182,12 @@ explain по legacy id; API выставляет компактную форму
 rollups.db (таблицы WITHOUT ROWID, агрегируются UPSERT на месте): `client_15m`,
 `client_host_1h`, `client_host_1d` (+ индекс `client_id, day`) — по клиентам;
 `unknown_15m`, `unknown_host_1h`, `unknown_host_1d` (с `bytes`) — по неописанным
-источникам; `facet_15m(bucket, client_id, source_ip, method, proxy_result, failed,
-requests)` — счётчики журнала для окон длиннее суток; `watermark(month, last_event_id)` — до какого события месяц свёрнут. Bucket
+источникам; `journal_1h(bucket, client_id, source_ip, host, port, method, failed,
+deny_reason, outcome, requests, bytes, last_ts)` — журнал по часам для окон длиннее
+суток (фасеты, причины отказов, домены; `outcome` — `d:<причина>` или
+`e:4xx|5xx|network`), со своей отметкой `journal_watermark(month, last_event_id)`:
+новая таблица досчитывается из сохранённых месячных файлов (прежняя `facet_15m`
+удаляется); `watermark(month, last_event_id)` — до какого события месяц свёрнут. Bucket
 хранится как unix-секунды. Rollup идемпотентен: падение между ingest и rollup
 даёт повтор с прежнего watermark; потеря rollups.db перестраивается из сырых
 месячных файлов при открытии.
@@ -197,7 +201,7 @@ requests)` — счётчики журнала для окон длиннее с
 месяц никогда не удаляется ретеншном.
 
 Retention: сырые события — 90 дней по возрасту и бюджет 5 GiB (oldest-first,
-текущий месяц не трогается); часовые агрегаты и `facet_15m` — 30 дней; 15-минутные и суточные
+текущий месяц не трогается); часовые агрегаты — 30 дней, `journal_1h` — 32 дня; 15-минутные и суточные
 агрегаты — 3 года. Audit управляющей БД — 3 года без лимита строк. Месячные файлы
 удаляются целиком (нет DELETE миллионов строк, VACUUM и фрагментации); агрегаты
 чистятся чанками по 5000 строк по составному PK.

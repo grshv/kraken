@@ -221,7 +221,7 @@ func (s *Server) eventFacets(w http.ResponseWriter, r *http.Request, v session) 
 	f, e := s.Telemetry.Facets(ctx, filter, step)
 	if e != nil {
 		if errors.Is(e, telemetry.ErrFacetsWindow) {
-			fail(w, 400, "invalid_filter", "Окно обязательно, не длиннее 7 суток и не больше 1440 корзин")
+			fail(w, 400, "invalid_filter", "Окно обязательно, не длиннее 31 суток и не больше 1440 корзин")
 			return
 		}
 		queryFailure(w, e)
@@ -469,7 +469,7 @@ func (s *Server) auditEvents(w http.ResponseWriter, r *http.Request, v session) 
 
 // eventDomains handles GET /events/domains: requests grouped by host over a
 // window with the same filters and scope as /events/facets (from and to are
-// required, at most 7 days), busiest first, with the busiest sources of each,
+// required, at most 31 days), busiest first, with the busiest sources of each,
 // plus totals for the journal summary: requests, denials, bytes, per client
 // and the number of distinct unmatched sources.
 func (s *Server) eventDomains(w http.ResponseWriter, r *http.Request, v session) {
@@ -482,7 +482,7 @@ func (s *Server) eventDomains(w http.ResponseWriter, r *http.Request, v session)
 	rep, e := s.Telemetry.Domains(ctx, filter)
 	if e != nil {
 		if errors.Is(e, telemetry.ErrFacetsWindow) {
-			fail(w, 400, "invalid_filter", "Окно обязательно и не длиннее 7 суток")
+			fail(w, 400, "invalid_filter", "Окно обязательно и не длиннее 31 суток")
 			return
 		}
 		queryFailure(w, e)

@@ -67,7 +67,7 @@ func TestOutcomesDenyReasonsAndSiteErrors(t *testing.T) {
 	if e != nil || len(p.Items) != 2 || p.Items[0].DenyReason == nil || *p.Items[0].DenyReason != "private" {
 		t.Fatalf("events by reason: %+v %v", p.Items, e)
 	}
-	if _, e := s.Outcomes(ctx, telemetry.EventQuery{From: base.Add(-8 * 24 * time.Hour), To: base}); e != telemetry.ErrFacetsWindow {
+	if _, e := s.Outcomes(ctx, telemetry.EventQuery{From: base.Add(-32 * 24 * time.Hour), To: base}); e != telemetry.ErrFacetsWindow {
 		t.Fatalf("window: %v", e)
 	}
 }

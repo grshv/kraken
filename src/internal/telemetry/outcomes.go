@@ -17,8 +17,8 @@ type Outcomes struct {
 	SiteErrors  map[string]int64
 }
 
-// Outcomes reads raw monthly files only (the rollups carry no reasons), so
-// the window is bounded like Facets.
+// Outcomes reads raw monthly files, or journal_1h for windows longer than a
+// day (longWindow); the window is bounded like Facets.
 func (t *Store) Outcomes(ctx context.Context, q EventQuery) (Outcomes, error) {
 	out := Outcomes{DenyReasons: map[string]int64{}, SiteErrors: map[string]int64{}}
 	if q.From.IsZero() || q.To.IsZero() || !q.To.After(q.From) || q.To.Sub(q.From) > facetsMaxWindow {
@@ -29,6 +29,9 @@ func (t *Store) Outcomes(ctx context.Context, q EventQuery) (Outcomes, error) {
 	}
 	if clientsOutsideScope(q) {
 		return out, nil
+	}
+	if longWindow(q) {
+		return out, t.outcomesLong(ctx, q, &out)
 	}
 	nets := parseNetworks(q.Scope)
 	where, args, destLike := buildEventWhere(q)

@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
-import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts";
+import {
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ReferenceArea,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import {
@@ -10,11 +17,13 @@ import {
   type ChartConfig,
 } from "@/components/ui/chart";
 import { dateTime, localTime } from "../model";
-import type { Filters } from "./filters";
+import type { Filters, Range } from "./filters";
 import { formatBytes, formatCount, type DomainsReport } from "./data";
 import type { FacetsResponse } from "./query";
 
-const config = {
+// Fixed chart id: see TRAFFIC_CHART_ID.
+export const SUMMARY_CHART_ID = "summary";
+export const summaryChartConfig = {
   allowed: { label: "Разрешено", color: "var(--s-allow)" },
   denied: { label: "Отказано", color: "var(--s-deny)" },
 } satisfies ChartConfig;
@@ -37,21 +46,26 @@ function remember(open: boolean) {
 
 // TrafficSummary: the whole picture for the journal's period and filters
 // (except the result filter) — totals, allowed/denied over time, top domains
-// and top clients. Every figure narrows the journal to the requests it counts.
+// and top clients. Every figure narrows the journal to the requests it counts;
+// dragging across the chart (or clicking a bar) zooms into that time.
 export function TrafficSummary({
   report,
   facets,
   f,
   patch,
   clientName,
+  onZoom,
 }: {
   report: DomainsReport | null;
   facets: FacetsResponse | null;
   f: Filters;
   patch: (p: Partial<Filters>) => void;
   clientName: (id: string | null) => string;
+  onZoom: (range: Range) => void;
 }) {
   const [open, setOpen] = useState(remembered);
+  // Drag selection on the chart: bucket starts under the pointer.
+  const [pick, setPick] = useState<{ a: string; b: string } | null>(null);
   const sum = report?.summary;
   const series = (facets?.histogram ?? []).map((b) => ({
     start: b.start,
@@ -62,6 +76,22 @@ export function TrafficSummary({
     series.length > 1 &&
     series[0].start.slice(0, 10) !==
       series[series.length - 1].start.slice(0, 10);
+  const step =
+    series.length > 1
+      ? Date.parse(series[1].start) - Date.parse(series[0].start)
+      : 60_000;
+  const zoom = () => {
+    if (!pick) return;
+    setPick(null);
+    const [a, b] = [Date.parse(pick.a), Date.parse(pick.b)].sort(
+      (x, y) => x - y,
+    );
+    if (!Number.isFinite(a) || !Number.isFinite(b)) return;
+    onZoom({
+      from: new Date(a).toISOString(),
+      to: new Date(b + step).toISOString(),
+    });
+  };
   const tick = (v: unknown) =>
     multiDay ? dateTime(String(v), false, true) : localTime(String(v), false);
   const period = f.period === "custom" ? "выбранный период" : f.period;
@@ -181,12 +211,28 @@ export function TrafficSummary({
               Запросы по времени
             </h3>
             <ChartContainer
-              config={config}
+              id={SUMMARY_CHART_ID}
+              config={summaryChartConfig}
               className="aspect-auto h-[92px] w-full"
             >
               <BarChart
                 data={series}
                 margin={{ top: 2, right: 0, bottom: 0, left: 0 }}
+                className="cursor-crosshair select-none"
+                onMouseDown={(s) =>
+                  s?.activeLabel != null &&
+                  setPick({
+                    a: String(s.activeLabel),
+                    b: String(s.activeLabel),
+                  })
+                }
+                onMouseMove={(s) =>
+                  pick &&
+                  s?.activeLabel != null &&
+                  setPick({ ...pick, b: String(s.activeLabel) })
+                }
+                onMouseUp={zoom}
+                onMouseLeave={() => setPick(null)}
               >
                 <CartesianGrid vertical={false} strokeDasharray="3 3" />
                 <XAxis
@@ -220,6 +266,14 @@ export function TrafficSummary({
                   fill="var(--color-denied)"
                   isAnimationActive={false}
                 />
+                {pick && (
+                  <ReferenceArea
+                    x1={pick.a}
+                    x2={pick.b}
+                    fill="var(--primary)"
+                    fillOpacity={0.12}
+                  />
+                )}
               </BarChart>
             </ChartContainer>
           </div>

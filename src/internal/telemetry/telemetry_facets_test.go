@@ -272,7 +272,7 @@ func TestFacetsWindowErrors(t *testing.T) {
 		{"missing to", telemetry.EventQuery{From: base}, time.Minute},
 		{"to before from", telemetry.EventQuery{From: base, To: base.Add(-time.Minute)}, time.Minute},
 		{"to equals from", telemetry.EventQuery{From: base, To: base}, time.Minute},
-		{"window over 7 days", telemetry.EventQuery{From: base, To: base.Add(7*24*time.Hour + time.Minute)}, time.Minute},
+		{"window over 31 days", telemetry.EventQuery{From: base, To: base.Add(31*24*time.Hour + time.Minute)}, time.Hour},
 		{"zero step", telemetry.EventQuery{From: base, To: base.Add(time.Minute)}, 0},
 		{"negative step", telemetry.EventQuery{From: base, To: base.Add(time.Minute)}, -time.Minute},
 		{"over 1440 buckets", telemetry.EventQuery{From: base, To: base.Add(24 * time.Hour)}, time.Second},

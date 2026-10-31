@@ -7,6 +7,7 @@ import {
   hashFor,
   logIntent,
   periodWindow,
+  shiftWindow,
   stateFromHash,
   toQuery,
   type Filters,
@@ -53,7 +54,9 @@ describe("toQuery", () => {
     expect(q.get("to")).toBe(NOW.toISOString());
     expect(q.get("from")).toBe("2026-10-28T13:00:00.000Z");
     expect(q.get("step")).toBe("15m");
-    expect(toQuery(f({ period: "1 ч" }), NOW, { step: true }).get("step")).toBe("1m");
+    expect(toQuery(f({ period: "1 ч" }), NOW, { step: true }).get("step")).toBe(
+      "1m",
+    );
     expect(
       toQuery(f({ period: "7 дн" }), NOW, { step: true }).get("step"),
     ).toBe("1h");
@@ -178,5 +181,50 @@ describe("destinations and units", () => {
     expect(fromMoscow(new Date(2026, 9, 27), "12:30")).toBe(
       "2026-10-27T09:30:00.000Z",
     );
+  });
+});
+
+describe("long windows and window navigation", () => {
+  const LATE = new Date("2026-10-29T13:25:10Z");
+  it("windows over a day snap to whole hours so the server uses its aggregate", () => {
+    const w = periodWindow(f({ period: "30 дн" }), LATE);
+    expect(w.to.toISOString()).toBe("2026-10-29T14:00:00.000Z");
+    expect(w.from.toISOString()).toBe("2026-09-29T14:00:00.000Z");
+    expect(
+      toQuery(f({ period: "30 дн" }), LATE, { step: true }).get("step"),
+    ).toBe("1h");
+    // A day or less stays exact.
+    expect(periodWindow(f({ period: "24 ч" }), LATE).to).toEqual(LATE);
+  });
+  it("a long custom range widens to hours but never past 31 days", () => {
+    const w = periodWindow(
+      f({
+        period: "custom",
+        range: { from: "2026-09-01T10:20:00Z", to: "2026-10-02T10:40:00Z" },
+      }),
+      LATE,
+    );
+    expect(w.to.toISOString()).toBe("2026-10-02T11:00:00.000Z");
+    expect(w.to.getTime() - w.from.getTime()).toBe(31 * 24 * 3600_000);
+  });
+  it("steps back by the window length and returns to live at now", () => {
+    const back = shiftWindow(f({ period: "24 ч" }), NOW, -1);
+    expect(back).toEqual({
+      period: "custom",
+      range: {
+        from: "2026-10-27T13:00:00.000Z",
+        to: "2026-10-28T13:00:00.000Z",
+      },
+    });
+    expect(shiftWindow(f(back), NOW, 1)).toEqual({
+      period: "24 ч",
+      range: undefined,
+    });
+    // A custom length without a preset stops at now.
+    const odd = f({
+      period: "custom",
+      range: { from: "2026-10-29T10:00:00Z", to: "2026-10-29T12:00:00Z" },
+    });
+    expect(shiftWindow(odd, NOW, 1).range?.to).toBe(NOW.toISOString());
   });
 });

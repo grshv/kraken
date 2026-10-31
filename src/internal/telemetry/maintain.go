@@ -103,11 +103,13 @@ func (t *Store) deleteMonth(key string) {
 }
 
 // trimAggregates deletes expired aggregate rows in 5000-row chunks. Hourly
-// tables use HourlyRetention; daily tables use RollupRetention.
+// tables use HourlyRetention, journal_1h at least journalRetention; daily
+// tables use RollupRetention.
 func (t *Store) trimAggregates(ctx context.Context) error {
 	nowSecs := t.now().Unix()
 	hourlyCut := nowSecs - int64(t.opts.HourlyRetention.Seconds())
 	rollCut := nowSecs - int64(t.opts.RollupRetention.Seconds())
+	journalCut := nowSecs - int64(max(t.opts.HourlyRetention, journalRetention).Seconds())
 	for _, spec := range []struct {
 		table string
 		col   string
@@ -120,7 +122,7 @@ func (t *Store) trimAggregates(ctx context.Context) error {
 		{"unknown_host_1d", "day", rollCut, []string{"day", "source_ip", "host"}},
 		{"client_15m", "bucket", rollCut, []string{"bucket", "client_id"}},
 		{"unknown_15m", "bucket", rollCut, []string{"bucket", "source_ip"}},
-		{"facet_15m", "bucket", hourlyCut, []string{"bucket", "client_id", "source_ip", "method", "proxy_result", "failed"}},
+		{"journal_1h", "bucket", journalCut, []string{"bucket", "client_id", "source_ip", "host", "port", "method", "failed", "deny_reason", "outcome"}},
 	} {
 		if e := t.trimTable(ctx, spec.table, spec.col, spec.cut, spec.pk...); e != nil {
 			return e

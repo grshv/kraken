@@ -24,6 +24,7 @@ import (
 	"syscall"
 	"time"
 
+	"kraken.local/kraken/internal/csp"
 	"kraken.local/kraken/internal/policy"
 	local "kraken.local/kraken/internal/runtime"
 	"kraken.local/kraken/internal/store"
@@ -75,7 +76,10 @@ type Server struct {
 	Runtime           *local.Manager
 	Origin            string
 	Static            http.Handler
-	Image             string
+	// StyleHashes admit the fixed inline styles of the web components in the CSP
+	// (csp.Header); cmd/control reads them from the embedded web build.
+	StyleHashes []string
+	Image       string
 	// now returns the current time for inspector windowing. Production uses
 	// time.Now; tests override it to assert window boundaries deterministically.
 	now          func() time.Time
@@ -372,7 +376,10 @@ func (s *Server) Handler() http.Handler {
 		// only effective once the operator submits the host to the HSTS preload
 		// list; the directive itself is harmless for closed single-host deploys.
 		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
-		w.Header().Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'")
+		// A fresh nonce per response; the page handler writes it into index.html.
+		nonce := csp.NewNonce()
+		r = r.WithContext(csp.WithNonce(r.Context(), nonce))
+		w.Header().Set("Content-Security-Policy", csp.Header(nonce, s.StyleHashes))
 		rw := &statusRecorder{ResponseWriter: w, status: 200}
 		defer func() {
 			if rv := recover(); rv != nil {

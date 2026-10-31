@@ -44,7 +44,6 @@ function ChartContainer({
   children,
   config,
   initialDimension = INITIAL_DIMENSION,
-  style,
   ...props
 }: React.ComponentProps<"div"> & {
   config: ChartConfig;
@@ -68,9 +67,9 @@ function ChartContainer({
           "flex aspect-video justify-center text-xs [&_.recharts-cartesian-axis-tick_text]:fill-muted-foreground [&_.recharts-cartesian-grid_line[stroke='#ccc']]:stroke-border/50 [&_.recharts-curve.recharts-tooltip-cursor]:stroke-border [&_.recharts-dot[stroke='#fff']]:stroke-transparent [&_.recharts-layer]:outline-hidden [&_.recharts-polar-grid_[stroke='#ccc']]:stroke-border [&_.recharts-radial-bar-background-sector]:fill-muted [&_.recharts-rectangle.recharts-tooltip-cursor]:fill-muted [&_.recharts-reference-line_[stroke='#ccc']]:stroke-border [&_.recharts-sector]:outline-hidden [&_.recharts-sector[stroke='#fff']]:stroke-transparent [&_.recharts-surface]:outline-hidden",
           className,
         )}
-        style={{ ...chartColors(config), ...style }}
         {...props}
       >
+        <ChartStyle id={chartId} config={config} />
         <RechartsPrimitive.ResponsiveContainer
           initialDimension={initialDimension}
         >
@@ -79,18 +78,6 @@ function ChartContainer({
       </div>
     </ChartContext.Provider>
   );
-}
-
-// chartColors sets --color-<key> on the container. The panel's CSP forbids
-// inline <style> (ChartStyle), so colours come through the style property;
-// theme pairs are not used — colours are theme tokens (var(--s-allow)).
-function chartColors(config: ChartConfig): React.CSSProperties {
-  const vars: Record<string, string> = {};
-  for (const [key, item] of Object.entries(config)) {
-    const color = item.color ?? item.theme?.light;
-    if (color) vars[`--color-${key}`] = color;
-  }
-  return vars as React.CSSProperties;
 }
 
 const ChartStyle = ({ id, config }: { id: string; config: ChartConfig }) => {

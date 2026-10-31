@@ -54,7 +54,7 @@ export function fromMoscow(day: Date, time: string): string {
 }
 
 // DateRangePicker: a custom journal period, picked as days and times in
-// Moscow time; the server limits the window to 7 days.
+// Moscow time; the server limits the window to 31 days.
 export function DateRangePicker({
   value,
   onChange,
@@ -91,7 +91,7 @@ export function DateRangePicker({
       return;
     }
     if (span > MAX_RANGE_MS) {
-      setError("Период не длиннее 7 суток");
+      setError("Период не длиннее 31 суток");
       return;
     }
     onChange({ from, to });

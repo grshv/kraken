@@ -2,6 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowRight,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Pause,
   Play,
   Plus,
@@ -76,8 +78,10 @@ import {
   PERIODS,
   defaultFilters,
   hashFor,
+  isLive,
   logIntent,
   periodWindow,
+  shiftWindow,
   stateFromHash,
   toQuery,
   type FilterKey,
@@ -655,6 +659,7 @@ export function Journal(props: JournalProps) {
       )}
       {journal && (
         <TrafficSummary
+          onZoom={(r) => patch({ period: "custom", range: r })}
           report={summary ?? null}
           facets={resultFacets ?? null}
           f={f}
@@ -663,9 +668,42 @@ export function Journal(props: JournalProps) {
         />
       )}
       <div className="flex min-h-8 flex-wrap items-center gap-3 px-4 py-2 text-sm text-muted-foreground">
+        <span className="flex items-center gap-1">
+          {total} ·
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Предыдущее окно"
+            title="Предыдущее окно"
+            onClick={() => patch(shiftWindow(f, now, -1))}
+          >
+            <ChevronLeft />
+          </Button>
+          <span className="tabular-nums">
+            {dateTime(range.from.toISOString(), false)} —{" "}
+            {dateTime(range.to.toISOString(), false)} МСК
+          </span>
+          <Button
+            size="icon-xs"
+            variant="ghost"
+            aria-label="Следующее окно"
+            title="Следующее окно"
+            disabled={isLive(f)}
+            onClick={() => patch(shiftWindow(f, now, 1))}
+          >
+            <ChevronRight />
+          </Button>
+          {!isLive(f) && (
+            <Button
+              size="xs"
+              variant="ghost"
+              onClick={() => patch({ period: "24 ч", range: undefined })}
+            >
+              Сейчас
+            </Button>
+          )}
+        </span>
         <span>
-          {total} · {dateTime(range.from.toISOString(), false)} —{" "}
-          {dateTime(range.to.toISOString(), false)} МСК
           {view === "domains" &&
             report?.truncated &&
             " · показаны самые частые"}

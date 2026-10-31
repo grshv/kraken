@@ -25,7 +25,10 @@ export type Bucket = {
   denied: number;
   bytes: number;
 };
-const config = {
+// The chart id is fixed so its colour <style> is the same text everywhere and
+// the CSP can allow it by hash (csp-style-hashes.json).
+export const TRAFFIC_CHART_ID = "traffic";
+export const trafficChartConfig = {
   allowed: { label: "Разрешено, запросов за 15 мин", color: "var(--s-allow)" },
   denied: { label: "Отказы, за 15 мин", color: "var(--s-deny)" },
   requests: { label: "Запросы", color: "var(--s-allow)" },
@@ -51,7 +54,8 @@ export function TrafficChart({
   return (
     <div className="space-y-2">
       <ChartContainer
-        config={config}
+        id={TRAFFIC_CHART_ID}
+        config={trafficChartConfig}
         className="aspect-auto w-full"
         style={{ height: height + 28 }}
       >
@@ -92,7 +96,11 @@ export function TrafficChart({
           />
         </AreaChart>
       </ChartContainer>
-      <ChartContainer config={config} className="h-[100px] w-full aspect-auto">
+      <ChartContainer
+        id={TRAFFIC_CHART_ID}
+        config={trafficChartConfig}
+        className="h-[100px] w-full aspect-auto"
+      >
         <BarChart
           data={data}
           syncId={syncId}
@@ -150,7 +158,8 @@ export function Sparkline({ series = [] }: { series?: Bucket[] }) {
   );
   return (
     <ChartContainer
-      config={config}
+      id={TRAFFIC_CHART_ID}
+      config={trafficChartConfig}
       className="h-[18px] w-14 min-h-0 aspect-auto"
       aria-hidden
     >

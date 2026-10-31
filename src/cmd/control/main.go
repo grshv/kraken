@@ -272,6 +272,7 @@ func run() error {
 			return e
 		}
 		s.PanelCert = env("KRAKEN_PANEL_CERT", filepath.Join(stateDir(), "certs", "panel.crt"))
+		s.StyleHashes = web.StyleHashes()
 		// RotateGate prevents log rotation while the collector is behind: a
 		// rotate during backlog loses still-unread records. Rotation proceeds
 		// when the latest checkpoint shows Backlog==false, or when the log has

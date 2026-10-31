@@ -26,6 +26,9 @@ func (t *Store) Rollup(ctx context.Context) (int, error) {
 		if e != nil {
 			return total, e
 		}
+		if _, e := t.rollupJournal(ctx, key); e != nil {
+			return total, e
+		}
 		total += n
 	}
 	return total, nil
@@ -64,22 +67,21 @@ func (t *Store) rollupMonth(ctx context.Context, key string) (int, error) {
 	uh1d := map[int64]map[string]map[string]*Counts{}
 	uh1hSeen := map[int64]map[string]map[string]int64{}
 	uh1dSeen := map[int64]map[string]map[string]int64{}
-	facet15m := map[int64]map[facetKey]int64{} // bucket -> facetkey -> requests
 	counted := 0
 	e = t.monthReader(mf, ctx, func(r *sql.DB) error {
-		rows, e := r.QueryContext(ctx, `SELECT e.id,e.ts,e.client_id,e.source_ip,h.name,e.bytes,e.failed,e.method,e.result,e.count FROM event e JOIN host h ON h.id=e.host_id WHERE e.id>? ORDER BY e.id`, last)
+		rows, e := r.QueryContext(ctx, `SELECT e.id,e.ts,e.client_id,e.source_ip,h.name,e.bytes,e.failed,e.count FROM event e JOIN host h ON h.id=e.host_id WHERE e.id>? ORDER BY e.id`, last)
 		if e != nil {
 			return e
 		}
 		defer rows.Close()
 		for rows.Next() {
 			var id, ts int64
-			var clientIDNS, methodNS, resultNS sql.NullString
+			var clientIDNS sql.NullString
 			var sourceIP, hostName string
 			var bytes int64
 			var failed int
 			var count int64
-			if e = rows.Scan(&id, &ts, &clientIDNS, &sourceIP, &hostName, &bytes, &failed, &methodNS, &resultNS, &count); e != nil {
+			if e = rows.Scan(&id, &ts, &clientIDNS, &sourceIP, &hostName, &bytes, &failed, &count); e != nil {
 				return e
 			}
 			last = id
@@ -105,24 +107,6 @@ func (t *Store) rollupMonth(ctx context.Context, key string) (int, error) {
 				recordSeen(uh1hSeen, h1, sourceIP, hostName, ts)
 				recordSeen(uh1dSeen, d1, sourceIP, hostName, ts)
 			}
-			// Facet aggregate: known-client rows carry client_id and '' source;
-			// unknown rows carry '' client_id and the source_ip. Method/result
-			// default to '' when NULL so the key is stable.
-			fk := facetKey{
-				clientID: clientID,
-				method:   methodNS.String,
-				result:   resultNS.String,
-				failed:   failed != 0,
-			}
-			if clientID == "" {
-				fk.sourceIP = sourceIP
-			}
-			fm, ok := facet15m[b15]
-			if !ok {
-				fm = map[facetKey]int64{}
-				facet15m[b15] = fm
-			}
-			fm[fk] += count
 		}
 		return rows.Err()
 	})
@@ -148,9 +132,6 @@ func (t *Store) rollupMonth(ctx context.Context, key string) (int, error) {
 		return 0, e
 	}
 	if e := write15m(ctx, tx, u15m, "unknown_15m", "source_ip"); e != nil {
-		return 0, e
-	}
-	if e := writeFacet15m(ctx, tx, facet15m); e != nil {
 		return 0, e
 	}
 	if e := writeHostTable(ctx, tx, ch1h, "client_host_1h", "bucket", "client_id", false, nil); e != nil {
@@ -301,62 +282,6 @@ func write15m(ctx context.Context, tx *sql.Tx, m map[int64]map[string]*Counts, t
 	return nil
 }
 
-// facetKey is the composite dimension of the facet_15m aggregate: client_id
-// (” for unknown sources), source_ip (” for known clients), method,
-// proxy_result and failed. Known-client rows carry client_id and ” source;
-// unknown rows carry ” client_id and the source IP.
-type facetKey struct {
-	clientID, sourceIP, method, result string
-	failed                             bool
-}
-
-// writeFacet15m writes the facet_15m aggregate table with UPSERT accumulation.
-func writeFacet15m(ctx context.Context, tx *sql.Tx, m map[int64]map[facetKey]int64) error {
-	stmt, e := tx.PrepareContext(ctx, "INSERT INTO facet_15m(bucket,client_id,source_ip,method,proxy_result,failed,requests) VALUES(?,?,?,?,?,?,?) ON CONFLICT(bucket,client_id,source_ip,method,proxy_result,failed) DO UPDATE SET requests=requests+excluded.requests")
-	if e != nil {
-		return e
-	}
-	defer stmt.Close()
-	buckets := make([]int64, 0, len(m))
-	for b := range m {
-		buckets = append(buckets, b)
-	}
-	sort.Slice(buckets, func(i, j int) bool { return buckets[i] < buckets[j] })
-	for _, b := range buckets {
-		fm := m[b]
-		keys := make([]facetKey, 0, len(fm))
-		for k := range fm {
-			keys = append(keys, k)
-		}
-		sort.Slice(keys, func(i, j int) bool {
-			ki, kj := keys[i], keys[j]
-			if ki.clientID != kj.clientID {
-				return ki.clientID < kj.clientID
-			}
-			if ki.sourceIP != kj.sourceIP {
-				return ki.sourceIP < kj.sourceIP
-			}
-			if ki.method != kj.method {
-				return ki.method < kj.method
-			}
-			if ki.result != kj.result {
-				return ki.result < kj.result
-			}
-			return !ki.failed && kj.failed
-		})
-		for _, k := range keys {
-			fail := 0
-			if k.failed {
-				fail = 1
-			}
-			if _, e := stmt.ExecContext(ctx, b, k.clientID, k.sourceIP, k.method, k.result, fail, fm[k]); e != nil {
-				return e
-			}
-		}
-	}
-	return nil
-}
-
 func writeHostTable(ctx context.Context, tx *sql.Tx, m map[int64]map[string]map[string]*Counts, table, col, keyCol string, withSeen bool, seen ...map[int64]map[string]map[string]int64) error {
 	var stmt *sql.Stmt
 	var e error
@@ -437,8 +362,14 @@ func (t *Store) rebuildRollups() error {
 	if _, e := t.rollWriter.ExecContext(ctx, "DELETE FROM watermark"); e != nil {
 		return e
 	}
+	if _, e := t.rollWriter.ExecContext(ctx, "DELETE FROM journal_watermark"); e != nil {
+		return e
+	}
 	for _, key := range t.listMonths() {
 		if _, e := t.rollupMonth(ctx, key); e != nil {
+			return e
+		}
+		if _, e := t.rollupJournal(ctx, key); e != nil {
 			return e
 		}
 	}
@@ -450,8 +381,14 @@ func (t *Store) rollupRebuildForTest(ctx context.Context) error {
 	if _, e := t.rollWriter.ExecContext(ctx, "DELETE FROM watermark"); e != nil {
 		return e
 	}
+	if _, e := t.rollWriter.ExecContext(ctx, "DELETE FROM journal_watermark"); e != nil {
+		return e
+	}
 	for _, key := range t.listMonths() {
 		if _, e := t.rollupMonth(ctx, key); e != nil {
+			return e
+		}
+		if _, e := t.rollupJournal(ctx, key); e != nil {
 			return e
 		}
 	}
