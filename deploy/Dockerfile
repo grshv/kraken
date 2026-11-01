@@ -15,7 +15,13 @@ COPY --from=web /build/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -o /out/kraken ./cmd/control
 RUN GOBIN=/out CGO_ENABLED=0 go install github.com/canonical/pebble/cmd/pebble@v1.33.2
 
+# Tests run unprivileged like the panel (UID 10013): root would ignore the
+# read-only directories that failure tests rely on. Run-directory tests take
+# their tmpfs from /dev/shm themselves.
 FROM build AS verify
+RUN useradd -m -u 10013 tester && chown -R tester /build
+USER tester
+ENV GOCACHE=/home/tester/.cache/go-build
 RUN go test -race ./... && go vet ./...
 
 # Squid is built from the upstream release tarball (ADR 0019): unpatched, with

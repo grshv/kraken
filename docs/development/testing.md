@@ -42,7 +42,9 @@ React-мок проверяется отдельно: `npm --prefix src/prototyp
 `make scan` — проверка уязвимостей и секретов, а не тест поведения; описана в
 [local-development](../operations/local-development.md#проверки-разработчика).
 CI: `.github/workflows/docs.yml` запускает docs-check; `image.yml` на каждой из
-архитектур amd64 и arm64 (нативные раннеры) собирает verify-стадию и образ, гоняет
+архитектур amd64 и arm64 (нативные раннеры) собирает verify-стадию (`go test -race`
+и `go vet` от непривилегированного UID 10013, иначе root обходит проверки прав;
+тесты каталога запуска берут tmpfs из `/dev/shm`) и образ, гоняет
 `make integration` и `make scan`, сохраняет SBOM артефактом. Для `main` и тегов `v*`
 проверенные образы уходят в GHCR и собираются в один multi-arch тег.
 

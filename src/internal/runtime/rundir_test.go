@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	goruntime "runtime"
 	"syscall"
 	"testing"
 )
@@ -11,7 +12,7 @@ import (
 // TestPrepareRunDirSetsSetgid checks that the run directory is created with the
 // setgid bit and mode 0750 so files created inside inherit the proxy group.
 func TestPrepareRunDirSetsSetgid(t *testing.T) {
-	parent := t.TempDir()
+	parent := tmpfsTempDir(t)
 	dir := filepath.Join(parent, "run")
 	if e := PrepareRunDir(dir); e != nil {
 		t.Fatal(e)
@@ -31,7 +32,7 @@ func TestPrepareRunDirSetsSetgid(t *testing.T) {
 // TestPrepareRunDirFixesMissingSetgid checks that an existing directory without
 // the setgid bit gets it applied when PrepareRunDir runs.
 func TestPrepareRunDirFixesMissingSetgid(t *testing.T) {
-	parent := t.TempDir()
+	parent := tmpfsTempDir(t)
 	dir := filepath.Join(parent, "run")
 	if e := os.Mkdir(dir, 0o770); e != nil {
 		t.Fatal(e)
@@ -82,7 +83,7 @@ func TestPersistChownsDerivativeFiles(t *testing.T) {
 // created 0700, a dead PID file is removed, and a directory with group access
 // is rejected.
 func TestPrepareSquidRunDirPrivateAndStalePID(t *testing.T) {
-	dir := filepath.Join(t.TempDir(), "squid")
+	dir := filepath.Join(tmpfsTempDir(t), "squid")
 	if e := PrepareSquidRunDir(dir); e != nil {
 		t.Fatal(e)
 	}
@@ -117,4 +118,20 @@ func TestRunDirModeIsReadOnlyForGroup(t *testing.T) {
 	if runDirMode.Perm()&0o020 != 0 {
 		t.Fatalf("run directory mode %v grants group write", runDirMode)
 	}
+}
+
+// tmpfsTempDir returns a temporary directory for run-directory tests. On
+// Linux PrepareRunDir requires tmpfs, so the directory is made under /dev/shm
+// (tmpfs on Linux hosts and in containers); elsewhere t.TempDir is enough.
+func tmpfsTempDir(t *testing.T) string {
+	t.Helper()
+	if goruntime.GOOS != "linux" {
+		return t.TempDir()
+	}
+	dir, e := os.MkdirTemp("/dev/shm", "kraken-rundir-test-")
+	if e != nil {
+		t.Skipf("no writable /dev/shm for a tmpfs run directory: %v", e)
+	}
+	t.Cleanup(func() { os.RemoveAll(dir) })
+	return dir
 }

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -86,7 +87,13 @@ func TestRejectsNonCycloneDX(t *testing.T) {
 }
 
 func TestRealDockerfileHasSquidVersion(t *testing.T) {
-	if _, e := squidVersion("../../../deploy/Dockerfile"); e != nil {
+	const path = "../../../deploy/Dockerfile"
+	if _, e := os.Stat(path); errors.Is(e, os.ErrNotExist) {
+		// The verify stage of the image sees only src/; make scan reads the
+		// real Dockerfile there and fails without a single ARG SQUID_VERSION.
+		t.Skip("deploy/Dockerfile is outside the build context")
+	}
+	if _, e := squidVersion(path); e != nil {
 		t.Fatal(e)
 	}
 }
