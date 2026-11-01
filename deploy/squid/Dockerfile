@@ -7,7 +7,7 @@
 # installed tree; the panel image copies it onto the same Alpine release.
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
 # renovate: datasource=github-releases depName=squid-cache/squid versioning=regex:^SQUID_(?<major>\d+)_(?<minor>\d+)$
-ARG SQUID_TAG=SQUID_7_7
+ARG SQUID_TAG=SQUID_7_8
 COPY squid-keys.asc /tmp/squid-keys.asc
 RUN apk add --no-cache --virtual .squid-build build-base perl openssl-dev libcap-dev libtool linux-headers curl gnupg xz \
     && version="$(echo "${SQUID_TAG#SQUID_}" | tr '_' '.')" \
