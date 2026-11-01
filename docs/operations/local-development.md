@@ -112,6 +112,18 @@ identities синтетические. Доступ к интернету нуж
 не для проверки HTTP origins. Web unit-тесты (`npm --prefix src/web run test`)
 гоняют vitest без браузера и образа; браузерных e2e нет.
 
+`make scan` (нужен собранный `kraken:dev`, другой тег — `IMAGE=`) проверяет
+каждую стадию сборки там, где её содержимое видно: `scan-go` — govulncheck по
+исходникам Go с достижимостью вызовов и по бинарнику `pebble` из образа;
+`scan-sbom` — syft строит CycloneDX финального образа (пакеты Alpine, Go-модули
+`kraken` и `pebble`) и production-зависимостей `src/web/package-lock.json`
+(они вшиты в бандл и в образе не видны), `src/tools/sbom` сливает их и добавляет
+Squid с CPE `squid-cache:squid:<ARG SQUID_VERSION>` (собран из исходников, без
+метаданных пакета), grype проверяет общий SBOM и падает на high; `scan-secrets` —
+gitleaks по всей git-истории. Сканеры запускаются из образов, закреплённых по digest;
+образ передаётся syft архивом, без Docker socket. Принятые находки с причиной —
+`deploy/grype.yaml` и `.gitleaksignore`. SBOM остаётся в `dist/scan/sbom.cdx.json`.
+
 `make integration RUN=TestOps` (`ops_test.go`) поднимает отдельные
 disposable контейнеры/сети/volumes с уникальным префиксом и проверяет
 процедуры runbook на образе `kraken:ops` (`docker build -f deploy/Dockerfile

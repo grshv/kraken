@@ -36,6 +36,11 @@ React-мок проверяется отдельно: `npm --prefix docs/product
 В браузере сравнивается высота строки счётчика и меток до, после добавления и после
 снятия фильтра в журнале и запросах клиента; отдельно проверяется несколько меток.
 Тесты пакета `src/tools/docs-check` покрывают ошибку каждого вида на фикстурах.
+Тесты `src/tools/sbom` проверяют слияние SBOM: web-компоненты и Squid с CPE
+добавляются один раз, версия Squid берётся из единственного `ARG SQUID_VERSION`
+реального Dockerfile, не-CycloneDX и повторённая или нечисловая версия отклоняются.
+`make scan` — проверка уязвимостей и секретов, а не тест поведения; описана в
+[local-development](../operations/local-development.md#проверки-разработчика).
 CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` — verify-сборку,
 образ и `make integration`.
 

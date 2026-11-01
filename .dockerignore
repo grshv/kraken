@@ -9,3 +9,4 @@ secrets
 *.pem
 data
 bin
+dist

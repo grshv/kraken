@@ -1,0 +1,4 @@
+# False positives of make scan-secrets (gitleaks generic-api-key), by fingerprint.
+# Idempotency-Key values "test-outcome-failure-00N" in an HTTP API test.
+41f5fd4aa4e76a47255e540c5977fc580bbbbfaa:src/internal/httpapi/configuration_test.go:generic-api-key:72
+41f5fd4aa4e76a47255e540c5977fc580bbbbfaa:src/internal/httpapi/configuration_test.go:generic-api-key:82

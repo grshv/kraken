@@ -1,0 +1,9 @@
+# Accepted findings of make scan-sbom. Each rule names one vulnerability and
+# package with the reason; recheck the reason when the package changes.
+ignore:
+  # golang.org/x/crypto/openpgp is unmaintained and will not be fixed. Kraken
+  # does not import it (govulncheck in make scan-go: no reachable call).
+  - vulnerability: GO-2026-5932
+    package:
+      name: golang.org/x/crypto
+      type: go-module
