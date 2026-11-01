@@ -15,6 +15,7 @@ concurrency:
   cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
 env:
   REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+  CACHE_IMAGE: ghcr.io/${{ github.repository }}-buildcache
   PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
 jobs:
   build:
@@ -37,12 +38,35 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0 # gitleaks in make scan reads the whole history
-      - name: Go tests and embedded UI in the pinned builder
-        run: docker build --target verify -f deploy/Dockerfile -t kraken:verify .
-      - name: Build image
-        run: >-
-          docker build -f deploy/Dockerfile -t kraken:dev
-          --label org.opencontainers.image.revision=${{ github.sha }} .
+      - name: Log in to GHCR
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # Without a login the build still runs, only without the layer cache.
+        run: echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || true
+      - name: Go tests and image in one BuildKit builder
+        # verify (go test -race, go vet) and the image build run in parallel on
+        # one builder, so the shared build stage runs once. The Squid stage (one
+        # small layer) comes from a registry cache per architecture and compiles
+        # only when its version or build step changes; main and tags refresh it.
+        run: |
+          docker buildx create --name kraken --driver docker-container --use >/dev/null
+          cache="$CACHE_IMAGE:squid-${{ matrix.arch }}"
+          docker buildx build --progress=plain --target verify -f deploy/Dockerfile . > verify.log 2>&1 &
+          verify=$!
+          docker buildx build --progress=plain --cache-from "type=registry,ref=$cache" --load -t kraken:dev \
+            --label org.opencontainers.image.revision=${{ github.sha }} -f deploy/Dockerfile .
+          if ! wait "$verify"; then
+            tail -n 200 verify.log
+            echo "::error::verify stage failed (go test -race / go vet)"
+            exit 1
+          fi
+          grep -E '^#[0-9]+ [0-9.]+ (ok|---|FAIL)' verify.log | tail -n 40 || true
+          if [ "$PUBLISH" = true ]; then
+            docker buildx build --progress=plain --target squid \
+              --cache-from "type=registry,ref=$cache" \
+              --cache-to "type=registry,ref=$cache,mode=max,image-manifest=true,oci-mediatypes=true" \
+              -f deploy/Dockerfile .
+          fi
       - name: Integration tests on real Squid
         run: make integration
       - name: Vulnerability and secret scan
@@ -55,10 +79,7 @@ jobs:
           if-no-files-found: error
       - name: Push per-arch image
         if: env.PUBLISH == 'true'
-        env:
-          TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
           ref="$REGISTRY_IMAGE:sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
           docker tag kraken:dev "$ref"
           docker push "$ref"

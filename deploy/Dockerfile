@@ -27,11 +27,14 @@ RUN go test -race ./... && go vet ./...
 # Squid is built from the upstream release tarball (ADR 0019): unpatched, with
 # only installation paths, --with-openssl, the default user and
 # --disable-strict-error-checking. The compiler and headers stay out of runtime.
+# One RUN installs the toolchain, builds and removes the toolchain and sources,
+# so the stage is a single small layer (/out): CI caches it in the registry
+# and compiles Squid only when the version or this step changes.
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS squid
 ARG SQUID_VERSION=7.7
 ARG SQUID_SHA256=1a748b91722259e986f17d85e0da9d9403054a50bc20f78394ff90e46ef55601
-RUN apk add --no-cache build-base perl openssl-dev libcap-dev libtool linux-headers curl
-RUN tag="SQUID_$(echo "$SQUID_VERSION" | tr '.' '_')" \
+RUN apk add --no-cache --virtual .squid-build build-base perl openssl-dev libcap-dev libtool linux-headers curl \
+    && tag="SQUID_$(echo "$SQUID_VERSION" | tr '.' '_')" \
     && curl -fsSL -o /squid.tar.bz2 "https://github.com/squid-cache/squid/releases/download/${tag}/squid-${SQUID_VERSION}.tar.bz2" \
     && echo "${SQUID_SHA256}  /squid.tar.bz2" | sha256sum -c - \
     && mkdir /src && tar -xjf /squid.tar.bz2 -C /src \
@@ -39,7 +42,8 @@ RUN tag="SQUID_$(echo "$SQUID_VERSION" | tr '.' '_')" \
     && ./configure --prefix=/usr --sysconfdir=/etc/squid --localstatedir=/var --libexecdir=/usr/lib/squid --datadir=/usr/share/squid --with-default-user=proxy --with-openssl --disable-strict-error-checking \
     && make -j"$(nproc)" \
     && make install-strip DESTDIR=/out \
-    && rm -rf /out/var
+    && rm -rf /out/var \
+    && cd / && rm -rf /src /squid.tar.bz2 && apk del --no-cache .squid-build
 
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 # The source label links the GHCR package to the repository; CI adds the revision.
