@@ -31,6 +31,9 @@ docker exec -it kraken kraken dev-cert                        # самоподп
 docker exec -it kraken kraken bootstrap --username admin      # первый администратор
 ```
 
+Вместо `make image` можно взять опубликованный образ (amd64 и arm64):
+`KRAKEN_IMAGE=ghcr.io/grshv/kraken:main docker compose -f deploy/compose.yaml up -d --no-build`.
+
 Панель — [https://localhost:8443](https://localhost:8443), прокси — `localhost:3128`.
 Пароль вводится без эха и передаётся через stdin; пароля по умолчанию нет, в БД хранится
 только Argon2id. Порты публикуются на loopback; для клиентов из сети задайте адреса в

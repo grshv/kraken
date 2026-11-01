@@ -41,8 +41,10 @@ React-мок проверяется отдельно: `npm --prefix src/prototyp
 реального Dockerfile, не-CycloneDX и повторённая или нечисловая версия отклоняются.
 `make scan` — проверка уязвимостей и секретов, а не тест поведения; описана в
 [local-development](../operations/local-development.md#проверки-разработчика).
-CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` — verify-сборку,
-образ и `make integration`.
+CI: `.github/workflows/docs.yml` запускает docs-check; `image.yml` на каждой из
+архитектур amd64 и arm64 (нативные раннеры) собирает verify-стадию и образ, гоняет
+`make integration` и `make scan`, сохраняет SBOM артефактом. Для `main` и тегов `v*`
+проверенные образы уходят в GHCR и собираются в один multi-arch тег.
 
 ## Go-тесты по пакетам
 

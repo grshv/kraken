@@ -1,0 +1,87 @@
+name: Image
+# Builds, tests and scans the image natively on amd64 and arm64. On main and on
+# v* tags the tested per-arch images go to GHCR and are joined into one
+# multi-arch tag. Pull requests and other branches only build and test.
+on:
+  push:
+    branches: ["**"]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: image-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+env:
+  REGISTRY_IMAGE: ghcr.io/${{ github.repository }}
+  PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
+jobs:
+  build:
+    name: build-${{ matrix.arch }}
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0 # gitleaks in make scan reads the whole history
+      - name: Go tests and embedded UI in the pinned builder
+        run: docker build --target verify -f deploy/Dockerfile -t kraken:verify .
+      - name: Build image
+        run: >-
+          docker build -f deploy/Dockerfile -t kraken:dev
+          --label org.opencontainers.image.revision=${{ github.sha }} .
+      - name: Integration tests on real Squid
+        run: make integration
+      - name: Vulnerability and secret scan
+        run: make scan
+      - name: Keep SBOM
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: sbom-${{ matrix.arch }}
+          path: dist/scan/sbom.cdx.json
+          if-no-files-found: error
+      - name: Push per-arch image
+        if: env.PUBLISH == 'true'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          ref="$REGISTRY_IMAGE:sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
+          docker tag kraken:dev "$ref"
+          docker push "$ref"
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Multi-arch tags
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          sha="sha-${GITHUB_SHA::12}"
+          tags=(-t "$REGISTRY_IMAGE:$sha")
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            tags+=(-t "$REGISTRY_IMAGE:${GITHUB_REF_NAME#v}" -t "$REGISTRY_IMAGE:latest")
+          else
+            tags+=(-t "$REGISTRY_IMAGE:main")
+          fi
+          docker buildx imagetools create "${tags[@]}" "$REGISTRY_IMAGE:$sha-amd64" "$REGISTRY_IMAGE:$sha-arm64"
+          docker buildx imagetools inspect "$REGISTRY_IMAGE:$sha"

@@ -36,6 +36,10 @@ RUN tag="SQUID_$(echo "$SQUID_VERSION" | tr '.' '_')" \
     && rm -rf /out/var
 
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+# The source label links the GHCR package to the repository; CI adds the revision.
+LABEL org.opencontainers.image.title="Kraken" \
+      org.opencontainers.image.description="Web panel for outbound client access through Squid" \
+      org.opencontainers.image.source="https://github.com/grshv/kraken"
 COPY --from=squid /out/ /
 COPY --from=build /out/kraken /usr/local/bin/kraken
 COPY --from=build /out/pebble /usr/local/bin/pebble
