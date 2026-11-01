@@ -126,8 +126,8 @@ identities синтетические. Доступ к интернету нуж
 бинарнику `pebble` из образа, затем syft строит CycloneDX финального образа (пакеты Alpine, Go-модули
 `kraken` и `pebble`) и production-зависимостей `src/web/package-lock.json`
 (они вшиты в бандл и в образе не видны), `src/tools/sbom` сливает их и добавляет
-Squid с CPE `squid-cache:squid:<версия из ARG SQUID_TAG в deploy/squid>` (собран из исходников, без
-метаданных пакета), grype проверяет общий SBOM и падает на high; `scan-secrets` —
+Squid с CPE `squid-cache:squid:<версия из squid -v в сканируемом образе>` (собран из
+исходников, без метаданных пакета; версия берётся из самого образа, а не из Dockerfile), grype проверяет общий SBOM и падает на high; `scan-secrets` —
 gitleaks по всей git-истории. Сканеры запускаются из образов, закреплённых по digest;
 образ передаётся syft архивом, без Docker socket. Принятые находки с причиной —
 `deploy/grype.yaml` и `.gitleaksignore`. SBOM остаётся в `dist/scan/sbom.cdx.json`.

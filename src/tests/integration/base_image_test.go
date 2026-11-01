@@ -3,6 +3,9 @@
 package integration
 
 import (
+	"os"
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,6 +27,27 @@ func capMask(t *testing.T, status, field string) uint64 {
 	return 0
 }
 
+var pinnedSquid = regexp.MustCompile(`(?m)^ARG SQUID_IMAGE=[^:\s]+:([0-9]+(?:\.[0-9]+)+)@sha256:[a-f0-9]{64}$`)
+
+// expectedSquidVersion is the Squid version the image under test must carry:
+// KRAKEN_TEST_SQUID_VERSION when a run builds the panel with a fresh Squid
+// (squid.yml), otherwise the tag of the Squid image pinned in deploy/Dockerfile.
+func expectedSquidVersion(t *testing.T) string {
+	t.Helper()
+	if v := os.Getenv("KRAKEN_TEST_SQUID_VERSION"); v != "" {
+		return v
+	}
+	b, e := os.ReadFile(filepath.Join(repoRoot(t), "deploy", "Dockerfile"))
+	if e != nil {
+		t.Fatal(e)
+	}
+	m := pinnedSquid.FindSubmatch(b)
+	if m == nil {
+		t.Fatal("deploy/Dockerfile: no ARG SQUID_IMAGE=<repo>:<version>@sha256:<digest>")
+	}
+	return string(m[1])
+}
+
 func TestBaseImage(t *testing.T) {
 	t.Parallel()
 	requireImage(t, testImage())
@@ -33,10 +57,11 @@ func TestBaseImage(t *testing.T) {
 	r.track(t)
 	inst := launchInstance(t, &r, fixtures, subnet, base)
 
-	t.Run("squid 7.7 on alpine, unmodified upstream build", func(t *testing.T) {
+	t.Run("squid on alpine, unmodified upstream build of the expected version", func(t *testing.T) {
+		want := expectedSquidVersion(t)
 		v, e := dockerExec(inst.proxy, "/usr/sbin/squid", "-v")
-		if e != nil || !strings.Contains(v, "Squid Cache: Version 7.7") {
-			t.Fatalf("squid -v: %v %q", e, v)
+		if e != nil || !strings.Contains(v, "Squid Cache: Version "+want+"\n") {
+			t.Fatalf("squid -v, want %s: %v %q", want, e, v)
 		}
 		for _, bad := range []string{"--disable-", "--without-", "--enable-"} {
 			for _, f := range strings.Fields(v) {

@@ -48,7 +48,11 @@ jobs:
       - name: Panel image with this Squid
         run: make image SQUID_IMAGE=kraken-squid:local
       - name: Integration tests on real Squid
-        run: make integration
+        # The panel carries the Squid just built, not the pinned one.
+        run: |
+          export KRAKEN_TEST_SQUID_VERSION=$(sed -n 's/^ARG SQUID_TAG=SQUID_//p' deploy/squid/Dockerfile | tr '_' '.')
+          test -n "$KRAKEN_TEST_SQUID_VERSION"
+          make integration
       # Per-arch tags carry the commit, so the multi-arch tag never mixes
       # architectures from different runs.
       - name: Push per-arch image

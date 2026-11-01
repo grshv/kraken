@@ -62,7 +62,9 @@ scan-sbom:
 	docker save $(IMAGE) -o $(SCAN_DIR)/image.tar && chmod 644 $(SCAN_DIR)/image.tar
 	docker run --rm -v "$(CURDIR)/$(SCAN_DIR):/out" $(SYFT) scan docker-archive:/out/image.tar -o cyclonedx-json=/out/image.cdx.json
 	docker run --rm -v "$(CURDIR)/src/web/package-lock.json:/in/package-lock.json:ro" -v "$(CURDIR)/$(SCAN_DIR):/out" $(SYFT) scan file:/in/package-lock.json -q -o cyclonedx-json=/out/web.cdx.json
-	cd src && go run ./tools/sbom -image ../$(SCAN_DIR)/image.cdx.json -web ../$(SCAN_DIR)/web.cdx.json -dockerfile ../deploy/squid/Dockerfile -out ../$(SCAN_DIR)/sbom.cdx.json
+	# The Squid version comes from the binary in the scanned image, not from a Dockerfile.
+	squid=$$(docker run --rm --network none --entrypoint /usr/sbin/squid $(IMAGE) -v | sed -n 's/^Squid Cache: Version \([0-9.]*\)$$/\1/p') \
+		&& cd src && go run ./tools/sbom -image ../$(SCAN_DIR)/image.cdx.json -web ../$(SCAN_DIR)/web.cdx.json -squid-version "$$squid" -out ../$(SCAN_DIR)/sbom.cdx.json
 	rm -f $(SCAN_DIR)/image.tar
 	docker run --rm -v "$(CURDIR)/$(SCAN_DIR):/out:ro" -v "$(CURDIR)/deploy/grype.yaml:/grype.yaml:ro" -v kraken-grype-db:/root/.cache/grype $(GRYPE) -c /grype.yaml sbom:/out/sbom.cdx.json -q --fail-on high
 
