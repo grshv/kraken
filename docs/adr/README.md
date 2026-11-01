@@ -25,4 +25,5 @@ ADR фиксирует существенное решение: границы �
 | [0016](0016-admin-and-manager-roles.md) | Роли admin и manager, область менеджера | Accepted |
 | [0017](0017-telemetry-storage.md) | Телеметрия в месячных файлах SQLite и агрегатах на 3 года | Accepted |
 | [0018](0018-storage-concurrency.md) | Пулы чтения и записи управляющей БД, CLI как второй процесс, дедлайны и защита диска | Accepted |
-| [0019](0019-alpine-upstream-squid.md) | База Alpine, Squid из upstream-релиза, root только с SETUID/SETGID/KILL | Accepted |
+| [0019](0019-alpine-upstream-squid.md) | База Alpine, Squid из upstream-релиза, root только с SETUID/SETGID/KILL (сборка и проверка Squid заменены ADR 0020) | Accepted |
+| [0020](0020-squid-image-signed-release.md) | Squid отдельным образом, проверка релиза подписью, обновления через Renovate | Accepted |

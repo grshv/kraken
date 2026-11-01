@@ -1,0 +1,75 @@
+name: Squid image
+# deploy/squid builds Squid from the signed upstream release (ADR 0020) into
+# ghcr.io/<owner>/kraken-squid:<version>, natively on amd64 and arm64. It runs
+# only when deploy/squid changes; the panel image pins the result by digest.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "deploy/squid/**"
+      - ".github/workflows/squid.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: squid-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  SQUID_REPO: ghcr.io/${{ github.repository }}-squid
+  PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+jobs:
+  build:
+    name: build-${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build (and push the per-arch tag on main)
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(sed -n 's/^ARG SQUID_TAG=SQUID_//p' deploy/squid/Dockerfile | tr '_' '.')
+          test -n "$version"
+          ref="$SQUID_REPO:$version-${{ matrix.arch }}"
+          if [ "$PUBLISH" = true ]; then
+            echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+            docker buildx build --progress=plain --label org.opencontainers.image.revision=${{ github.sha }} \
+              -t "$ref" --push deploy/squid
+          else
+            docker buildx build --progress=plain deploy/squid
+          fi
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Multi-arch tag
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          version=$(sed -n 's/^ARG SQUID_TAG=SQUID_//p' deploy/squid/Dockerfile | tr '_' '.')
+          docker buildx imagetools create -t "$SQUID_REPO:$version" \
+            "$SQUID_REPO:$version-amd64" "$SQUID_REPO:$version-arm64"
+          docker buildx imagetools inspect "$SQUID_REPO:$version"
