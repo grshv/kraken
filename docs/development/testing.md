@@ -50,7 +50,7 @@ CI (GitHub Actions) разделён по частям; каждый workflow з
 | `go.yml` | Go-код в `src` | gofmt, `go vet`, `go test -race` (пользователь раннера непривилегированный, `/dev/shm` — tmpfs), `make scan-go` |
 | `squid.yml` | `deploy/squid` | сборка Squid из подписанного релиза на amd64 и arm64, образ панели с этим Squid и `make integration`; из `main` — `ghcr.io/grshv/kraken-squid:<версия>` и `<версия>-sha-<коммит>` с provenance attestation |
 | `image.yml` | `src`, `deploy` (кроме Squid), Makefile, `go.yml`, `web.yml`; теги `v*` | вызывает `go.yml` и `web.yml` (без прототипа); закреплённый образ Squid должен иметь provenance от `squid.yml` (`gh attestation verify`); сборка образа на amd64 и arm64 с кэшем слоёв `ghcr.io/grshv/kraken-buildcache:<arch>`, `make integration`, `make scan-sbom`, SBOM артефактом; из `main` и тегов — multi-arch `ghcr.io/grshv/kraken` только после Go- и web-тестов, с provenance attestation на multi-arch digest и SBOM attestation на образ каждой архитектуры |
-| `codeql.yml` | `src`; еженедельно | CodeQL для Go и TypeScript (код-сканирование GitHub) |
+| `codeql.yml` | `src`; еженедельно | CodeQL для Go и TypeScript (код-сканирование GitHub), без тестовых файлов `*.test.ts(x)` |
 | `security.yml` | еженедельно | `make scan-go`, `make scan-secrets`; по опубликованным `ghcr.io/grshv/kraken:main` и `:latest` (если релиз есть) — `gh attestation verify` с подписантом `image.yml` и `make scan-sbom`: новые уязвимости появляются без изменений кода |
 | `docs.yml` | Markdown, `docs`, `api`, справка | `make docs-check`, `git diff --check` |
 

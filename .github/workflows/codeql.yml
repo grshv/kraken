@@ -53,6 +53,12 @@ jobs:
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
+          # Test assertions on fixture data are not product code; queries such
+          # as URL sanitization misread them. Go tests are not built anyway.
+          config: |
+            paths-ignore:
+              - "**/*.test.ts"
+              - "**/*.test.tsx"
       - if: matrix.language == 'go'
         name: Build (the binary embeds the web bundle)
         run: |
