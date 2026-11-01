@@ -1,0 +1,414 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:is(.dark *));
+
+@theme inline {
+  /* One family for everything, including IPs and domains (font-mono maps to
+     the same face). */
+  --font-sans:
+    "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    sans-serif;
+  --font-mono: var(--font-sans);
+
+  /* Three sizes only: 13 px secondary text and labels, 14 px body and data,
+     20 px screen titles and key figures. shadcn's steps collapse onto them. */
+  --text-xs: 13px;
+  --text-sm: 13px;
+  --text-base: 14px;
+  --text-lg: 14px;
+  --text-xl: 20px;
+  --text-2xl: 20px;
+  --text-3xl: 20px;
+
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-primary: var(--sidebar-primary);
+  --color-sidebar-primary-foreground: var(--sidebar-primary-foreground);
+  --color-sidebar-accent: var(--sidebar-accent);
+  --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
+  --color-sidebar-border: var(--sidebar-border);
+  --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-surface-inset: var(--surface-inset);
+  --color-surface-control: var(--surface-control);
+  --color-emphasis: var(--emphasis);
+  --color-emphasis-foreground: var(--emphasis-foreground);
+  --color-emphasis-border: var(--emphasis-border);
+  --color-ok-border: var(--ok-border);
+  --color-warn-border: var(--warn-border);
+  --color-bad-border: var(--bad-border);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  /* Prototype status and diff tokens: text-bad, bg-bad-bg, bg-add-bg, text-s-allow… */
+  --color-page: var(--page);
+  --color-hover: var(--hover);
+  --color-sel: var(--sel);
+  --shadow-2xs: var(--shadow-2xs);
+  --shadow-xs: var(--shadow-xs);
+  --shadow-sm: var(--shadow-sm);
+  --shadow-md: var(--shadow-md);
+  --shadow-lg: var(--shadow-lg);
+  --color-header: var(--header);
+  --color-header-foreground: var(--header-foreground);
+  --color-list: var(--list);
+  --color-main: var(--main);
+  --color-action: var(--action);
+  --color-action-foreground: var(--action-foreground);
+  --color-action-border: var(--action-border);
+  --color-sel-foreground: var(--sel-foreground);
+  --color-header-field: var(--header-field);
+  --color-header-muted: var(--header-muted);
+  --color-header-border: var(--header-border);
+  --color-list-foreground: var(--list-foreground);
+  --color-list-muted: var(--list-muted);
+  --color-muted-on-sel: var(--muted-on-sel);
+  --color-ok: var(--ok);
+  --color-ok-bg: var(--ok-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+  --color-bad: var(--bad);
+  --color-bad-bg: var(--bad-bg);
+  --color-info: var(--info);
+  --color-info-bg: var(--info-bg);
+  --color-add-bg: var(--add-bg);
+  --color-add-fg: var(--add-fg);
+  --color-mod-bg: var(--mod-bg);
+  --color-mod-fg: var(--mod-fg);
+  --color-del-bg: var(--del-bg);
+  --color-del-fg: var(--del-fg);
+  --color-s-allow: var(--s-allow);
+  --color-s-allow-soft: var(--s-allow-soft);
+  --color-s-deny: var(--s-deny);
+
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 8px;
+  --radius-xl: 12px;
+}
+
+/* Colour system. Roles, not swatches:
+   - frame: header and section rail;
+   - surfaces: list, working area and cards;
+   - accent (--h): only actions, selection, focus and the active section;
+   - status: allowed green, denied red, attention amber; never the accent.
+   Ахроматические поверхности; вложенная зона темнее панели.
+   The Мок menu switches between structurally different themes below. */
+:root {
+  --h: 263;
+  color-scheme: light;
+  --page: #f0f0f0;
+  --background: #fafafa;
+  --main: #fafafa;
+  --list: #ffffff;
+  --list-foreground: var(--foreground);
+  --list-muted: var(--muted-foreground);
+  --card: #ffffff;
+  --popover: #ffffff;
+  --foreground: #252525;
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --muted-foreground: #666666;
+  --border: #dedede;
+  --input: #bdbdbd;
+  --primary: #2444d8;
+  --primary-foreground: #ffffff;
+  --ring: #2444d8;
+  --secondary: #ebebeb;
+  --secondary-foreground: #3d3d3d;
+  --muted: #efefef;
+  --accent: #ededed;
+  --accent-foreground: #252525;
+  --accent-soft: rgb(36 68 216 / 0.08);
+  --hover: #ededed;
+  --sel: #e8efff;
+  --sel-foreground: #17356f;
+  --muted-on-sel: #4c6494;
+  --radius: 8px;
+  --header: #ffffff;
+  --header-foreground: var(--foreground);
+  --header-border: var(--border);
+  --header-field: #f0f0f0;
+  --header-muted: #666666;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #707070;
+  --sidebar-primary: var(--primary);
+  --sidebar-primary-foreground: var(--primary-foreground);
+  --sidebar-accent: #e8efff;
+  --sidebar-accent-foreground: #2444d8;
+  --sidebar-border: #e6e6e6;
+  --sidebar-ring: var(--ring);
+  --action: var(--surface-control);
+  --action-foreground: var(--foreground);
+  --action-border: var(--input);
+  --info: #2444d8;
+  --info-bg: #edf1ff;
+  --ok: #126c48;
+  --ok-bg: #e4f5eb;
+  --warn: #885013;
+  --warn-bg: #fff0d9;
+  --bad: #a72f3a;
+  --bad-bg: #fcebed;
+  --destructive: oklch(0.63 0.19 23.03);
+  --add-bg: var(--ok-bg);
+  --add-fg: var(--ok);
+  --mod-bg: var(--warn-bg);
+  --mod-fg: var(--warn);
+  --del-bg: var(--bad-bg);
+  --del-fg: var(--bad);
+  --s-allow: #278760;
+  --s-deny: #c44851;
+  --s-allow-soft: oklch(0.62 0.15 150 / 0.16);
+  /* Небольшие контролы и статичные блоки не отбрасывают тени. */
+  --shadow-2xs: none;
+  --shadow-xs: none;
+  --shadow-sm: 0 2px 6px rgb(0 0 0 / 0.06);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.10);
+  --shadow-lg: 0 16px 48px rgb(0 0 0 / 0.14);
+  --surface-inset: #f5f5f5;
+  --surface-control: #ffffff;
+  --emphasis: #2444d8;
+  --emphasis-foreground: #ffffff;
+  --emphasis-border: #2444d8;
+  --ok-border: #8cc8a8;
+  --warn-border: #d9ae70;
+  --bad-border: #d89ba1;
+}
+
+/* Графитовые поверхности: навигация, рабочая область, наложения. */
+.dark {
+  color-scheme: dark;
+  --page: #121212;
+  --background: #181818;
+  --main: #181818;
+  --list: #121212;
+  --card: #242424;
+  --popover: #2c2c2c;
+  --foreground: #ededed;
+  --card-foreground: var(--foreground);
+  --popover-foreground: var(--foreground);
+  --muted-foreground: #adadad;
+  --border: #3a3a3a;
+  --input: #4a4a4a;
+  --primary: #8eaeff;
+  --primary-foreground: #142047;
+  --ring: #7b9fff;
+  --secondary: #2b2b2b;
+  --secondary-foreground: #e3e3e3;
+  --muted: #2b2b2b;
+  --accent: #2e2e2e;
+  --accent-foreground: #ededed;
+  --accent-soft: rgb(36 68 216 / 0.08);
+  --hover: #292929;
+  --sel: #1c2c49;
+  --sel-foreground: #e5eeff;
+  --muted-on-sel: #afc3e5;
+  --header: #1b1b1b;
+  --header-foreground: var(--foreground);
+  --header-border: var(--border);
+  --header-field: #121212;
+  --header-muted: #adadad;
+  --sidebar: #101010;
+  --sidebar-foreground: #a5a5a5;
+  --sidebar-accent: #192946;
+  --sidebar-accent-foreground: #bed1ff;
+  --sidebar-border: #303030;
+  --action: var(--surface-control);
+  --action-foreground: var(--foreground);
+  --action-border: var(--input);
+  --info: #a3bdff;
+  --info-bg: #192642;
+  --ok: #87f7ca;
+  --ok-bg: #113023;
+  --warn: #ffcb7f;
+  --warn-bg: #352611;
+  --bad: #ffa3ab;
+  --bad-bg: #341c22;
+  --destructive: oklch(0.69 0.2 23.91);
+  --s-allow: #67dca7;
+  --s-deny: #ee777f;
+  --s-allow-soft: oklch(0.74 0.16 150 / 0.18);
+  --shadow-sm: 0 2px 8px rgb(0 0 0 / 0.20);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.28);
+  --shadow-lg: 0 16px 48px rgb(0 0 0 / 0.36);
+  --surface-inset: #1b1b1b;
+  --surface-control: #191919;
+  --emphasis: #2444d8;
+  --emphasis-foreground: #ffffff;
+  --emphasis-border: #4264ec;
+  --ok-border: #28674c;
+  --warn-border: #92612f;
+  --bad-border: #7c414b;
+}
+
+/* 2. Белая: one white plane; separation by lines only, light navigation. */
+:root[data-variant="white"] {
+  --list: oklch(1 0 0);
+  --border: oklch(0.86 0 0);
+  --header: oklch(1 0 0);
+  --header-foreground: var(--foreground);
+  --header-border: var(--border);
+  --header-field: oklch(0.96 0 0);
+  --header-muted: var(--muted-foreground);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: var(--muted-foreground);
+  --sidebar-accent: var(--sel);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+}
+:root.dark[data-variant="white"] {
+  --background: oklch(0.16 0 0);
+  --main: oklch(0.16 0 0);
+  --list: oklch(0.16 0 0);
+  --card: oklch(0.16 0 0);
+  --border: oklch(0.33 0 0);
+  --header: oklch(0.16 0 0);
+  --header-field: oklch(0.22 0 0);
+  --sidebar: oklch(0.16 0 0);
+  --sidebar-accent: var(--sel);
+  --sidebar-border: var(--border);
+}
+
+/* 3. Тёмный список: rail and list are dark, the detail is white, so what you
+   pick from and what you work on are clearly apart. */
+:root[data-variant="dark-list"] {
+  --list: oklch(0.26 0 0);
+  --list-foreground: oklch(0.96 0 0);
+  --list-muted: oklch(0.76 0 0);
+  --sidebar-border: oklch(0.3 0 0);
+  --header-border: var(--header);
+}
+:root[data-variant="dark-list"] [data-slot="list-pane"] {
+  --sel: oklch(0.4 0.09 var(--h));
+  --muted-on-sel: oklch(0.88 0.03 var(--h));
+  --hover: oklch(0.31 0 0);
+  --border: oklch(0.34 0 0);
+  --input: oklch(0.42 0 0);
+  --muted: oklch(0.33 0 0);
+  --secondary: oklch(0.33 0 0);
+  --accent: oklch(0.34 0 0);
+  --accent-foreground: oklch(0.96 0 0);
+  --secondary-foreground: oklch(0.96 0 0);
+  --foreground: oklch(0.96 0 0);
+  --background: oklch(0.26 0 0);
+  --sel-foreground: oklch(1 0 0);
+  --muted-foreground: oklch(0.76 0 0);
+  --action: oklch(0.3 0 0);
+  --action-foreground: var(--foreground);
+  --action-border: var(--input);
+  --bad: oklch(0.75 0.16 25);
+}
+:root.dark[data-variant="dark-list"] {
+  --list: oklch(0.11 0 0);
+  --main: oklch(0.2 0 0);
+  --background: oklch(0.2 0 0);
+  --card: oklch(0.235 0 0);
+}
+
+/* 4. Карточки на сером: a grey working plane, every block of data is a white
+   card; navigation light. */
+:root[data-variant="cards"] {
+  --background: oklch(0.91 0 0);
+  --main: oklch(0.91 0 0);
+  --list: oklch(1 0 0);
+  --card: oklch(1 0 0);
+  --border: oklch(0.86 0 0);
+  --header: oklch(1 0 0);
+  --header-foreground: var(--foreground);
+  --header-border: var(--border);
+  --header-field: oklch(0.95 0 0);
+  --header-muted: var(--muted-foreground);
+  --sidebar: oklch(1 0 0);
+  --sidebar-foreground: var(--muted-foreground);
+  --sidebar-accent: var(--sel);
+  --sidebar-accent-foreground: var(--foreground);
+  --sidebar-border: var(--border);
+}
+:root.dark[data-variant="cards"] {
+  --background: oklch(0.1 0 0);
+  --main: oklch(0.1 0 0);
+  --list: oklch(0.19 0 0);
+  --card: oklch(0.22 0 0);
+  --header: oklch(0.19 0 0);
+  --header-border: oklch(0.28 0 0);
+  --header-field: oklch(0.26 0 0);
+  --sidebar: oklch(0.19 0 0);
+  --sidebar-accent: var(--sel);
+  --sidebar-border: oklch(0.28 0 0);
+}
+
+/* 5. Монохром: black and white; the accent is black, selection inverts. Only
+   statuses carry colour. */
+:root[data-variant="mono"] {
+  --foreground: oklch(0 0 0);
+  --muted-foreground: oklch(0.38 0 0);
+  --border: oklch(0.8 0 0);
+  --input: oklch(0.6 0 0);
+  --list: oklch(1 0 0);
+  --primary: oklch(0.12 0 0);
+  --ring: oklch(0 0 0 / 0.5);
+  --sel: oklch(0.12 0 0);
+  --sel-foreground: oklch(1 0 0);
+  --muted-on-sel: oklch(0.8 0 0);
+  --header: oklch(0 0 0);
+  --sidebar: oklch(0 0 0);
+  --sidebar-border: oklch(0 0 0);
+  --sidebar-accent: oklch(1 0 0);
+  --sidebar-accent-foreground: oklch(0 0 0);
+  --action: oklch(1 0 0);
+  --action-foreground: oklch(0 0 0);
+  --action-border: oklch(0 0 0);
+  --info: oklch(0 0 0);
+  --info-bg: oklch(0.96 0 0);
+}
+:root.dark[data-variant="mono"] {
+  --foreground: oklch(1 0 0);
+  --muted-foreground: oklch(0.8 0 0);
+  --background: oklch(0 0 0);
+  --main: oklch(0 0 0);
+  --list: oklch(0 0 0);
+  --card: oklch(0.1 0 0);
+  --border: oklch(0.4 0 0);
+  --primary: oklch(1 0 0);
+  --primary-foreground: oklch(0 0 0);
+  --ring: oklch(1 0 0 / 0.6);
+  --sel: oklch(1 0 0);
+  --sel-foreground: oklch(0 0 0);
+  --muted-on-sel: oklch(0.35 0 0);
+  --header: oklch(0 0 0);
+  --header-border: oklch(0.3 0 0);
+  --sidebar: oklch(0 0 0);
+  --sidebar-border: oklch(0.3 0 0);
+  --sidebar-accent: oklch(1 0 0);
+  --sidebar-accent-foreground: oklch(0 0 0);
+  --action: oklch(0 0 0);
+  --action-foreground: oklch(1 0 0);
+  --action-border: oklch(1 0 0);
+  --info: oklch(1 0 0);
+  --info-bg: oklch(0.15 0 0);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}

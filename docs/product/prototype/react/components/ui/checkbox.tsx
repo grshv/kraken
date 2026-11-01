@@ -1,0 +1,31 @@
+"use client";
+
+import * as React from "react";
+import { Checkbox as CheckboxPrimitive } from "radix-ui";
+import { Check } from "lucide-react";
+
+import { cn } from "cn";
+
+const Checkbox = React.forwardRef<
+  React.ElementRef<typeof CheckboxPrimitive.Root>,
+  React.ComponentPropsWithoutRef<typeof CheckboxPrimitive.Root>
+>(({ className, ...props }, ref) => (
+  <CheckboxPrimitive.Root
+    ref={ref}
+    data-slot="checkbox"
+    className={cn(
+      "grid place-content-center peer size-3.5 shrink-0 rounded-[4px] border border-input focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 data-[state=checked]:bg-primary data-[state=checked]:text-primary-foreground",
+      className,
+    )}
+    {...props}
+  >
+    <CheckboxPrimitive.Indicator
+      className={cn("grid place-content-center text-current")}
+    >
+      <Check className="size-3" />
+    </CheckboxPrimitive.Indicator>
+  </CheckboxPrimitive.Root>
+));
+Checkbox.displayName = CheckboxPrimitive.Root.displayName;
+
+export { Checkbox };

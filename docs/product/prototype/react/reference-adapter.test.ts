@@ -1,0 +1,5 @@
+import {it,expect} from 'vitest';
+import {toSnapshot,updateData} from './reference-adapter';
+import {initialData,copy,covers} from './model';
+it('сохраняет несколько политик, свои домены и настройки при правках UI',()=>{const data=copy(initialData),snap=toSnapshot(data),client=snap.clients.find(c=>c.id==='ci01')!;client.policy_ids=['build','ci01'];client.destinations=[{domain:'extra.example',include_subdomains:false}];snap.settings!.connect_ports=[443,8443];updateData(data,snap);expect(toSnapshot(data)).toEqual(snap);expect(covers(data,data.clients.find(c=>c.id==='ci01')!,'extra.example')).toBe(true);expect(covers(data,data.clients.find(c=>c.id==='ci01')!,'github.com')).toBe(true)});
+it('разрешение для одного клиента не меняет общую политику',()=>{const data=copy(initialData),snap=toSnapshot(data),policies=copy(snap.policies);snap.clients.find(c=>c.id==='ci01')!.destinations.push({domain:'registry.npmjs.org',include_subdomains:false});updateData(data,snap);expect(toSnapshot(data).policies).toEqual(policies);expect(data.clients.find(c=>c.id==='build')!.localDomains).toEqual([])});
