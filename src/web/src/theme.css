@@ -256,3 +256,12 @@
   --warn-border: #92612f;
   --bad-border: #7c414b;
 }
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
