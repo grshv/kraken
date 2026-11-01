@@ -4,7 +4,7 @@ import {toSnapshot} from './reference-adapter';
 import {draftChanges,draftImpact,draftPreview} from './review-data';
 import {revertChange} from './reference/draft/revert';
 it('передаёт структурированные изменения клиента и настроек для пообъектной отмены',()=>{const base=toSnapshot(copy(initialData)),draft=copy(base);draft.clients.find(c=>c.id==='ci01')!.name='ci-renamed';draft.settings!.blocked_domains!.push({domain:'pypi.org',include_subdomains:false});const changes=draftChanges(base,draft);expect(changes.map(c=>[c.entity,c.id,c.action])).toEqual([['client','ci01','mod'],['settings',null,'mod']]);const next=revertChange(draft,base,changes[0]);expect(next.clients).toEqual(base.clients);expect(draftChanges(base,next).map(c=>c.entity)).toEqual(['settings']);expect(draftChanges(base,revertChange(next,base,changes[1]))).toEqual([])});
-it('влияние и фрагменты меняются при добавлении и отмене разрешения',()=>{const active=toSnapshot(copy(initialData)),draft=copy(active);draft.clients.find(c=>c.id==='ci01')!.destinations.push({domain:'registry.npmjs.org',include_subdomains:false});expect(draftImpact(active,draft,events).newly_allowed).toBe(2);const preview=draftPreview(active,draft,41);expect(preview.changes![0].id).toBe('ci01');expect(preview.config_diff.some(l=>l.kind==='added'&&l.text.includes('registry.npmjs.org'))).toBe(true);expect(draftChanges(active,revertChange(draft,active,preview.changes![0]))).toEqual([])});
+it('влияние и фрагменты меняются при добавлении и отмене разрешения',()=>{const active=toSnapshot(copy(initialData)),draft=copy(active);draft.clients.find(c=>c.id==='ci01')!.destinations.push({domain:'registry.npmjs.org',include_subdomains:false});expect(draftImpact(active,draft,events).newly_allowed).toBe(2);const preview=draftPreview(active,draft,41);expect(preview.changes![0].id).toBe('ci01');expect(preview.config_diff.some(l=>l.kind==='added'&&l.text.split(/[\s,]+/).includes('registry.npmjs.org'))).toBe(true);expect(draftChanges(active,revertChange(draft,active,preview.changes![0]))).toEqual([])});
 it('перестановка политик и доменов не создаёт ложных изменений',()=>{const a=toSnapshot(copy(initialData)),b=copy(a);b.policies.reverse();b.policies.forEach(p=>p.destinations.reverse());expect(draftChanges(a,b)).toEqual([])});
 it('объясняет изменение подключения, своих доменов и запретов без чтения ACL',()=>{
  const active=toSnapshot(copy(initialData)),draft=copy(active),client=draft.clients.find(c=>c.id==='ci01')!;
@@ -21,7 +21,7 @@ it('показывает контекст удалённых объектов и
  const changes=draftChanges(active,draft),removedClient=changes.find(c=>c.entity==='client')!,removedPolicy=changes.find(c=>c.entity==='policy')!;
  expect(removedClient.details).toContain('Источники: '+client.source_networks.join(', '));
  expect(removedClient.details).toContain('Политики: '+policy.name);
- expect(removedPolicy.details!.some(line=>line.includes('pypi.org'))).toBe(true);
+ expect(removedPolicy.details!.some(line=>line.split(/[\s,:]+/).includes('pypi.org'))).toBe(true);
  expect(removedPolicy.details).toContain('Подключена у: '+client.name);
  const restored=revertChange(revertChange(draft,active,removedPolicy),active,removedClient);
  expect(draftChanges(active,restored)).toEqual([]);
