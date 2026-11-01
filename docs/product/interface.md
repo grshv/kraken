@@ -59,9 +59,9 @@
 рядом с числом доменов. Окно поиска и действий — до 760 px, строка ввода 64 px с
 крестиком 32×32 px по центру, область результатов до 520 px, синее выделение.
 
-Согласованный вид хранится в React-моке `docs/product/prototype/react`
-(`npm --prefix docs/product/prototype/react run build` собирает автономный
-`prototype/kraken-ui.html`); основной UI сверяется с ним скриншотами.
+Согласованный вид хранится в React-моке `src/prototype`
+(`npm --prefix src/prototype run build` собирает автономный
+[prototype/kraken-ui.html](prototype/kraken-ui.html)); основной UI сверяется с ним скриншотами.
 
 React/Vite использует готовые компоненты [shadcn/ui](https://ui.shadcn.com/docs/installation/vite)
 (New York, Radix). Исходники компонентов в `src/web/src/components/ui`,

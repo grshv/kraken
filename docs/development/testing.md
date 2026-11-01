@@ -12,8 +12,8 @@
 
 docs-check — не полная валидация OpenAPI. Ни одна команда не заменяет security audit.
 
-React-мок проверяется отдельно: `npm --prefix docs/product/prototype/react run build`
-(TypeScript и автономный HTML) и `npm --prefix docs/product/prototype/react test`.
+React-мок проверяется отдельно: `npm --prefix src/prototype run build`
+(TypeScript и автономный HTML) и `npm --prefix src/prototype test`.
 `request-presentation.test.ts` покрывает компактный период внутри дня,
 между днями и на границе годов; полный период используется в подсказке.
 `shell/notification-count.test.ts` покрывает счётчик новых событий: отметки

@@ -1,13 +1,14 @@
 # Безопасность
 
-Проект сейчас содержит проектирование; поддерживаемых production-релизов нет.
-Модель угроз: [docs/security/threat-model.md](docs/security/threat-model.md).
+Kraken — личный проект без поддерживаемых релизов и отдельного канала сообщений
+об уязвимостях. Модель угроз — [docs/security/threat-model.md](docs/security/threat-model.md),
+инварианты — в [AGENTS.md](AGENTS.md#инварианты).
 
 Не публикуйте пароли, private keys, cookies, конфигурацию реальной сети и access
-logs в публичных issues. Для сообщения уязвимости используйте приватный канал
-владельца репозитория. Конкретный контакт и private vulnerability reporting
-нужно настроить перед публикацией; сейчас их наличие не предполагается.
+logs в issues. Исправление уязвимости описывает затронутую границу, устраняемый
+сценарий и regression test без реальных секретов.
 
-Security fix должен описывать affected boundary, устраняемый сценарий и
-regression test без включения реальных секретов. HTTPS сайтов остаётся
-сквозным: клиент проверяет исходный сертификат сайта.
+`make scan` проверяет зависимости и секреты: govulncheck по Go-коду, SBOM образа,
+web-зависимостей и Squid под grype, gitleaks по истории. Принятые находки с причиной —
+[deploy/grype.yaml](deploy/grype.yaml) и [.gitleaksignore](.gitleaksignore).
+HTTPS сайтов остаётся сквозным: клиент проверяет исходный сертификат сайта.
