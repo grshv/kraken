@@ -24,7 +24,8 @@
    проверенный коммит main, `X.Y.Z` и `latest` — релизы по тегу `vX.Y.Z`, `sha-<коммит>`)
    или локальная сборка `make image`. Multi-stage build: frontend → embed в Go;
    Squid — готовый образ `ghcr.io/grshv/kraken-squid` по digest (собран из
-   подписанного upstream-релиза, ADR 0020); бинарники и Pebble plan копируются в
+   подписанного upstream-релиза, ADR 0020), принимается только с provenance
+   attestation от `squid.yml`; бинарники и Pebble plan копируются в
    pinned Alpine.
    Node и toolchain в runtime отсутствуют. Compose берёт образ из `KRAKEN_IMAGE`,
    по умолчанию `ghcr.io/grshv/kraken:main`; для установки достаточно одного файла

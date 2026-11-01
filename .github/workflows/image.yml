@@ -63,6 +63,16 @@ jobs:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Without a login the build still runs, only without the layer cache.
         run: echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || true
+      - name: Squid image signed by squid.yml
+        # The pinned Squid must carry the provenance of this repository's
+        # squid.yml: a digest from anywhere else is refused before the build.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          squid=$(sed -n 's/^ARG SQUID_IMAGE=//p' deploy/Dockerfile)
+          test -n "$squid"
+          gh attestation verify "oci://$squid" --repo "${{ github.repository }}" \
+            --signer-workflow "${{ github.repository }}/.github/workflows/squid.yml"
       - name: Build image
         # All stages are cached per architecture in the registry (public
         # packages); main and tags refresh the cache.

@@ -53,6 +53,11 @@
       "labels": ["dependencies", "squid"]
     },
     {
+      "description": "The project's own image in Compose follows the moving main tag on purpose; a digest pin would need a PR per commit",
+      "matchDepNames": ["ghcr.io/grshv/kraken"],
+      "enabled": false
+    },
+    {
       "description": "Scanner and tool images pinned in the Makefile",
       "matchFileNames": ["Makefile"],
       "groupName": "scanners"

@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1
-ARG SQUID_IMAGE=ghcr.io/grshv/kraken-squid:7.7@sha256:4387158324b1b9b33838acdbb274394d9ba7b2acb0c3c80661945cde508e983d
+ARG SQUID_IMAGE=ghcr.io/grshv/kraken-squid:7.7@sha256:acdff391b3ac2ce13dabc3cbf7a43c3a6ddf9fb02f59a85d348cea4f895f81cb
 FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS web
 WORKDIR /build/web
 COPY src/web/package*.json ./
