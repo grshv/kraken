@@ -126,7 +126,7 @@ func (t *Store) Domains(ctx context.Context, q EventQuery) (DomainReport, error)
 		}
 	} else {
 		for _, key := range t.listMonths() {
-			if key < q.From.UTC().Format("2006-01") || key > q.To.UTC().Format("2006-01") {
+			if !monthMayHold(key, q.From) {
 				continue
 			}
 			mf, e := t.monthFor(ctx, key)

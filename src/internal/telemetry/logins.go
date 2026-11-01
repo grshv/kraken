@@ -29,14 +29,13 @@ type LoginActivity struct {
 const maxLoginSources = 50
 
 // ProxyLoginActivity aggregates events with proxy_username = username in
-// [from, to) across the monthly files that overlap the window.
+// [from, to) across the monthly files that may hold them (monthMayHold).
 func (t *Store) ProxyLoginActivity(ctx context.Context, username string, from, to time.Time) (LoginActivity, error) {
 	out := LoginActivity{Sources: []LoginSource{}}
 	bySource := map[string]*LoginSource{}
 	var lastUsed int64
-	first := from.UTC().Format("2006-01")
 	for _, key := range t.listMonths() {
-		if key < first || key > to.UTC().Format("2006-01") {
+		if !monthMayHold(key, from) {
 			continue
 		}
 		mf, e := t.monthFor(ctx, key)

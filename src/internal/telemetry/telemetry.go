@@ -214,6 +214,12 @@ func (mf *monthFile) close() error {
 // monthKey returns "YYYY-MM" for a time in UTC.
 func monthKey(t time.Time) string { return t.UTC().Format("2006-01") }
 
+// monthMayHold reports whether the monthly file key can hold events at or
+// after from. Ingest writes into the file of the month it runs in, so an
+// event lands in its own month's file or a later one, never an earlier one:
+// only the lower bound may skip files.
+func monthMayHold(key string, from time.Time) bool { return key >= monthKey(from) }
+
 // monthEndOf returns the last instant (UTC) of the month encoded by a "YYYY-MM"
 // key, or the zero time and false if the key is malformed. Used by age
 // retention so a month is deleted when its content period expires, regardless
