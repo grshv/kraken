@@ -183,9 +183,13 @@ function App() {
   async function load(who: Session | null = session) {
     setStatus(await api<Status>("/status"));
     if (allowed("configure", who)) {
+      // Revision history is admin-only (GET /revisions answers 403 to a
+      // manager); asking for it must not fail the manager's draft load.
       const [d, h, a] = await Promise.all([
         api<Draft>("/configuration/draft"),
-        api<{ items: RevisionSummary[] }>("/revisions"),
+        who?.role === "admin"
+          ? api<{ items: RevisionSummary[] }>("/revisions")
+          : Promise.resolve({ items: [] as RevisionSummary[] }),
         api<{ snapshot: import("./model").Snapshot }>("/configuration/active"),
       ]);
       setDraft(d);
@@ -345,6 +349,11 @@ function App() {
         snapshot: next,
       });
       setDraft(result);
+      // The draft tray follows /status.has_unapplied_changes; refresh it now
+      // instead of waiting for the background poll.
+      api<Status>("/status")
+        .then(setStatus)
+        .catch(() => {});
       return { ok: true };
     } catch (e) {
       if (e instanceof ApiError) {

@@ -78,6 +78,7 @@ export function ReviewSheet({
   onCommit,
   onOpenAudit,
   applyBlockedReason,
+  canPreview = true,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -92,6 +93,8 @@ export function ReviewSheet({
   // Opens the audit entry of the revision just applied.
   onOpenAudit?: () => void;
   applyBlockedReason?: string;
+  // GET /configuration/preview is admin-only; a manager reviews without it.
+  canPreview?: boolean;
 }) {
   // The sheet loads a fresh preview (admin; a manager gets 403 and keeps the
   // prop) and the 24 h traffic impact each time it opens.
@@ -102,16 +105,17 @@ export function ReviewSheet({
     let live = true;
     setFresh(null);
     setImpact(null);
-    request<Preview>("/configuration/preview")
-      .then((p) => live && setFresh(p))
-      .catch(() => {});
+    if (canPreview)
+      request<Preview>("/configuration/preview")
+        .then((p) => live && setFresh(p))
+        .catch(() => {});
     request<DraftImpact>("/inspector/draft-impact")
       .then((v) => live && setImpact(v))
       .catch(() => {});
     return () => {
       live = false;
     };
-  }, [open, request, draft?.version]);
+  }, [open, request, draft?.version, canPreview]);
 
   useEffect(() => {
     // The reducer must be idle when the sheet opens so a previous run's

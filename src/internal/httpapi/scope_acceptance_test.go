@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -249,10 +250,34 @@ func TestAcceptManagerApplyOnlyOwnChanges(t *testing.T) {
 		}
 	}
 	acceptCode(t, acceptPut(h, admin, csrf, ad), 200, "")
+	foreign := func(sid *http.Cookie) string {
+		w := request(h, "GET", "/configuration/draft", nil, sid, "", "")
+		var body map[string]any
+		if e := json.Unmarshal(w.Body.Bytes(), &body); e != nil || w.Code != 200 {
+			t.Fatalf("draft: %d %s", w.Code, w.Body.String())
+		}
+		v, ok := body["foreign_changes"]
+		if !ok {
+			return "absent"
+		}
+		if strings.Contains(w.Body.String(), "foreign pending change") {
+			t.Fatal("manager draft reveals the foreign change")
+		}
+		return fmt.Sprint(v)
+	}
+	if got := foreign(mgr); got != "true" {
+		t.Fatalf("manager foreign_changes before apply = %s, want true", got)
+	}
+	if got := foreign(admin); got != "absent" {
+		t.Fatalf("admin draft carries foreign_changes: %s", got)
+	}
 	md := acceptDraft(t, h, mgr)
 	acceptCode(t, request(h, "POST", "/revisions", map[string]any{"expected_draft_version": md.Version}, mgr, mcsrf, origin), 403, "draft_out_of_scope")
 	if acceptApply(t, h, admin, csrf, admin, csrf, "admin-second") != 201 {
 		t.Fatal("admin apply failed")
+	}
+	if got := foreign(mgr); got != "false" {
+		t.Fatalf("manager foreign_changes after admin apply = %s, want false", got)
 	}
 	md = acceptDraft(t, h, mgr)
 	for i := range md.Snapshot.Clients {

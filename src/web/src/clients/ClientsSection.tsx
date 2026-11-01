@@ -2200,8 +2200,12 @@ function HistoryTab({
   request: SectionProps["request"];
 }) {
   const [entries, setEntries] = useState<HistoryEntry[] | null>(null);
+  // Why the revision history is missing: admin-only (403) or a failed load.
+  // Either way the draft rows below stay visible.
+  const [historyError, setHistoryError] = useState<string | null>(null);
   useEffect(() => {
     let live = true;
+    setHistoryError(null);
     (async () => {
       const [revs, audit] = await Promise.all([
         request<{
@@ -2254,8 +2258,14 @@ function HistoryTab({
           });
       });
       if (live) setEntries(out);
-    })().catch(() => {
-      if (live) setEntries([]);
+    })().catch((e: unknown) => {
+      if (!live) return;
+      setEntries([]);
+      setHistoryError(
+        (e as { status?: number }).status === 403
+          ? "История ревизий доступна администратору"
+          : "Не удалось загрузить историю ревизий",
+      );
     });
     return () => {
       live = false;
@@ -2292,7 +2302,12 @@ function HistoryTab({
             )}
           </div>
         ))}
-        {entries !== null && rows.length === 0 && (
+        {historyError && (
+          <div className="py-2 text-sm text-muted-foreground">
+            {historyError}
+          </div>
+        )}
+        {entries !== null && !historyError && rows.length === 0 && (
           <div className="py-2 text-sm text-muted-foreground">
             Изменений не было
           </div>

@@ -423,11 +423,25 @@ func (s *Server) getDraft(w http.ResponseWriter, r *http.Request, v session) {
 			fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 			return
 		}
-		d.Snapshot = managerDraftView(d.Snapshot, scope)
-		// Manager view drops expert_config; settings are visible but edits ignored.
-		d.Snapshot.Expert = ""
+		respond(w, 200, s.managerDraft(ctx, d, scope))
+		return
 	}
 	respond(w, 200, d)
+}
+
+// managerDraft is the manager's view of the draft: his clients and policies,
+// no expert section (settings are visible, edits to them are ignored), and
+// foreign_changes, which tells before apply that POST /revisions will answer
+// draft_out_of_scope without naming any foreign object.
+func (s *Server) managerDraft(ctx context.Context, d Draft, scope store.Scope) any {
+	active, _ := s.activeRevisionSnapshot(ctx)
+	foreign := draftChangesOutOfScope(d.Snapshot, active, scope)
+	d.Snapshot = managerDraftView(d.Snapshot, scope)
+	d.Snapshot.Expert = ""
+	return struct {
+		Draft
+		ForeignChanges bool `json:"foreign_changes"`
+	}{d, foreign}
 }
 func (s *Server) getActiveConfiguration(w http.ResponseWriter, r *http.Request, v session) {
 	snap := s.activeConfigurationSnapshot()
@@ -501,13 +515,12 @@ func (s *Server) discardDraft(w http.ResponseWriter, r *http.Request, v session)
 		fail(w, 503, "storage_unavailable", "Хранилище недоступно")
 		return
 	}
-	out := d
 	if v.Role == "manager" {
 		scope, _ := s.managerScope(ctx, v)
-		out.Snapshot = managerDraftView(d.Snapshot, scope)
-		out.Snapshot.Expert = ""
+		respond(w, 200, s.managerDraft(ctx, d, scope))
+		return
 	}
-	respond(w, 200, out)
+	respond(w, 200, d)
 }
 func (s *Server) updateDraft(w http.ResponseWriter, r *http.Request, v session) {
 	var input struct {

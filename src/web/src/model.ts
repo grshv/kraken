@@ -57,7 +57,14 @@ export type Snapshot = {
     cert_ref: string | null;
   }[];
 };
-export type Draft = { version: number; snapshot: Snapshot; updated_at: string };
+export type Draft = {
+  version: number;
+  snapshot: Snapshot;
+  updated_at: string;
+  // Manager only: the draft holds changes outside the manager's scope, so
+  // POST /revisions answers draft_out_of_scope. Foreign objects are not named.
+  foreign_changes?: boolean;
+};
 export type Session = {
   authenticated: boolean;
   role: PanelRole | null;

@@ -4012,6 +4012,10 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "foreign_changes": {
+            "type": "boolean",
+            "description": "Только для менеджера: в черновике есть изменения вне его области, и POST /revisions ответит 403 draft_out_of_scope. Чужие объекты не называются."
           }
         }
       },

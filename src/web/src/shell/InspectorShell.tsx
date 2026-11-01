@@ -40,6 +40,8 @@ import { ProfileMenu } from "./ProfileMenu";
 import { CommandPalette } from "./CommandPalette";
 import { DraftTray } from "../draft/DraftTray";
 import { ReviewSheet } from "../draft/ReviewSheet";
+import { applyBlockedReason } from "../draft/applyBlock";
+import { draftChangeCount } from "../draft/changeCount";
 import { ConfirmDialog, type ConfirmOptions } from "./ConfirmDialog";
 import type {
   Draft,
@@ -307,6 +309,7 @@ export function InspectorShell({
           </ResizablePanelGroup>
           <DraftTray
             status={status}
+            changes={draftChangeCount(active, draft?.snapshot)}
             onReview={() => setReviewOpen(true)}
             onDiscard={handlers.onDiscardDraft}
           />
@@ -326,6 +329,8 @@ export function InspectorShell({
       <ReviewSheet
         open={reviewOpen}
         onOpenChange={setReviewOpen}
+        applyBlockedReason={applyBlockedReason(draft)}
+        canPreview={role === "admin"}
         draft={draft}
         preview={preview}
         status={status}
