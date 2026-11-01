@@ -2,8 +2,11 @@
 
 ## Сборка и первый вход
 
-Из корня: `make image`, затем `docker compose -f deploy/compose.yaml up -d`.
-Compose service/image: `kraken`, `kraken:dev`.
+Опубликованный образ: `docker compose -f deploy/compose.yaml up -d` (по умолчанию
+`ghcr.io/grshv/kraken:main`, Compose скачивает его сам). Локальная сборка: из корня
+`make image`, затем `KRAKEN_IMAGE=kraken:dev docker compose -f deploy/compose.yaml up -d`
+(или `KRAKEN_IMAGE=kraken:dev` в `deploy/.env`: Compose читает `.env` рядом с
+`compose.yaml`, не из корня). Compose service: `kraken`.
 Панель публикуется на `127.0.0.1:8443`, HTTP proxy на `127.0.0.1:3128`.
 Изначально Squid закрыт для всех неизвестных клиентов; регистрация через браузер отсутствует.
 Первого администратора создаёт CLI внутри контейнера, пароль вводится без echo

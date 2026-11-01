@@ -26,9 +26,10 @@
    Squid — готовый образ `ghcr.io/grshv/kraken-squid` по digest (собран из
    подписанного upstream-релиза, ADR 0020); бинарники и Pebble plan копируются в
    pinned Alpine.
-   Node и toolchain в runtime отсутствуют. Compose берёт образ из `KRAKEN_IMAGE`
-   (по умолчанию `kraken:dev`): `KRAKEN_IMAGE=ghcr.io/grshv/kraken:main docker
-   compose -f deploy/compose.yaml up -d --no-build`. Пакеты GHCR публичные,
+   Node и toolchain в runtime отсутствуют. Compose берёт образ из `KRAKEN_IMAGE`,
+   по умолчанию `ghcr.io/grshv/kraken:main`; для установки достаточно одного файла
+   `deploy/compose.yaml` и `docker compose up -d`, локальная сборка запускается с
+   `KRAKEN_IMAGE=kraken:dev`. Пакеты GHCR публичные,
    вход не нужен. Образ публикуется только после Go-, web- и integration-тестов
    своего коммита и несёт подписанные Sigstore attestations GitHub: provenance
    на multi-arch digest и SBOM (CycloneDX) на образ каждой архитектуры.

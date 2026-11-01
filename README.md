@@ -52,30 +52,35 @@ React UI. Без Docker socket, privileged mode и shell API. Личный пр�
 ## Быстрый старт
 
 Нужны Docker Engine с Compose и свободные `localhost:8443` и `localhost:3128`.
+Клонировать репозиторий не нужно: Compose берёт готовый образ
+`ghcr.io/grshv/kraken` (amd64 и arm64) из GHCR.
 
 ```sh
-make image
-docker compose -f deploy/compose.yaml up -d
+mkdir kraken && cd kraken
+curl -fsSLO https://raw.githubusercontent.com/grshv/kraken/main/deploy/compose.yaml
+docker compose up -d
 docker exec -it kraken kraken dev-cert                        # самоподписанный сертификат
 docker exec -it kraken kraken bootstrap --username admin      # первый администратор
 ```
 
-Вместо `make image` можно взять опубликованный образ (amd64 и arm64):
-`KRAKEN_IMAGE=ghcr.io/grshv/kraken:main docker compose -f deploy/compose.yaml up -d --no-build`.
-Образ публикуется только после тестов и подписан attestation GitHub; происхождение
-проверяет `gh attestation verify oci://ghcr.io/grshv/kraken:main --repo grshv/kraken`.
-
 Панель — [https://localhost:8443](https://localhost:8443), прокси — `localhost:3128`.
 Пароль вводится без эха и передаётся через stdin; пароля по умолчанию нет, в БД хранится
-только Argon2id. Порты публикуются на loopback; для клиентов из сети задайте адреса в
-`.env` (см. [.env.example](.env.example)) и закройте лишнее firewall.
+только Argon2id. Порты публикуются на loopback; для клиентов из сети положите рядом с
+`compose.yaml` файл `.env` (см. [.env.example](.env.example)) и закройте лишнее firewall.
 TLS к прокси с логинами — [`deploy/compose.tls.yaml`](deploy/compose.tls.yaml) и
 [локальная установка](docs/operations/local-development.md).
 
 ```sh
-docker compose -f deploy/compose.yaml logs -f
-docker compose -f deploy/compose.yaml down        # том с данными сохраняется
+docker compose logs -f
+docker compose pull && docker compose up -d   # обновление образа
+docker compose down                           # том с данными сохраняется
 ```
+
+`main` — последний проверенный коммит; для фиксированной версии задайте в `.env`
+`KRAKEN_IMAGE=ghcr.io/grshv/kraken:sha-<коммит>` (после первого релиза — `X.Y.Z`).
+Образ публикуется только после тестов и подписан attestation GitHub; происхождение
+проверяет `gh attestation verify oci://ghcr.io/grshv/kraken:main --repo grshv/kraken`.
+Обновление разрывает открытые соединения прокси — порядок в [runbooks](docs/operations/runbooks.md).
 
 ## Обслуживание
 
@@ -106,7 +111,8 @@ docker compose -f deploy/compose.yaml down        # том с данными с�
 
 ```sh
 make check         # docs-check, сборка и тесты web, go test -race, vet, gofmt, diff-check
-make image         # контейнер kraken:dev (Squid — образ ghcr.io/grshv/kraken-squid по digest)
+make image         # контейнер kraken:dev (Squid — образ ghcr.io/grshv/kraken-squid по digest);
+                   # запуск: KRAKEN_IMAGE=kraken:dev docker compose -f deploy/compose.yaml up -d
 make squid-image   # Squid из подписанного релиза локально; затем make image SQUID_IMAGE=kraken-squid:local
 make integration   # Go-тесты на реальном Squid в одноразовых контейнерах (нужен image)
 make scan          # govulncheck, SBOM образа + web + Squid под grype, gitleaks (нужен image)

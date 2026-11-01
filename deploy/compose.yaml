@@ -1,10 +1,9 @@
 name: kraken
 services:
   kraken:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile
-    image: ${KRAKEN_IMAGE:-kraken:dev}
+    # Published multi-arch image; a local build (make image) runs with
+    # KRAKEN_IMAGE=kraken:dev. For a fixed version use a sha-<commit> tag.
+    image: ${KRAKEN_IMAGE:-ghcr.io/grshv/kraken:main}
     container_name: kraken
     ports:
       - "${KRAKEN_MANAGEMENT_BIND:-127.0.0.1}:8443:8443"
