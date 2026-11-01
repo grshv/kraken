@@ -1,18 +1,39 @@
-# Kraken
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/kraken-mark-dark.svg">
+    <img src="docs/images/kraken-mark-light.svg" alt="" width="88" height="88">
+  </picture>
+</p>
 
-[![Web](https://github.com/grshv/kraken/actions/workflows/web.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/web.yml)
-[![Go](https://github.com/grshv/kraken/actions/workflows/go.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/go.yml)
-[![Image](https://github.com/grshv/kraken/actions/workflows/image.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/image.yml)
-[![Squid image](https://github.com/grshv/kraken/actions/workflows/squid.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/squid.yml)
-[![CodeQL](https://github.com/grshv/kraken/actions/workflows/codeql.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/codeql.yml)
-[![Security](https://github.com/grshv/kraken/actions/workflows/security.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/security.yml)
-[![Documentation](https://github.com/grshv/kraken/actions/workflows/docs.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/docs.yml)
+<h1 align="center">Kraken</h1>
 
-Web-панель для управления исходящим доступом клиентов через Squid. Клиент — устройство,
-адрес, сеть или группа; каждому открывается весь веб, только разрешённые домены или
-ничего. Журнал показывает, кто куда ходил, почему получил отказ и что поправить.
+<p align="center">
+  Web-панель исходящего доступа клиентов через Squid: закрыто по умолчанию,<br>
+  правки в черновике, применение с проверкой и откатом, журнал отказов.
+</p>
 
-![Обзор клиента](docs/images/clients.png)
+<p align="center">
+  <a href="https://github.com/grshv/kraken/actions/workflows/image.yml"><img src="https://github.com/grshv/kraken/actions/workflows/image.yml/badge.svg" alt="Image"></a>
+  <a href="https://github.com/grshv/kraken/actions/workflows/squid.yml"><img src="https://github.com/grshv/kraken/actions/workflows/squid.yml/badge.svg" alt="Squid image"></a>
+  <a href="https://github.com/grshv/kraken/actions/workflows/security.yml"><img src="https://github.com/grshv/kraken/actions/workflows/security.yml/badge.svg" alt="Security"></a>
+  <a href="https://github.com/grshv/kraken/actions/workflows/codeql.yml"><img src="https://github.com/grshv/kraken/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
+  <a href="https://github.com/grshv/kraken/pkgs/container/kraken"><img src="https://img.shields.io/badge/ghcr.io-grshv%2Fkraken-2b3137?logo=docker&logoColor=white" alt="ghcr.io/grshv/kraken"></a>
+</p>
+
+<p align="center">
+  <a href="#быстрый-старт">Быстрый старт</a> ·
+  <a href="docs/README.md">Документация</a> ·
+  <a href="docs/status.md">Статус</a> ·
+  <a href="docs/operations/runbooks.md">Runbooks</a>
+</p>
+
+<p align="center">
+  <img src="docs/images/clients.png" alt="Обзор клиента: доступ, политики и журнал запросов" width="900">
+</p>
+
+Клиент — устройство, адрес, сеть или группа; каждому открывается весь веб, только
+разрешённые домены или ничего. Журнал показывает, кто куда ходил, почему получил отказ
+и что поправить.
 
 - **Доступ закрыт по умолчанию.** Внутренние адреса, metadata, manager Squid и опасные
   порты запрещены всегда, даже в режиме «весь веб».
@@ -41,6 +62,8 @@ docker exec -it kraken kraken bootstrap --username admin      # первый а�
 
 Вместо `make image` можно взять опубликованный образ (amd64 и arm64):
 `KRAKEN_IMAGE=ghcr.io/grshv/kraken:main docker compose -f deploy/compose.yaml up -d --no-build`.
+Образ публикуется только после тестов и подписан attestation GitHub; происхождение
+проверяет `gh attestation verify oci://ghcr.io/grshv/kraken:main --repo grshv/kraken`.
 
 Панель — [https://localhost:8443](https://localhost:8443), прокси — `localhost:3128`.
 Пароль вводится без эха и передаётся через stdin; пароля по умолчанию нет, в БД хранится
