@@ -1,3 +1,4 @@
+import { Disclosure } from "@/components/kraken/disclosure";
 import { Timestamp } from "@/components/kraken/timestamp";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -22,12 +23,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableRow,
-} from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableRow } from "@/components/ui/table";
 import {
   InspectorBody,
   InspectorHeader,
@@ -230,11 +226,6 @@ export function AccountsSection(props: SectionProps) {
       <ListPane>
         <ListPaneHeader
           title="Аккаунты"
-          description={
-            isAdmin
-              ? "Кто входит в панель и какие логины принимает прокси."
-              : "Логины для ваших клиентов, подключённых по TLS."
-          }
           action={
             canManageUsers ? (
               <DropdownMenu>
@@ -274,7 +265,16 @@ export function AccountsSection(props: SectionProps) {
                   subtitle={u.role === "admin" ? "Администратор" : "Менеджер"}
                   aside={
                     u.enabled ? undefined : (
-                      <Badge variant="outline">заблокирован</Badge>
+                      <span
+                        className="inline-flex align-middle text-muted-foreground"
+                        title="Заблокирован"
+                      >
+                        <Ban
+                          className="size-3.5"
+                          role="img"
+                          aria-label="Заблокирован"
+                        />
+                      </span>
                     )
                   }
                 />
@@ -305,7 +305,10 @@ export function AccountsSection(props: SectionProps) {
                 }
                 aside={
                   a.enabled ? undefined : (
-                    <Badge variant="outline">заблокирован</Badge>
+                    <Badge variant="bad">
+                      <Ban aria-hidden />
+                      заблокирован
+                    </Badge>
                   )
                 }
               />
@@ -442,7 +445,7 @@ function RoleOption({
       title={title}
       className={cn(
         "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 rounded-lg border p-3 text-left",
-        selected ? "border-muted-foreground/45 bg-hover" : "border-border",
+        selected ? "border-input bg-sel" : "border-border bg-surface-control",
         disabled && "opacity-60",
       )}
     >
@@ -585,7 +588,10 @@ function PanelUserDetail({
             {user.enabled ? (
               <Badge variant="ok">активен</Badge>
             ) : (
-              <Badge variant="secondary">заблокирован</Badge>
+              <Badge variant="bad">
+                <Ban aria-hidden />
+                заблокирован
+              </Badge>
             )}
           </>
         }
@@ -622,7 +628,6 @@ function PanelUserDetail({
             )}
           </>
         }
-        meta="Административный сброс пароля завершает все сессии пользователя."
       />
       <Dialog open={pwdOpen} onOpenChange={setPwdOpen}>
         <DialogContent className="sm:max-w-[420px]">
@@ -669,56 +674,80 @@ function PanelUserDetail({
             <span className="text-sm">{error}</span>
           </Callout>
         )}
-        <div className="grid grid-cols-1 items-start gap-3.5 @[900px]:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle>Роль</CardTitle>
-                {user.role === "admin" && !demote && (
-                  <CardDescription>
-                    Последнего администратора нельзя понизить или заблокировать
-                  </CardDescription>
-                )}
-              </div>
-            </CardHeader>
-            <CardContent>
-              <RadioGroup value={user.role} className="grid grid-cols-2 gap-2">
-                <RoleOption
-                  selected={user.role === "admin"}
-                  disabled={user.role === "admin"}
-                  onClick={() => patch({ role: "admin" }, "Роль изменена")}
-                  label="Администратор"
-                  hint="Всё, включая настройки и аккаунты"
-                />
-                <RoleOption
-                  selected={user.role === "manager"}
-                  disabled={user.role === "admin" && !demote}
-                  title={
-                    user.role === "admin" && !demote
-                      ? "Нельзя понизить последнего администратора"
-                      : undefined
-                  }
-                  onClick={() => patch({ role: "manager" }, "Роль изменена")}
-                  label="Менеджер"
-                  hint="Только назначенные клиенты"
-                />
-              </RadioGroup>
-              <dl className="mt-3 flex flex-col text-sm">
-                {PERMS.map(([p, ad, mg]) => (
-                  <div
-                    key={p}
-                    className="flex items-baseline justify-between gap-4 border-b py-1.5 last:border-b-0"
-                  >
-                    <dt className="text-muted-foreground">{p}</dt>
-                    <dd className="m-0 text-right">
-                      {user.role === "admin" ? ad : mg}
-                    </dd>
-                  </div>
-                ))}
-              </dl>
-            </CardContent>
-          </Card>
-          <div className="flex flex-col gap-3.5">
+        <div className="grid grid-cols-1 items-start gap-6 @[900px]:grid-cols-2">
+          <div className="flex min-w-0 flex-col gap-6">
+            <Card>
+              <CardHeader>
+                <div>
+                  <CardTitle>Роль</CardTitle>
+                  {user.role === "admin" && !demote && (
+                    <CardDescription>
+                      Последнего администратора нельзя понизить или
+                      заблокировать
+                    </CardDescription>
+                  )}
+                </div>
+              </CardHeader>
+              <CardContent>
+                <RadioGroup
+                  value={user.role}
+                  className="grid grid-cols-2 gap-2"
+                >
+                  <RoleOption
+                    selected={user.role === "admin"}
+                    disabled={user.role === "admin"}
+                    onClick={() => patch({ role: "admin" }, "Роль изменена")}
+                    label="Администратор"
+                    hint="Всё, включая настройки и аккаунты"
+                  />
+                  <RoleOption
+                    selected={user.role === "manager"}
+                    disabled={user.role === "admin" && !demote}
+                    title={
+                      user.role === "admin" && !demote
+                        ? "Нельзя понизить последнего администратора"
+                        : undefined
+                    }
+                    onClick={() => patch({ role: "manager" }, "Роль изменена")}
+                    label="Менеджер"
+                    hint="Только назначенные клиенты"
+                  />
+                </RadioGroup>
+                <Disclosure className="mt-3 text-sm" label="Полномочия роли">
+                  <dl className="mt-2 flex flex-col text-sm">
+                    {PERMS.map(([p, ad, mg]) => (
+                      <div
+                        key={p}
+                        className="flex items-baseline justify-between gap-4 border-b py-1.5 last:border-b-0"
+                      >
+                        <dt className="text-muted-foreground">{p}</dt>
+                        <dd className="m-0 text-right">
+                          {user.role === "admin" ? ad : mg}
+                        </dd>
+                      </div>
+                    ))}
+                  </dl>
+                </Disclosure>
+              </CardContent>
+            </Card>
+            {user.role === "manager" && (
+              <ManagerScopeEditor
+                draft={scopeDraft}
+                scope={scope}
+                draftClients={draftClients}
+                error={scopeErr}
+                onToast={onToast}
+                onNetworks={(nets) =>
+                  setScopeDraft((d) => (d ? { ...d, networks: nets } : d))
+                }
+                onClients={(ids) =>
+                  setScopeDraft((d) => (d ? { ...d, clientIDs: ids } : d))
+                }
+                onSave={saveScope}
+              />
+            )}
+          </div>
+          <div className="flex min-w-0 flex-col gap-6">
             <Card>
               <CardHeader>
                 <CardTitle>Входы</CardTitle>
@@ -736,12 +765,17 @@ function PanelUserDetail({
                         {logins.failed24h}
                       </span>,
                     ],
-                    [
-                      "Защита",
-                      "больше 5 попыток в минуту с адреса или 20 для имени — вход закрыт на минуту",
-                    ],
                   ]}
                 />
+                <Disclosure
+                  className="mt-3 text-sm text-muted-foreground"
+                  label="Ограничения входа"
+                >
+                  <p className="mt-2">
+                    Больше 5 попыток в минуту с адреса или 20 для имени — вход
+                    закрыт на минуту.
+                  </p>
+                </Disclosure>
               </CardContent>
             </Card>
             <RecentActions
@@ -751,23 +785,6 @@ function PanelUserDetail({
             />
           </div>
         </div>
-
-        {user.role === "manager" && (
-          <ManagerScopeEditor
-            draft={scopeDraft}
-            scope={scope}
-            draftClients={draftClients}
-            error={scopeErr}
-            onToast={onToast}
-            onNetworks={(nets) =>
-              setScopeDraft((d) => (d ? { ...d, networks: nets } : d))
-            }
-            onClients={(ids) =>
-              setScopeDraft((d) => (d ? { ...d, clientIDs: ids } : d))
-            }
-            onSave={saveScope}
-          />
-        )}
 
         <SessionsCard
           username={user.username}
@@ -877,7 +894,7 @@ function ManagerScopeEditor({
         <CardTitle>Область менеджера</CardTitle>
         {dirty && (
           <CardAction>
-            <Badge variant="secondary">в черновике</Badge>
+            <Badge variant="secondary">Не сохранено</Badge>
           </CardAction>
         )}
       </CardHeader>
@@ -948,9 +965,6 @@ function ManagerScopeEditor({
                         />
 
                         <span>{c.name}</span>
-                        <span className="font-mono text-sm text-muted-foreground">
-                          {c.id}
-                        </span>
                       </Label>
                     </TableCell>
                   </TableRow>
@@ -1021,6 +1035,7 @@ function ProxyAccountDetail({
     <>
       <InspectorHeader
         title={<span className="font-mono">{account.username}</span>}
+        meta="Изменения логина действуют сразу"
         status={
           <>
             <Badge variant="secondary">логин прокси</Badge>

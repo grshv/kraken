@@ -149,10 +149,7 @@ export function DeniedDomains({
       <CardHeader>
         <div>
           <CardTitle>Отказанные домены</CardTitle>
-          <CardDescription>
-            За 7 дней; домены, которых нет в итоговом списке клиента. Отказы
-            защиты и запрещённые для всех сюда не попадают.
-          </CardDescription>
+          <CardDescription>За 7 дней</CardDescription>
         </div>
         <CardAction>
           <ToggleGroup
@@ -199,11 +196,6 @@ export function DeniedDomains({
               }}
             />
           </div>
-          {picked.length === 0 && shown.length > 0 && (
-            <span className="text-sm text-muted-foreground">
-              Отметьте строки, чтобы разрешить или отметить несколько сразу
-            </span>
-          )}
           {picked.length > 0 && (
             <>
               <span className="text-sm text-muted-foreground">
@@ -252,10 +244,10 @@ export function DeniedDomains({
             </>
           )}
         </div>
-        <Table className="min-w-[860px] table-fixed">
+        <Table className="w-full table-fixed">
           <TableHeader>
             <TableRow>
-              <TableHead className="w-8">
+              <TableHead className="w-10">
                 <Checkbox
                   aria-label="Выбрать все"
                   checked={allPicked}
@@ -272,10 +264,12 @@ export function DeniedDomains({
                 />
               </TableHead>
               <TableHead>Домен</TableHead>
-              <TableHead className="w-[84px] text-right">Отказов</TableHead>
-              <TableHead className="w-[84px]">Последний</TableHead>
-              <TableHead className="w-[190px]">Статус</TableHead>
-              <TableHead className="w-[164px]" />
+              <TableHead className="w-[68px] text-right">Отказов</TableHead>
+              <TableHead className="w-[76px]">Последний</TableHead>
+              {filter === "all" && (
+                <TableHead className="w-[104px]">Статус</TableHead>
+              )}
+              <TableHead className="w-[150px]" />
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -311,7 +305,9 @@ export function DeniedDomains({
                   <TableCell className="text-muted-foreground">
                     <Timestamp value={n.last_seen} mode="relative" />
                   </TableCell>
-                  <TableCell className="truncate">{statusBadge(n)}</TableCell>
+                  {filter === "all" && (
+                    <TableCell className="truncate">{statusBadge(n)}</TableCell>
+                  )}
                   <TableCell className="text-right">
                     <div className="flex items-center justify-end gap-1">
                       {!drafted && (
@@ -376,10 +372,18 @@ export function DeniedDomains({
             {shown.length === 0 && (
               <TableRow>
                 <TableCell
-                  colSpan={6}
+                  colSpan={filter === "all" ? 6 : 5}
                   className="text-sm text-muted-foreground"
                 >
-                  {query ? "Ничего не найдено" : "Здесь пусто"}
+                  {query
+                    ? "Домены не найдены"
+                    : filter === "new"
+                      ? "Новых отказов нет"
+                      : filter === "seen"
+                        ? "Просмотренных доменов нет"
+                        : filter === "ignored"
+                          ? "Игнорируемых доменов нет"
+                          : "Отказанных доменов нет"}
                 </TableCell>
               </TableRow>
             )}

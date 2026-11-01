@@ -117,21 +117,25 @@ export function CommandPalette({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="p-0" showCloseButton={false}>
+      <DialogContent className="w-[calc(100%-3rem)] max-h-[calc(100dvh-3rem)] gap-0 overflow-hidden p-0 sm:max-w-[760px] [&>[data-slot=dialog-close]]:inline-flex [&>[data-slot=dialog-close]]:size-8 [&>[data-slot=dialog-close]]:items-center [&>[data-slot=dialog-close]]:justify-center [&>[data-slot=dialog-close]]:rounded-md">
         <DialogHeader className="sr-only">
           <DialogTitle>Поиск и действия</DialogTitle>
           <DialogDescription>
             Поиск клиентов, адресов, доменов, политик и разделов
           </DialogDescription>
         </DialogHeader>
-        <Command loop>
+        <Command
+          loop
+          className="[&_[data-slot=command-input-wrapper]]:h-16 [&_[data-slot=command-input-wrapper]]:gap-3 [&_[data-slot=command-input-wrapper]]:pl-5 [&_[data-slot=command-input-wrapper]]:pr-16 [&_[cmdk-group]]:p-2 [&_[cmdk-group-heading]]:px-3 [&_[cmdk-group-heading]]:pt-3 [&_[cmdk-group-heading]]:pb-2 [&_[cmdk-item]]:min-h-10 [&_[cmdk-item]]:gap-3 [&_[cmdk-item]]:rounded-md [&_[cmdk-item]]:px-3 [&_[cmdk-item]]:py-2 [&_[cmdk-item]]:text-base [&_[cmdk-item][data-selected=true]]:bg-sel [&_[cmdk-item][data-selected=true]]:text-sel-foreground"
+        >
           <CommandInput
+            className="h-16 min-w-0 text-base"
             placeholder="Клиент, IP, домен или действие…"
             aria-label="Поиск и действия"
             value={query}
             onValueChange={setQuery}
           />
-          <CommandList>
+          <CommandList className="h-[min(520px,calc(100dvh-112px))] max-h-none scroll-py-2">
             <CommandEmpty>Ничего не найдено</CommandEmpty>
             <CommandGroup heading="Действия">
               {actions.map((a) => (

@@ -61,7 +61,7 @@ function describeControls(
   return { children, firstId };
 }
 import { Alert, AlertDescription } from "../ui/alert";
-import { Card, CardContent } from "../ui/card";
+import { CardContent } from "../ui/card";
 import {
   Field as FormField,
   FieldContent,
@@ -127,9 +127,10 @@ export function Chip({ className, ...props }: React.ComponentProps<"span">) {
 }
 export function KpiGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
-    <Card
+    <div
+      data-slot="kpi-group"
       className={cn(
-        "grid grid-cols-2 gap-0 overflow-hidden py-0 @[600px]:grid-cols-4 [&>*]:border-l [&>*:first-child]:border-l-0",
+        "grid grid-cols-2 gap-0 overflow-hidden border-b pb-4 @[600px]:grid-cols-4 [&>*]:border-l [&>*:nth-child(odd)]:border-l-0 @[600px]:[&>*:nth-child(3)]:border-l",
         className,
       )}
       {...props}
@@ -152,7 +153,7 @@ export function Kpi({
 }) {
   const body = (
     <>
-      <span className="truncate text-sm font-medium text-muted-foreground">
+      <span className="block min-h-[2.5em] w-full text-sm leading-tight font-normal text-muted-foreground">
         {label}
       </span>
       <span
@@ -173,13 +174,13 @@ export function Kpi({
       <Button
         variant="ghost"
         onClick={onClick}
-        className="h-auto w-full min-w-0 flex-col items-start gap-px rounded-none px-3.5 py-2.5 text-left font-normal"
+        className="h-auto w-full min-w-0 flex-col items-start gap-px rounded-none px-4 py-2 text-left font-normal"
       >
         {body}
       </Button>
     </CardContent>
   ) : (
-    <CardContent className="flex min-w-0 flex-col gap-px px-3.5 py-2.5">
+    <CardContent className="flex min-w-0 flex-col gap-px px-4 py-2">
       {body}
     </CardContent>
   );
@@ -270,9 +271,9 @@ export function SettingRow({
   return (
     <FormField
       orientation="horizontal"
-      className="items-start gap-3 border-b py-2.5 last:border-b-0"
+      className="items-center has-[>[data-slot=field-content]]:items-center gap-4 border-b py-3 last:border-b-0"
     >
-      <FieldContent>
+      <FieldContent className="min-w-0">
         <FieldLabel
           id={labelId}
           htmlFor={controls.firstId}
@@ -283,7 +284,9 @@ export function SettingRow({
         </FieldLabel>
         {help && <FieldDescription id={descriptionId}>{help}</FieldDescription>}
       </FieldContent>
-      <div className="shrink-0">{controls.children}</div>
+      <div className="flex min-h-8 shrink-0 items-center justify-end">
+        {controls.children}
+      </div>
     </FormField>
   );
 }

@@ -324,3 +324,56 @@ export function dateTime(
     (seconds ? ":" + parts.second : "")
   );
 }
+
+// compactPeriod shortens a journal window in Moscow wall time: one date for a
+// window inside a day, the year only when the window crosses years. The full
+// window (dateTime with МСК) goes into the tooltip.
+export function compactPeriod(fromIso: string, toIso: string): string {
+  const months = [
+    "янв.",
+    "февр.",
+    "мар.",
+    "апр.",
+    "мая",
+    "июн.",
+    "июл.",
+    "авг.",
+    "сент.",
+    "окт.",
+    "нояб.",
+    "дек.",
+  ];
+  const parts = (iso: string) => {
+    const date = timestampDate(iso);
+    if (Number.isNaN(date.getTime())) return null;
+    const p = Object.fromEntries(
+      new Intl.DateTimeFormat("ru-RU", {
+        timeZone: "Europe/Moscow",
+        day: "numeric",
+        month: "numeric",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      })
+        .formatToParts(date)
+        .map((x) => [x.type, x.value]),
+    );
+    return {
+      year: p.year,
+      month: Number(p.month),
+      day: Number(p.day),
+      time: p.hour + ":" + p.minute,
+    };
+  };
+  const from = parts(fromIso),
+    to = parts(toIso);
+  if (!from || !to) return "—";
+  const years = from.year !== to.year;
+  const day = (x: NonNullable<typeof from>) =>
+    x.day + " " + months[x.month - 1] + (years ? " " + x.year : "");
+  const sameDay = !years && from.month === to.month && from.day === to.day;
+  return sameDay
+    ? `${day(from)}, ${from.time}–${to.time}`
+    : `${day(from)}, ${from.time} — ${day(to)}, ${to.time}`;
+}

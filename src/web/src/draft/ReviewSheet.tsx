@@ -77,6 +77,7 @@ export function ReviewSheet({
   active,
   onCommit,
   onOpenAudit,
+  applyBlockedReason,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -90,6 +91,7 @@ export function ReviewSheet({
   onCommit?: (next: Snapshot) => Promise<CommitResult>;
   // Opens the audit entry of the revision just applied.
   onOpenAudit?: () => void;
+  applyBlockedReason?: string;
 }) {
   // The sheet loads a fresh preview (admin; a manager gets 403 and keeps the
   // prop) and the 24 h traffic impact each time it opens.
@@ -176,7 +178,9 @@ export function ReviewSheet({
     draft?.snapshot.clients.find((c) => c.id === id)?.name ?? id;
   const showSteps = state.phase !== "idle";
   const blocked =
-    status?.runtime.state === "degraded" || status?.squid.state === "down";
+    !!applyBlockedReason ||
+    status?.runtime.state === "degraded" ||
+    status?.squid.state === "down";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -209,7 +213,10 @@ export function ReviewSheet({
           </Button>
         </SheetHeader>
         <div className="flex flex-1 flex-col gap-3.5 overflow-y-auto px-5 py-4">
-          {blocked && (
+          {!finished && applyBlockedReason && (
+            <Callout tone="warn">{applyBlockedReason}</Callout>
+          )}
+          {!applyBlockedReason && blocked && (
             <Callout tone="bad">
               <strong>Squid недоступен или ограничен.</strong> Применить
               изменения нельзя, пока он не поднимется. Черновик сохранён.
@@ -252,20 +259,22 @@ export function ReviewSheet({
               )}
             </div>
           )}
-          <Card className="gap-0 py-0">
-            <CardContent className="py-0.5">
-              <ChangeList
-                items={shownItems}
-                onUndo={finished ? undefined : onUndo}
-                undoable={finished ? undefined : undoable}
-                details={
-                  useChanges && !finished
-                    ? pv!.changes!.map((c) => c.details)
-                    : undefined
-                }
-              />
-            </CardContent>
-          </Card>
+          {(finished || !applyBlockedReason || !!pv?.changes?.length) && (
+            <Card variant="panel" className="gap-0 py-0">
+              <CardContent className="py-0.5">
+                <ChangeList
+                  items={shownItems}
+                  onUndo={finished ? undefined : onUndo}
+                  undoable={finished ? undefined : undoable}
+                  details={
+                    useChanges && !finished
+                      ? pv!.changes!.map((c) => c.details)
+                      : undefined
+                  }
+                />
+              </CardContent>
+            </Card>
+          )}
           <section className="flex flex-col gap-2">
             <h3 className="font-semibold">Влияние на трафик</h3>
             {impact &&
@@ -359,7 +368,7 @@ export function ReviewSheet({
             </Collapsible>
           )}
           {showSteps && (
-            <Card className="gap-0 py-0">
+            <Card variant="panel" className="gap-0 py-0">
               <CardContent className="py-2.5">
                 <ol className="m-0 flex list-none flex-col gap-2 p-0">
                   <StepRow

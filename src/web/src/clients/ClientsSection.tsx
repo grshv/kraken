@@ -1,15 +1,17 @@
+import { Label } from "@/components/ui/label";
 import { Timestamp } from "@/components/kraken/timestamp";
-import { Progress } from "@/components/ui/progress";
 import { Journal } from "../log/Journal";
 import { defaultFilters, logIntent, type JournalState } from "../log/filters";
 import { useEffect, useId, useMemo, useState } from "react";
 import {
+  ArrowRight,
   Ban,
   Check,
   Info,
   Copy,
   Eye,
   Globe,
+  ListFilter,
   MoreHorizontal,
   Plus,
   Power,
@@ -55,6 +57,8 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import {
@@ -67,19 +71,11 @@ import {
   InspectorHeader,
   InspectorBody,
 } from "@/components/kraken/layout";
-import {
-  Callout,
-  Chip,
-  Field,
-  Kpi,
-  KpiGroup,
-  KeyValue,
-} from "@/components/kraken/blocks";
+import { Callout, Chip, Field, KeyValue } from "@/components/kraken/blocks";
 import { cn } from "cn";
 import { EmptyState } from "../shell/EmptyState";
 import { ConfirmDialog, type ConfirmOptions } from "../shell/ConfirmDialog";
 import { DomainEditor, type DomainHits } from "../policies/DomainEditor";
-import { TemplateButtons } from "../policies/PoliciesSection";
 import {
   managerScope,
   type CommitResult,
@@ -87,9 +83,9 @@ import {
 } from "../sections/sectionProps";
 import { entityMarks, type Mark } from "../draft/marks";
 import { parseNetwork, networksOverlap, networkWithin } from "./networks";
-import { Sparkline, TrafficChart, type Bucket } from "./TrafficChart";
+import { TrafficChart, type Bucket } from "./TrafficChart";
 import { clientChanges } from "./history";
-import { missingDomains } from "./missing";
+import { policySuggestions } from "../policies/suggestions";
 import { tlsUnavailable } from "./connection";
 import {
   countNotices,
@@ -101,7 +97,6 @@ import {
 import { DeniedDomains } from "./DeniedDomains";
 import {
   addDomainToClient,
-  addDomainsToClient,
   attachPolicy,
   clientTransport,
   createClientFromIP,
@@ -438,6 +433,7 @@ export function ClientsSection(props: SectionProps) {
       <ListPane>
         <ListPaneHeader
           title={session.role === "manager" ? "Мои клиенты" : "Клиенты"}
+          className="h-[104px]"
           action={
             <Button
               size="xs"
@@ -447,57 +443,83 @@ export function ClientsSection(props: SectionProps) {
             </Button>
           }
         >
-          <div className="relative flex items-center">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
-            />
-            <Input
-              className="h-8 pl-8"
-              aria-label="Поиск клиентов"
-              placeholder="Имя, IP или домен…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute top-2.5 left-2.5 size-3.5 text-muted-foreground"
+              />
+              <Input
+                className="h-8 pl-8"
+                aria-label="Поиск клиентов"
+                placeholder="Имя, IP или домен…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+              />
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "relative size-8",
+                    filter !== "all" && "border-ring bg-sel text-primary",
+                  )}
+                  aria-label="Фильтры клиентов"
+                  title={
+                    filter === "all"
+                      ? "Все клиенты"
+                      : filter === "denied"
+                        ? "С отказами за 24 ч"
+                        : "Изменены в черновике"
+                  }
+                >
+                  <ListFilter aria-hidden />
+                  {filter !== "all" && (
+                    <span
+                      className="absolute top-1 right-1 size-1.5 rounded-full bg-primary"
+                      aria-hidden
+                    />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-64">
+                <DropdownMenuRadioGroup
+                  value={filter}
+                  onValueChange={(v) =>
+                    setFilter(v as "all" | "denied" | "draft")
+                  }
+                >
+                  {(
+                    [
+                      ["all", "Все клиенты", clients.length],
+                      [
+                        "denied",
+                        "С отказами за 24 ч",
+                        clients.filter((c) => stats[c.id]?.denied > 0).length,
+                      ],
+                      [
+                        "draft",
+                        "Изменены в черновике",
+                        clients.filter((c) => clientMarks[c.id]).length,
+                      ],
+                    ] as const
+                  ).map(([id, label, count]) => (
+                    <DropdownMenuRadioItem key={id} value={id}>
+                      {label}
+                      <span className="ml-auto pl-4 text-muted-foreground tabular-nums">
+                        {count}
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <Select
-            value={filter}
-            onValueChange={(v) => setFilter(v as "all" | "denied" | "draft")}
-          >
-            <SelectTrigger
-              className="h-8 w-full"
-              aria-label="Показать клиентов"
-            >
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {(
-                [
-                  ["all", "Все клиенты", clients.length],
-                  [
-                    "denied",
-                    "С отказами за 24 ч",
-                    clients.filter((c) => stats[c.id]?.denied > 0).length,
-                  ],
-                  [
-                    "draft",
-                    "Изменены в черновике",
-                    clients.filter((c) => clientMarks[c.id]).length,
-                  ],
-                ] as const
-              ).map(([id, label, count]) => (
-                <SelectItem key={id} value={id}>
-                  {label}
-                  <span className="ml-1.5 text-muted-foreground tabular-nums">
-                    {count}
-                  </span>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </ListPaneHeader>
         <ListPaneBody>
-          <div className="flex justify-between gap-2 px-3.5 pt-2 pb-1 text-sm text-muted-foreground">
+          <div className="flex justify-between gap-2 px-4 pt-2 pb-1 text-sm text-muted-foreground">
             <span>Клиент</span>
             <span className="truncate" title="Отказы или запросы за 24 ч">
               за 24 ч
@@ -515,7 +537,7 @@ export function ClientsSection(props: SectionProps) {
                   setTab("overview");
                 }}
                 title={<span className="truncate font-medium">{c.name}</span>}
-                meta={<Sparkline series={st?.series} />}
+
                 subtitle={
                   <span className="font-mono">
                     {c.source_networks.join(", ")}
@@ -528,7 +550,12 @@ export function ClientsSection(props: SectionProps) {
                       : st?.denied
                         ? pluralRu(st.denied, "отказ", "отказа", "отказов")
                         : st
-                          ? `${st.requests}`
+                          ? pluralRu(
+                              st.requests,
+                              "запрос",
+                              "запроса",
+                              "запросов",
+                            )
                           : "—"}
                   </span>
                 }
@@ -701,10 +728,10 @@ function RadioCard({
         disabled && "opacity-60",
       )}
     >
-      <label
+      <Label
         htmlFor={id}
         className={cn(
-          "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5",
+          "grid grid-cols-[18px_minmax(0,1fr)] items-start gap-2.5 font-normal",
           disabled ? "cursor-not-allowed" : "cursor-pointer",
         )}
       >
@@ -720,7 +747,7 @@ function RadioCard({
           </div>
           {hint && <div className="text-sm text-muted-foreground">{hint}</div>}
         </span>
-      </label>
+      </Label>
       {children && <div className="pl-7">{children}</div>}
     </div>
   );
@@ -803,14 +830,14 @@ function ClientDetail({
   return (
     <>
       <InspectorHeader
+        compact
         title={client.name}
         status={
           <>
             {!client.enabled ? (
               <Badge variant="secondary">отключён</Badge>
             ) : lastSeen ? (
-              <Badge variant="ok">
-                <span className="size-1.5 rounded-full bg-current" />
+              <Badge variant="secondary">
                 последний запрос <Timestamp value={lastSeen} mode="relative" />
               </Badge>
             ) : recent ? (
@@ -826,24 +853,6 @@ function ClientDetail({
         }
         actions={
           <>
-            {/* Disabling is a temporary switch: rules and mode stay as they
-                are and come back on enable. «Нет доступа» is a mode instead. */}
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onToggleEnabled}
-              title={
-                client.enabled
-                  ? "Временно: все запросы клиента получают отказ, режим и списки сохраняются до включения"
-                  : "Вернуть клиенту его режим и списки"
-              }
-            >
-              <Power aria-hidden />{" "}
-              {client.enabled ? "Временно выключить" : "Включить"}
-            </Button>
-            <Button size="sm" variant="outline" onClick={onDuplicate}>
-              <Copy aria-hidden /> Дублировать
-            </Button>
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon-sm" aria-label="Ещё">
@@ -851,6 +860,17 @@ function ClientDetail({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onSelect={() => {
+                    void onToggleEnabled();
+                  }}
+                >
+                  <Power aria-hidden />
+                  {client.enabled ? "Временно выключить" : "Включить"}
+                </DropdownMenuItem>
+                <DropdownMenuItem onSelect={onDuplicate}>
+                  <Copy aria-hidden /> Дублировать
+                </DropdownMenuItem>
                 <DropdownMenuItem
                   variant="destructive"
                   onSelect={() => {
@@ -870,19 +890,15 @@ function ClientDetail({
           </>
         }
         meta={
-          <>
-            <span>{kindLabel(client.kind)}</span>·
-            {client.description && (
-              <>
-                <span>{client.description}</span>·
-              </>
-            )}
-            <span className="font-mono text-sm">
-              {client.source_networks.join(", ")}
-            </span>
-            ·<span>{connectionLabel(snap, client)}</span>·
-            <AccessBadge client={client} snap={snap} />
-          </>
+          <span
+            title={[
+              client.description || kindLabel(client.kind),
+              client.source_networks.join(", "),
+            ].join(" / ")}
+          >
+            {client.description || kindLabel(client.kind)} /{" "}
+            {client.source_networks.join(", ")}
+          </span>
         }
       />
       <Tabs
@@ -892,7 +908,7 @@ function ClientDetail({
       >
         <TabsList
           variant="line"
-          className="group-data-[orientation=horizontal]/tabs:h-auto h-auto w-full p-0 justify-start gap-[18px] overflow-x-auto overflow-y-hidden border-b px-5"
+          className="group-data-[orientation=horizontal]/tabs:h-auto h-auto w-full p-0 justify-start gap-[18px] overflow-x-auto overflow-y-hidden border-b px-8"
         >
           {tabs.map(([k, l]) => (
             <TabsTrigger
@@ -1055,10 +1071,7 @@ function BlockedLink({
   );
 }
 
-// OverviewTab follows the prototype: a callout with the new denied domains
-// the client may not reach (notifications; "Просмотрено" marks them seen for
-// everyone), KPIs, then traffic and top destinations on the left and rules
-// and recent requests on the right.
+// Обзор: уведомление, общая сводка активности, назначения и боковой контекст.
 function OverviewTab({
   client,
   stats,
@@ -1085,15 +1098,15 @@ function OverviewTab({
   onRequests: (view: JournalState["view"]) => void;
 }) {
   const top = stats?.top_destinations ?? [];
-  const deniedTop = missingDomains(stats?.top_destinations, snap, client);
-  const isMissing = (host: string) => deniedTop.some((d) => d.host === host);
+  const pending = policySuggestions(notices ?? [], snap, [client]);
   const fresh = (notices ?? []).filter((n) => n.status === "new");
   const shown = fresh.slice(0, 5);
-  const rest = fresh.length - shown.length;
+  const rows = top.slice(0, 7).map((d) => ({ ...d, withinDay: true }));
   const list = effectiveDestinations(snap, client).map((e) => e.destination);
   const attached = snap.policies.filter((p) =>
     client.policy_ids.includes(p.id),
   );
+  const isMissing = (host: string) => pending.some((d) => d.host === host);
   // KPI figures open the journal on exactly the requests they count.
   const openJournal = (result: "all" | "denied") =>
     onOpen?.(
@@ -1105,46 +1118,138 @@ function OverviewTab({
     );
   const allow = async (host: string) => {
     const res = await onCommit(addDomainToClient(snap, client.id, host));
-    if (res.ok) onToast(`Домен ${host} добавлен клиенту`);
+    if (res.ok) onToast("Домен " + host + " добавлен в черновик");
   };
-  const max = Math.max(1, ...top.map((d) => d.requests));
+  const figures = [
+    {
+      label: "Запросы",
+      value: stats ? stats.requests.toLocaleString("ru-RU") : "—",
+      action: stats?.requests ? () => openJournal("all") : undefined,
+    },
+    {
+      label: "Отказы",
+      value: stats ? stats.denied.toLocaleString("ru-RU") : "—",
+      action: stats?.denied ? () => openJournal("denied") : undefined,
+      bad: !!stats?.denied,
+    },
+    { label: "Трафик", value: stats ? formatBytes(stats.bytes) : "—" },
+    {
+      label: "Соединения",
+      current: true,
+      value:
+        stats?.open_connections != null ? String(stats.open_connections) : "—",
+    },
+  ];
   return (
-    <>
-      {fresh.length > 0 && (
-        <Callout tone="bad" icon={<Ban aria-hidden />}>
-          <div className="flex flex-wrap items-start gap-x-3 gap-y-1.5">
-            <div className="min-w-0 flex-1">
-              <div className="font-medium">
-                {fresh.length === 1
-                  ? "Новый домен, которого нет"
-                  : `${pluralRu(fresh.length, "новый домен", "новых домена", "новых доменов")}, которых нет`}{" "}
-                в списке клиента ·{" "}
-                {pluralRu(
-                  fresh.reduce((n, d) => n + d.denied, 0),
-                  "отказ",
-                  "отказа",
-                  "отказов",
-                )}{" "}
-                за 7 дней
+    <div className="flex min-w-0 flex-col gap-6">
+      <section
+        aria-label="Активность клиента"
+        className="overflow-hidden rounded-lg border bg-card"
+      >
+        <div className="flex items-baseline justify-between gap-3 border-b px-5 py-3">
+          <h2 className="font-medium">Активность</h2>
+          <span className="text-sm text-muted-foreground">24 ч</span>
+        </div>
+        <div className="grid items-center gap-6 bg-surface-inset p-5 @[600px]:grid-cols-[248px_minmax(0,1fr)]">
+          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border bg-border">
+            {figures.map((f) => {
+              const body = (
+                <>
+                  <span className="truncate text-sm leading-[18px] font-normal text-muted-foreground">
+                    {f.label}
+                  </span>
+                  <span
+                    className={cn(
+                      "truncate text-xl leading-7 font-medium tabular-nums",
+                      f.bad && "text-bad",
+                    )}
+                  >
+                    {f.value}
+                    {f.current && (
+                      <span className="ml-1.5 text-sm font-normal text-muted-foreground">
+                        сейчас
+                      </span>
+                    )}
+                  </span>
+                </>
+              );
+              return f.action ? (
+                <Button
+                  key={f.label}
+                  variant="ghost"
+                  onClick={f.action}
+                  className="flex h-auto w-full min-w-0 flex-col items-start justify-start gap-1 rounded-none bg-card px-3 py-3 text-left hover:bg-hover"
+                >
+                  {body}
+                </Button>
+              ) : (
+                <div
+                  key={f.label}
+                  className="flex min-w-0 flex-col items-start justify-start gap-1 bg-card px-3 py-3"
+                >
+                  {body}
+                </div>
+              );
+            })}
+          </div>
+          <TrafficChart series={stats?.series ?? []} height={112} />
+        </div>
+      </section>
+      <div className="grid min-w-0 items-start gap-6 @[800px]:grid-cols-[minmax(0,1.65fr)_minmax(280px,1fr)]">
+        <section className="min-w-0" aria-label="Назначения клиента">
+          <div className="mb-3 flex items-center justify-between gap-3">
+            <h2 className="font-medium">
+              Назначения{" "}
+              <span className="ml-2 text-sm font-normal text-muted-foreground">
+                24 ч
+              </span>
+            </h2>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => onRequests("domains")}
+            >
+              Открыть журнал <ArrowRight aria-hidden />
+            </Button>
+          </div>
+          {fresh.length > 0 && (
+            <section
+              aria-label="Новые отказанные домены"
+              className="mb-4 flex flex-wrap items-center gap-3 rounded-md border bg-card px-3 py-3"
+            >
+              <Ban aria-hidden className="size-4 text-warn" />
+              <div className="min-w-0 flex-1 basis-32">
+                <div
+                  className="truncate font-medium"
+                  title={fresh.map((n) => n.host).join(", ")}
+                >
+                  {shown.map((n) => n.host).join(", ")}
+                  {fresh.length > shown.length &&
+                    " и ещё " + (fresh.length - shown.length)}
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  Нет в списке клиента ·{" "}
+                  {pluralRu(
+                    fresh.reduce((sum, n) => sum + n.denied, 0),
+                    "отказ",
+                    "отказа",
+                    "отказов",
+                  )}{" "}
+                  за 7 дней
+                </p>
               </div>
-              <div className="mt-0.5 text-sm text-muted-foreground">
-                <span className="font-mono">
-                  {shown.map((d) => d.host).join(", ")}
-                </span>
-                {rest > 0 && ` и ещё ${rest}`}
-              </div>
-            </div>
-            <div className="flex gap-1.5">
               <Button
-                size="xs"
+                size="sm"
                 variant="outline"
                 onClick={() => onTab("access")}
               >
                 Разобрать
               </Button>
               <Button
-                size="xs"
-                variant="outline"
+                size="icon-sm"
+                variant="ghost"
+                aria-label="Отметить просмотренными"
+                title="Отметить просмотренными"
                 onClick={() =>
                   void onMark(
                     fresh.map((n) => n.id),
@@ -1152,153 +1257,90 @@ function OverviewTab({
                   )
                 }
               >
-                <Check aria-hidden /> Отметить просмотренными
+                <Check aria-hidden />
               </Button>
-            </div>
-          </div>
-        </Callout>
-      )}
-      <KpiGroup>
-        <Kpi
-          label="Запросы, 24 ч"
-          value={stats?.requests ? stats.requests.toLocaleString("ru-RU") : "—"}
-          onClick={stats?.requests ? () => openJournal("all") : undefined}
-        />
-        <Kpi
-          label="Отказы, 24 ч"
-          onClick={stats?.denied ? () => openJournal("denied") : undefined}
-          value={stats?.denied ? stats.denied.toLocaleString("ru-RU") : "—"}
-          hint={
-            stats?.denied
-              ? deniedTop.length
-                ? "нет в списке клиента"
-                : "запрещено правилами"
-              : "нет"
-          }
-          tone={stats?.denied ? "bad" : undefined}
-        />
-        <Kpi
-          label="Трафик, 24 ч"
-          value={stats ? formatBytes(stats.bytes) : "—"}
-        />
-        <Kpi
-          label="Открытые соединения"
-          value={
-            stats?.open_connections != null
-              ? String(stats.open_connections)
-              : "—"
-          }
-        />
-      </KpiGroup>
-      <div className="grid grid-cols-1 items-start gap-3.5 @[900px]:grid-cols-[minmax(0,1.65fr)_minmax(280px,1fr)]">
-        <div className="flex min-w-0 flex-col gap-3.5">
-          <Card>
-            <CardHeader>
-              <CardTitle>Трафик за 24 часа</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <TrafficChart series={stats?.series ?? []} />
-            </CardContent>
-          </Card>
-          <Card>
-            <CardHeader>
-              <div>
-                <CardTitle>Куда обращается</CardTitle>
-                <CardDescription>
-                  Топ назначений за 24 ч, включая отказы
-                </CardDescription>
-              </div>
-              <CardAction>
-                <Button
-                  size="xs"
-                  variant="ghost"
-                  onClick={() => onRequests("domains")}
-                >
-                  Все
-                </Button>
-              </CardAction>
-            </CardHeader>
-            <CardContent>
-              {top.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
-                  Запросов за 24 ч не было
-                </div>
-              ) : (
-                <Table className="table-fixed">
-                  <colgroup>
-                    <col />
-                    <col className="w-[28%]" />
-                    <col className="w-[92px]" />
-                    <col className="w-[96px]" />
-                  </colgroup>
-                  <TableBody>
-                    {top.slice(0, 7).map((d) => (
-                      <TableRow key={d.host}>
-                        <TableCell className="pl-0">
-                          <div className="truncate font-mono text-sm">
-                            {d.host}
-                          </div>
-                          {d.denied > 0 && (
-                            <div className="truncate text-sm text-muted-foreground">
-                              {isMissing(d.host)
-                                ? "нет в списке клиента"
-                                : "запрещено защитой или для всех"}
-                            </div>
-                          )}
-                        </TableCell>
-                        <TableCell>
-                          <Progress
-                            value={Math.max(2, (d.requests / max) * 100)}
-                            aria-label={"Доля запросов к " + d.host}
-                            className={cn(
-                              "h-1.5 bg-muted",
-                              d.denied > 0
-                                ? "[&_[data-slot=progress-indicator]]:bg-s-deny"
-                                : "[&_[data-slot=progress-indicator]]:bg-s-allow",
-                            )}
-                          />
-                        </TableCell>
-                        <TableCell
-                          className={cn(
-                            "text-right tabular-nums",
-                            d.denied > 0 && "font-medium text-bad",
-                          )}
-                        >
-                          {d.denied > 0
-                            ? pluralRu(d.denied, "отказ", "отказа", "отказов")
-                            : d.requests.toLocaleString("ru-RU")}
-                        </TableCell>
-                        <TableCell className="pr-0 text-right">
+            </section>
+          )}
+          {rows.length === 0 ? (
+            <p className="py-6 text-muted-foreground">
+              Запросов за 24 ч не было
+            </p>
+          ) : (
+            <Table className="w-full table-fixed">
+              <colgroup>
+                <col />
+                <col className="w-[88px]" />
+                <col className="w-[88px]" />
+                <col className="w-[124px]" />
+              </colgroup>
+              <TableHeader>
+                <TableRow className="hover:bg-transparent">
+                  <TableHead>Домен</TableHead>
+                  <TableHead className="text-right">Запросы</TableHead>
+                  <TableHead className="text-right">Отказы</TableHead>
+                  <TableHead>
+                    <span className="sr-only">Действие</span>
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((d) => {
+                  return (
+                    <TableRow key={d.host} className="h-16 hover:bg-hover">
+                      <TableCell>
+                        <div className="truncate" title={d.host}>
+                          {d.host}
+                        </div>
+                        {d.denied > 0 && (
+                          <p className="mt-1 truncate text-sm text-muted-foreground">
+                            {isMissing(d.host)
+                              ? "Нет в списке клиента"
+                              : "Причина — в журнале"}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {d.withinDay ? d.requests.toLocaleString("ru-RU") : "—"}
+                      </TableCell>
+                      <TableCell
+                        className={cn(
+                          "text-right tabular-nums",
+                          d.denied > 0 ? "text-bad" : "text-muted-foreground",
+                        )}
+                      >
+                        {d.withinDay ? d.denied || "—" : "—"}
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-1">
                           {isMissing(d.host) && (
                             <Button
                               size="xs"
-                              variant="outline"
-                              onClick={() => allow(d.host)}
+                              onClick={() => void allow(d.host)}
                             >
                               Разрешить
                             </Button>
                           )}
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              )}
-            </CardContent>
-          </Card>
-        </div>
-        <div className="flex min-w-0 flex-col gap-3.5">
-          <Card>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
+        </section>
+        <aside className="flex min-w-0 flex-col gap-4">
+          <Card aria-label="Правила клиента">
             <CardHeader>
               <div>
-                <CardTitle>Правила</CardTitle>
-                <CardDescription>
-                  {client.access === "all_web"
-                    ? "Любые внешние сайты, кроме запрещённых для всех"
-                    : client.access === "none" || list.length === 0
-                      ? "Нет доступа"
-                      : "Только домены из итогового списка"}
-                </CardDescription>
+                <CardTitle>Доступ</CardTitle>
+                {client.access !== "list" || list.length === 0 ? (
+                  <CardDescription>
+                    {client.access === "all_web"
+                      ? "Любые внешние сайты, кроме запрещённых для всех"
+                      : "Нет доступа"}
+                  </CardDescription>
+                ) : null}
               </div>
               <CardAction>
                 <Button
@@ -1310,23 +1352,24 @@ function OverviewTab({
                 </Button>
               </CardAction>
             </CardHeader>
-            <CardContent className="flex flex-col gap-2.5">
+            <CardContent className="flex flex-col gap-3">
               {client.access === "list" && list.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {list.slice(0, 8).map((d) => (
-                    <Chip key={d.domain + d.include_subdomains}>
+                    <Chip
+                      key={d.domain + d.include_subdomains}
+                      title={d.domain}
+                      className="max-w-full truncate rounded border bg-surface-inset px-1.5 py-0.5 text-sm"
+                    >
                       {d.include_subdomains ? "*." : ""}
                       {d.domain}
                     </Chip>
                   ))}
-                  {list.length > 8 && (
-                    <Chip className="text-muted-foreground">
-                      +{list.length - 8}
-                    </Chip>
-                  )}
+                  {list.length > 8 && <Chip>+{list.length - 8}</Chip>}
                 </div>
               )}
               <KeyValue
+                className="text-sm"
                 items={[
                   ...(client.access === "list"
                     ? ([
@@ -1350,7 +1393,7 @@ function OverviewTab({
                       ] as [string, React.ReactNode][])
                     : []),
                   [
-                    "Запрещено для всех",
+                    "Общий запрет",
                     <BlockedLink key="b" snap={snap} onOpen={onOpen} short />,
                   ],
                   ["Подключение", connectionLabel(snap, client)],
@@ -1358,7 +1401,7 @@ function OverviewTab({
               />
             </CardContent>
           </Card>
-          <Card>
+          <Card aria-label="Последние запросы">
             <CardHeader>
               <CardTitle>Последние запросы</CardTitle>
               <CardAction>
@@ -1367,46 +1410,45 @@ function OverviewTab({
                   variant="ghost"
                   onClick={() => onRequests("events")}
                 >
-                  Все
+                  Все <ArrowRight aria-hidden />
                 </Button>
               </CardAction>
             </CardHeader>
             <CardContent>
-              {recent === null ? null : recent.length === 0 ? (
-                <div className="text-sm text-muted-foreground">
+              {recent === null ? (
+                <p className="text-sm text-muted-foreground">
+                  Загрузка запросов…
+                </p>
+              ) : recent.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
                   Запросов не было
-                </div>
+                </p>
               ) : (
-                <div className="flex flex-col">
-                  {recent.map((e) => {
-                    const denied = e.proxy_result.includes("DENIED");
-                    return (
-                      <div
-                        key={e.id}
-                        className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b py-1.5 last:border-b-0"
-                      >
-                        <span className="text-sm text-muted-foreground tabular-nums">
-                          <Timestamp value={e.timestamp} mode="time" />
-                        </span>
-                        <span
-                          className="truncate font-mono text-sm"
-                          title={e.destination}
-                        >
-                          {e.destination}
-                        </span>
-                        <Badge variant={denied ? "bad" : "ok"}>
-                          {e.proxy_http_status ?? (denied ? 403 : 200)}
-                        </Badge>
-                      </div>
-                    );
-                  })}
-                </div>
+                recent.map((e) => {
+                  const denied = e.proxy_result.includes("DENIED");
+                  return (
+                    <div
+                      key={e.id}
+                      className="grid grid-cols-[auto_minmax(0,1fr)_auto] items-center gap-2 border-b py-2 text-sm last:border-b-0"
+                    >
+                      <span className="text-muted-foreground tabular-nums">
+                        <Timestamp value={e.timestamp} mode="time" />
+                      </span>
+                      <span className="truncate" title={e.destination}>
+                        {e.destination}
+                      </span>
+                      <Badge variant={denied ? "bad" : "ok"}>
+                        {e.proxy_http_status ?? (denied ? 403 : 200)}
+                      </Badge>
+                    </div>
+                  );
+                })
               )}
             </CardContent>
           </Card>
-        </div>
+        </aside>
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1438,6 +1480,8 @@ function AccessTab({
   onOpen?: SectionProps["onOpen"];
 }) {
   const [shareName, setShareName] = useState<string | null>(null);
+  const [editingAccess, setEditingAccess] = useState(false);
+  useEffect(() => setEditingAccess(false), [client.id]);
   const [ownHits, setOwnHits] = useState<DomainHits>({});
   const ownKey = client.destinations.map((d) => d.domain).join(",");
   useEffect(() => {
@@ -1488,49 +1532,73 @@ function AccessTab({
   const policyName = (id: string) =>
     snap.policies.find((p) => p.id === id)?.name ?? id;
   const select = async (v: string) => {
-    if (v !== client.access)
-      await onCommit(setClientAccess(snap, client.id, v as Access));
+    if (v !== client.access) {
+      const result = await onCommit(
+        setClientAccess(snap, client.id, v as Access),
+      );
+      if (result.ok) setEditingAccess(false);
+    }
   };
   return (
     <>
-      <Card>
-        <CardHeader>
-          <div>
-            <CardTitle>Доступ</CardTitle>
-            <CardDescription>
-              Раньше правил клиента проверяются встроенная защита и{" "}
-              <BlockedLink snap={snap} onOpen={onOpen} />
-            </CardDescription>
+      <section
+        className="rounded-lg border bg-card px-4 py-3"
+        aria-label="Режим доступа"
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-1">
+            <h2 className="font-medium">Доступ</h2>
+            <span>
+              {client.access === "list"
+                ? "Список доменов"
+                : client.access === "all_web"
+                  ? "Весь веб"
+                  : "Нет доступа"}
+            </span>
           </div>
-        </CardHeader>
-        <CardContent>
-          <RadioGroup
-            value={client.access}
-            onValueChange={select}
-            className="grid grid-cols-1 gap-2 min-[1180px]:grid-cols-3"
+          <Button
+            size="xs"
+            variant="outline"
+            aria-expanded={editingAccess}
+            aria-controls="client-access-options"
+            onClick={() => setEditingAccess((v) => !v)}
           >
-            <RadioCard
-              value="list"
-              active={client.access === "list"}
-              title="Список доменов"
-              hint="Свои домены и подключённые политики"
-            />
-            <RadioCard
-              value="all_web"
-              active={client.access === "all_web"}
-              title="Весь веб"
-              hint="Любые сайты, кроме запрещённого для всех"
-              tone="warn"
-            />
-            <RadioCard
-              value="none"
-              active={client.access === "none"}
-              title="Нет доступа"
-              hint="Постоянный режим: клиент описан, всё закрыто"
-            />
-          </RadioGroup>
-        </CardContent>
-      </Card>
+            {editingAccess ? "Закрыть" : "Изменить"}
+          </Button>
+        </div>
+        <div className="mt-1 text-sm text-muted-foreground">
+          Защита и <BlockedLink snap={snap} onOpen={onOpen} /> имеют приоритет
+        </div>
+        {editingAccess && (
+          <div id="client-access-options" className="mt-3 border-t pt-3">
+            <RadioGroup
+              value={client.access}
+              onValueChange={select}
+              className="grid grid-cols-1 gap-2 min-[1180px]:grid-cols-3"
+            >
+              <RadioCard
+                value="list"
+                active={client.access === "list"}
+                title="Список доменов"
+                hint="Свои домены и подключённые политики"
+              />
+              <RadioCard
+                value="all_web"
+                active={client.access === "all_web"}
+                title="Весь веб"
+                hint="Любые сайты, кроме запрещённого для всех"
+                tone="warn"
+              />
+              <RadioCard
+                value="none"
+                active={client.access === "none"}
+                title="Нет доступа"
+                hint="Постоянный режим: клиент описан, всё закрыто"
+              />
+            </RadioGroup>
+          </div>
+        )}
+      </section>
       {client.access === "all_web" && (
         <Callout tone="warn" icon={<Globe aria-hidden />}>
           <div className="text-sm">
@@ -1579,10 +1647,6 @@ function AccessTab({
           <CardHeader>
             <div>
               <CardTitle>Политики</CardTitle>
-              <CardDescription>
-                Общие наборы доменов. Правка политики действует на всех её
-                клиентов
-              </CardDescription>
             </div>
             {available.length > 0 && (
               <CardAction>
@@ -1677,9 +1741,6 @@ function AccessTab({
           <CardHeader>
             <div>
               <CardTitle>Свои домены</CardTitle>
-              <CardDescription>
-                Действуют только для этого клиента
-              </CardDescription>
             </div>
             {client.destinations.length > 0 && shareName === null && (
               <CardAction>
@@ -1756,17 +1817,6 @@ function AccessTab({
                 });
               }}
             />
-            <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
-              <TemplateButtons
-                request={request}
-                onAdd={async (doms) => {
-                  const res = await onCommit(
-                    addDomainsToClient(snap, client.id, doms),
-                  );
-                  if (res.ok) onToast("Шаблон добавлен");
-                }}
-              />
-            </div>
           </CardContent>
         </Card>
       )}
@@ -1775,10 +1825,6 @@ function AccessTab({
           <CardHeader>
             <div>
               <CardTitle>Итоговый список</CardTitle>
-              <CardDescription>
-                Свои домены и политики без повторов. Зачёркнутые перекрывает
-                «запрещено для всех»
-              </CardDescription>
             </div>
           </CardHeader>
           <CardContent>
@@ -1955,11 +2001,7 @@ function SourceTab({
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 gap-3.5 @[700px]:grid-cols-2">
-            <Field
-              label="Имя"
-              htmlFor="f-src-name"
-              help="Латиница, цифры и дефис. Под этим именем клиент виден в журнале"
-            >
+            <Field label="Имя" htmlFor="f-src-name">
               <Input
                 id="f-src-name"
                 value={name}
@@ -1981,10 +2023,7 @@ function SourceTab({
                 }}
               />
             </Field>
-            <Field
-              label="Тип"
-              help="Подсказка для людей; доступ определяется адресами ниже"
-            >
+            <Field label="Тип">
               <ToggleGroup
                 type="single"
                 variant="seg"
@@ -2003,7 +2042,7 @@ function SourceTab({
               </ToggleGroup>
             </Field>
             <Field label="Включён">
-              <label className="flex h-8 items-center gap-2 text-sm text-muted-foreground">
+              <Label className="flex h-8 items-center gap-2 text-sm font-normal text-muted-foreground">
                 <Switch
                   checked={client.enabled}
                   onCheckedChange={(on) =>
@@ -2013,7 +2052,7 @@ function SourceTab({
                 {client.enabled
                   ? "Правила действуют"
                   : "Все запросы получают отказ"}
-              </label>
+              </Label>
             </Field>
           </div>
         </CardContent>
@@ -2022,9 +2061,6 @@ function SourceTab({
         <CardHeader>
           <div>
             <CardTitle>Адреса источника</CardTitle>
-            <CardDescription>
-              IP или CIDR, как их видит прокси (после NAT)
-            </CardDescription>
           </div>
         </CardHeader>
         <CardContent className="flex flex-col gap-2">
@@ -2496,9 +2532,9 @@ function NewClientForm({
               <Field label="Политики">
                 <div className="flex flex-col gap-1.5">
                   {draft.policies.map((p) => (
-                    <label
+                    <Label
                       key={p.id}
-                      className="flex items-center gap-2 text-sm"
+                      className="flex items-center gap-2 text-sm font-normal"
                     >
                       <Checkbox
                         checked={policyIDs.includes(p.id)}
@@ -2528,7 +2564,7 @@ function NewClientForm({
                           "клиентов",
                         )}
                       </span>
-                    </label>
+                    </Label>
                   ))}
                 </div>
               </Field>
@@ -2538,24 +2574,9 @@ function NewClientForm({
                 label="Свои домены"
                 htmlFor="f-nc-domains"
                 help={
-                  <span className="flex flex-wrap items-center gap-1.5">
-                    {from &&
-                      "Подставлены домены из отказанных запросов этого IP. "}
-                    Шаблоны:
-                    <TemplateButtons
-                      request={request}
-                      onAdd={(add) =>
-                        setDomains((cur) =>
-                          [
-                            ...new Set([
-                              ...cur.split(/\s+/).filter(Boolean),
-                              ...add,
-                            ]),
-                          ].join("\n"),
-                        )
-                      }
-                    />
-                  </span>
+                  from
+                    ? "Подставлены домены из отказанных запросов этого IP."
+                    : undefined
                 }
               >
                 <Textarea

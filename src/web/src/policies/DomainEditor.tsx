@@ -1,3 +1,5 @@
+import { Label } from "@/components/ui/label";
+import { Disclosure } from "@/components/kraken/disclosure";
 import { useState } from "react";
 import { Lock, Plus, Undo, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -12,7 +14,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Callout, Chip } from "@/components/kraken/blocks";
+import { Callout } from "@/components/kraken/blocks";
 import type { Destination } from "../model";
 import { mergeDestinations, parseDomainInput } from "../policies/domains";
 
@@ -74,12 +76,18 @@ export function DomainEditor({
           <div className="text-sm">{readOnlyReason}</div>
         </Callout>
       )}
-      <Table>
+      <Table className="table-fixed">
+        <colgroup>
+          <col />
+          <col className="w-28" />
+          <col className="w-[208px]" />
+          <col className="w-[60px]" />
+        </colgroup>
         <TableHeader>
           <TableRow>
             <TableHead>Домен</TableHead>
             <TableHead>Поддомены</TableHead>
-            <TableHead>Запросов, 24 ч</TableHead>
+            <TableHead className="text-right">Запросов, 24 ч</TableHead>
             <TableHead />
           </TableRow>
         </TableHeader>
@@ -95,13 +103,21 @@ export function DomainEditor({
             return (
               <TableRow key={d.domain}>
                 <TableCell>
-                  <Chip
-                    className={unused ? "text-muted-foreground" : undefined}
+                  <span
+                    title={d.domain}
+                    className={
+                      "block truncate" +
+                      (unused ? " text-muted-foreground" : "")
+                    }
                   >
                     {d.domain}
-                  </Chip>
+                  </span>
                   {unused && (
-                    <Badge variant="secondary" className="ml-1.5">
+                    <Badge
+                      variant="secondary"
+                      className="mt-0.5"
+                      title="Ни одного запроса за 7 дней"
+                    >
                       не используется
                     </Badge>
                   )}
@@ -126,10 +142,10 @@ export function DomainEditor({
                   />
                 </TableCell>
                 <TableCell>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center justify-end gap-2">
                     <div
                       className={
-                        "flex h-1.5 min-w-[50px] flex-1 overflow-hidden rounded-full" +
+                        "flex h-1.5 w-20 shrink-0 overflow-hidden rounded-full" +
                         (h ? " bg-muted" : "")
                       }
                       aria-hidden
@@ -196,23 +212,28 @@ export function DomainEditor({
               }
             }}
           />
-          <label className="flex items-center gap-1.5 text-sm whitespace-nowrap">
+          <Label className="flex items-center gap-1.5 text-sm font-normal whitespace-nowrap">
             <Switch
               checked={withSubdomains}
               onCheckedChange={setWithSubdomains}
             />
             с поддоменами
-          </label>
+          </Label>
           <Button variant="outline" onClick={add}>
             <Plus aria-hidden /> Добавить
           </Button>
         </div>
       )}
       {!readOnly && (
-        <div className="text-sm text-muted-foreground">
-          Вставьте список из README или pip/npm-ошибки: домены извлекутся, дубли
-          и пересечения подсветятся до сохранения.
-        </div>
+        <Disclosure
+          className="text-sm text-muted-foreground"
+          label="Как добавить список"
+        >
+          <p className="mt-1">
+            Вставьте домены или ссылки через пробел, запятую или новую строку.
+            Повторы объединяются.
+          </p>
+        </Disclosure>
       )}
     </div>
   );

@@ -86,6 +86,8 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `settings/units` | `parsePortList`: дедуп с сохранением порядка, диапазон 1–65535, целые, пусто → null; `parseDuration`: `с`/`мин`/`ч` и bare секунды, неотрицательные целые, мусор → null; `formatDuration`: наибольшая единица, в которой значение целое (`0` → `0 с`); round-trip format → parse; `parseNameservers`: IPv4/IPv6 через запятую/пробел, каноническая форма, дедуп, CIDR и host:port → null, пусто → []; `parseUpstream`: один IP, порт 1–65535, имя/схема/префикс/порт в адресе/список → null |
 | `accounts/rules` | `canDemote`/`canDisable`: false только для единственного включённого admin; `buildManagerScopeBody`: нормализация CIDR через `parseNetwork`, дедуп, дроп мусора, пусто → пустые массивы |
 | `settings/edits` | `effectiveSettings` (defaults при отсутствии), `patchSettings` (merge без мутации), `setBlockedDomains`, `setUpstream` (вкл/выкл через null), `setExpertConfig` (mode + текст) |
+| `policies/suggestions` | предложения из `/notifications?kind=denied_domain`: пустой ответ отличается от сбоя и повреждённого ответа; чужой клиент, неописанный источник, игнорируемое и нулевое уведомление не предлагаются; уже разрешённый (свой домен или поддомен политики) и запрещённый для всех домен исключаются; выключенный клиент, «весь веб», «нет доступа» и expert не расширяются |
+| `model` (`compactPeriod`) | одна дата внутри суток, обе даты между сутками по МСК, год только на границе годов, прочерк для неверного времени |
 
 Браузерных e2e нет: владелец исключил Playwright, ключевые потоки проверяются
 на уровне API в integration.

@@ -1,3 +1,4 @@
+import { Disclosure } from "@/components/kraken/disclosure";
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -11,7 +12,6 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { Chip } from "@/components/kraken/blocks";
 import { mergeDestinations, parseDomainInput } from "../policies/domains";
 import type { Destination } from "../model";
 
@@ -50,7 +50,12 @@ export function BlockedDomainEditor({
 
   return (
     <div className="flex flex-col gap-2">
-      <Table>
+      <Table className="table-fixed">
+        <colgroup>
+          <col />
+          <col className="w-28" />
+          <col className="w-[60px]" />
+        </colgroup>
         <TableHeader>
           <TableRow>
             <TableHead>Домен</TableHead>
@@ -62,7 +67,9 @@ export function BlockedDomainEditor({
           {destinations.map((d) => (
             <TableRow key={d.domain}>
               <TableCell>
-                <Chip>{d.domain}</Chip>
+                <span className="block truncate" title={d.domain}>
+                  {d.domain}
+                </span>
               </TableCell>
               <TableCell>
                 <Switch
@@ -131,10 +138,15 @@ export function BlockedDomainEditor({
           <Plus aria-hidden /> Добавить
         </Button>
       </div>
-      <div className="text-sm text-muted-foreground">
-        Вставьте список из README или pip/npm-ошибки: домены извлекутся, дубли и
-        пересечения подсветятся до сохранения.
-      </div>
+      <Disclosure
+        className="text-sm text-muted-foreground"
+        label="Как добавить список"
+      >
+        <p className="mt-1">
+          Вставьте домены или ссылки через пробел, запятую или новую строку.
+          Повторы объединяются.
+        </p>
+      </Disclosure>
     </div>
   );
 }

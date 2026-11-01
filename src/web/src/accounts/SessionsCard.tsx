@@ -1,3 +1,4 @@
+import { Disclosure } from "@/components/kraken/disclosure";
 import { Timestamp } from "@/components/kraken/timestamp";
 import { useCallback, useEffect, useState } from "react";
 import { X } from "lucide-react";
@@ -7,7 +8,6 @@ import {
   Card,
   CardAction,
   CardContent,
-  CardDescription,
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
@@ -79,9 +79,12 @@ export function SessionsCard({
       <CardHeader>
         <div>
           <CardTitle>Сессии</CardTitle>
-          <CardDescription>
-            Сессия истекает через 12 ч или после 30 мин бездействия
-          </CardDescription>
+          <Disclosure
+            className="mt-1 text-sm text-muted-foreground"
+            label="Срок сессии"
+          >
+            <p className="mt-2">12 ч или 30 мин бездействия</p>
+          </Disclosure>
         </div>
         {others.length > 0 && (
           <CardAction>

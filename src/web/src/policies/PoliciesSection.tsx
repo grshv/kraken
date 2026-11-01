@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useState } from "react";
-import { Copy, Pencil, Plus, ShieldCheck, TriangleAlert } from "lucide-react";
+import { Copy, Pencil, Plus, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -22,7 +22,7 @@ import {
 import { Callout, Field } from "@/components/kraken/blocks";
 import { EmptyState } from "../shell/EmptyState";
 import { DomainEditor, type DomainHits } from "./DomainEditor";
-import { missingDomains, type HostCount } from "../clients/missing";
+import { loadPolicySuggestions } from "./suggestions";
 import {
   managerScope,
   type CommitResult,
@@ -221,7 +221,6 @@ export function PoliciesSection(props: SectionProps) {
               <Plus aria-hidden /> Новая
             </Button>
           }
-          description="Именованные наборы доменов. Клиент подключает любое число наборов."
         />
         <ListPaneBody>
           {canBlock && (
@@ -352,13 +351,7 @@ function PolicyRow({
     <ListRow
       selected={active}
       onClick={onClick}
-      title={
-        <span className="font-medium">
-          {policy.name}
-          {mark === "new" && <Badge variant="add">новая</Badge>}
-          {mark === "changed" && <Badge variant="mod">изменена</Badge>}
-        </span>
-      }
+      title={<span className="block truncate font-medium">{policy.name}</span>}
       meta={
         <span className="text-muted-foreground">
           {clients
@@ -366,11 +359,27 @@ function PolicyRow({
             : "не подключена"}
         </span>
       }
-      subtitle={pluralRu(domains, "домен", "домена", "доменов")}
+      subtitle={
+        <span className="flex min-w-0 items-center gap-2">
+          <span className="truncate">
+            {pluralRu(domains, "домен", "домена", "доменов")}
+          </span>
+          {mark === "new" && (
+            <Badge className="shrink-0" variant="add">
+              новая
+            </Badge>
+          )}
+          {mark === "changed" && (
+            <Badge className="shrink-0" variant="mod">
+              изменена
+            </Badge>
+          )}
+        </span>
+      }
       aside={
-        total ? (
-          <span className="text-muted-foreground">
-            {total.toLocaleString("ru-RU")}
+        total != null ? (
+          <span className="text-muted-foreground" title="Запросы за 24 ч">
+            {pluralRu(total, "запрос", "запроса", "запросов")}
           </span>
         ) : undefined
       }
@@ -489,7 +498,9 @@ function PolicyDetail({
         }
         meta={
           <>
-            <span>Подключена у:</span>
+            <span>
+              {clients.length > 1 ? "Изменения затронут:" : "Подключена у:"}
+            </span>
             {hasClients ? (
               clients.map((c) => (
                 <Button
@@ -508,22 +519,10 @@ function PolicyDetail({
         }
       />
       <InspectorBody>
-        {clients.length > 1 && (
-          <Callout tone="warn" icon={<TriangleAlert aria-hidden />}>
-            <div className="text-sm">
-              Клиенты, которых затронут изменения:{" "}
-              {pluralRu(clients.length, "клиент", "клиента", "клиентов")}:{" "}
-              {clients.map((c) => c.name).join(", ")}.
-            </div>
-          </Callout>
-        )}
         <Card>
           <CardHeader>
             <div>
               <CardTitle>Домены</CardTitle>
-              <CardDescription>
-                «Не используется»: ни одного запроса за 7 дней
-              </CardDescription>
             </div>
           </CardHeader>
           <CardContent>
@@ -543,17 +542,6 @@ function PolicyDetail({
                   onToast(res.message ?? "Ошибка");
               }}
             />
-            <div className="mt-2.5 flex items-center gap-1.5">
-              <TemplateButtons
-                request={request}
-                onAdd={async (doms) => {
-                  const res = await onCommit(
-                    addDomainsToPolicy(snap, policy.id, doms),
-                  );
-                  if (res.ok) onToast("Шаблон добавлен");
-                }}
-              />
-            </div>
           </CardContent>
         </Card>
         <MissingCard
@@ -570,7 +558,7 @@ function PolicyDetail({
   );
 }
 
-// MissingCard: denied domains of this policy's list-access clients over 24 h
+// MissingCard: notified list-denied domains of this policy's clients over 7 days
 // that their final list does not cover, each with "Добавить" into this policy.
 function MissingCard({
   policy,
@@ -592,47 +580,55 @@ function MissingCard({
   const [rows, setRows] = useState<
     { host: string; denied: number; client: string }[] | null
   >(null);
+  const [error, setError] = useState(false);
+  const [reload, setReload] = useState(0);
   const ids = clients.map((c) => c.id).join(",");
   useEffect(() => {
     let live = true;
-    Promise.all(
-      clients
-        .filter((c) => c.access === "list")
-        .slice(0, 20)
-        .map((c) =>
-          request<{ top_destinations: HostCount[] }>(
-            `/inspector/clients/${c.id}/stats`,
-          )
-            .then((st) =>
-              missingDomains(st.top_destinations, snap, c).map((d) => ({
-                host: d.host,
-                denied: d.denied,
-                client: c.name,
-              })),
-            )
-            .catch(() => []),
-        ),
-    ).then((all) => {
-      if (live) setRows(all.flat().sort((a, b) => b.denied - a.denied));
-    });
+    setRows(null);
+    setError(false);
+    loadPolicySuggestions(request, snap, clients)
+      .then((rows) => {
+        if (live) setRows(rows);
+      })
+      .catch(() => {
+        if (live) setError(true);
+      });
     return () => {
       live = false;
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [request, ids, snap]);
+  }, [request, snap, ids, reload]);
   return (
     <Card>
       <CardHeader>
         <div>
-          <CardTitle>Чего не хватает</CardTitle>
+          <CardTitle>Отказанные домены клиентов</CardTitle>
           <CardDescription>
-            Отказанные домены клиентов этой политики за 24 ч
+            За 7 дней · отказы из-за списка доменов
           </CardDescription>
         </div>
       </CardHeader>
       <CardContent>
-        {rows === null ? null : rows.length === 0 ? (
-          <div className="text-sm text-muted-foreground">Отказов нет</div>
+        {error ? (
+          <div
+            role="alert"
+            className="flex items-center gap-2 text-sm text-bad"
+          >
+            Не удалось загрузить отказы
+            <Button
+              size="xs"
+              variant="outline"
+              onClick={() => setReload((x) => x + 1)}
+            >
+              Повторить
+            </Button>
+          </div>
+        ) : rows === null ? (
+          <div className="text-sm text-muted-foreground">Загрузка отказов…</div>
+        ) : rows.length === 0 ? (
+          <div className="text-sm text-muted-foreground">
+            Нет доменов, требующих разрешения
+          </div>
         ) : (
           rows.slice(0, 10).map((r) => (
             <div
@@ -662,49 +658,6 @@ function MissingCard({
         )}
       </CardContent>
     </Card>
-  );
-}
-
-export function TemplateButtons({
-  request,
-  onAdd,
-}: {
-  request: SectionProps["request"];
-  onAdd: (domains: string[]) => void;
-}) {
-  const [templates, setTemplates] = useState<
-    { id: string; name: string; destinations: { domain: string }[] }[]
-  >([]);
-  useEffect(() => {
-    let live = true;
-    request<{
-      templates: {
-        id: string;
-        name: string;
-        destinations: { domain: string }[];
-      }[];
-    }>("/inspector/domain-templates")
-      .then((r) => {
-        if (live) setTemplates(r.templates ?? []);
-      })
-      .catch(() => {});
-    return () => {
-      live = false;
-    };
-  }, [request]);
-  return (
-    <>
-      {templates.map((t) => (
-        <Button
-          key={t.id}
-          size="xs"
-          variant="outline"
-          onClick={() => onAdd(t.destinations.map((d) => d.domain))}
-        >
-          {t.name}
-        </Button>
-      ))}
-    </>
   );
 }
 

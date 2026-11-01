@@ -1,16 +1,25 @@
 import { Timestamp } from "@/components/kraken/timestamp";
 import { useEffect, useMemo, useState } from "react";
-import { Diff, History, KeyRound, Play, Search, User } from "lucide-react";
+import {
+  Diff,
+  History,
+  KeyRound,
+  ListFilter,
+  Play,
+  Search,
+  User,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { cn } from "cn";
 import {
   Card,
   CardAction,
@@ -151,34 +160,55 @@ export function AuditSection(props: SectionProps) {
     <>
       <ListPane>
         <ListPaneHeader title="Аудит">
-          <div className="relative flex items-center">
-            <Search
-              aria-hidden
-              className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
-            />
-            <Input
-              aria-label="Поиск по актору"
-              className="h-8 pl-[30px]"
-              placeholder="Имя пользователя"
-              value={actor}
-              onChange={(e) => setActor(e.target.value)}
-            />
+          <div className="flex items-center gap-2">
+            <div className="relative flex min-w-0 flex-1 items-center">
+              <Search
+                aria-hidden
+                className="pointer-events-none absolute left-2.5 size-3.5 text-muted-foreground"
+              />
+              <Input
+                aria-label="Поиск по актору"
+                className="h-8 pl-[30px]"
+                placeholder="Имя пользователя"
+                value={actor}
+                onChange={(e) => setActor(e.target.value)}
+              />
+            </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className={cn(
+                    "relative size-8 shrink-0",
+                    category !== "all" && "border-ring bg-sel text-primary",
+                  )}
+                  aria-label="Фильтры аудита"
+                  title={AUDIT_FILTERS.find((f) => f.id === category)?.label}
+                >
+                  <ListFilter aria-hidden />
+                  {category !== "all" && (
+                    <span
+                      className="absolute top-1 right-1 size-1.5 rounded-full bg-primary"
+                      aria-hidden
+                    />
+                  )}
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56">
+                <DropdownMenuRadioGroup
+                  value={category}
+                  onValueChange={(v) => setCategory(v as AuditCategory | "all")}
+                >
+                  {AUDIT_FILTERS.map((f) => (
+                    <DropdownMenuRadioItem key={f.id} value={f.id}>
+                      {f.label}
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
-          <Select
-            value={category}
-            onValueChange={(v) => setCategory(v as AuditCategory | "all")}
-          >
-            <SelectTrigger className="h-8 w-full" aria-label="Тип событий">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {AUDIT_FILTERS.map((f) => (
-                <SelectItem key={f.id} value={f.id}>
-                  {f.label}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
         </ListPaneHeader>
         <ListPaneBody>
           {loadError ? (
@@ -191,7 +221,7 @@ export function AuditSection(props: SectionProps) {
             </div>
           ) : groups.length === 0 && !loading ? (
             <EmptyState icon={<History />} title="Событий нет">
-              За выбранный период и фильтр аудит пуст.
+              Нет событий по текущему фильтру.
             </EmptyState>
           ) : (
             groups.map((g) => (

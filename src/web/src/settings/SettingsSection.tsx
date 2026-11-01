@@ -197,10 +197,7 @@ export function SettingsSection(props: SectionProps) {
   return (
     <>
       <ListPane>
-        <ListPaneHeader
-          title="Настройки"
-          description="Общие для всех клиентов. Изменения тоже идут через черновик."
-        />
+        <ListPaneHeader title="Настройки" />
         <ListPaneBody>
           {SECTIONS.map((sec) => (
             <ListRow
@@ -370,7 +367,9 @@ function ProtectSection({
               onCheckedChange={(v) =>
                 onCommit(
                   patchSettings(snap, { allow_private_destinations: v }),
-                  v ? "Частные сети разрешены" : "Частные сети закрыты",
+                  v
+                    ? "В черновике: разрешить частные сети"
+                    : "В черновике: закрыть частные сети",
                 )
               }
             />
@@ -415,7 +414,10 @@ function UpstreamSection({
   function save() {
     setAddrErr(null);
     if (!enabled) {
-      onCommit(setUpstream(snap, null), "Вышестоящий прокси выключен");
+      onCommit(
+        setUpstream(snap, null),
+        "Выключение вышестоящего прокси добавлено в черновик",
+      );
       return;
     }
     const next = parseUpstream(addr, port, exclusive);
@@ -423,7 +425,7 @@ function UpstreamSection({
       setAddrErr("Укажите IP-адрес без префикса и порт от 1 до 65535");
       return;
     }
-    onCommit(setUpstream(snap, next), "Вышестоящий прокси сохранён");
+    onCommit(setUpstream(snap, next), "Вышестоящий прокси добавлен в черновик");
   }
 
   return (
@@ -449,7 +451,7 @@ function UpstreamSection({
                 if (!v)
                   onCommit(
                     setUpstream(snap, null),
-                    "Вышестоящий прокси выключен",
+                    "В черновике: выключить вышестоящий прокси",
                   );
               }}
             />
@@ -506,7 +508,7 @@ function UpstreamSection({
             />
             <div className="mt-2.5 flex items-center gap-2">
               <Button size="sm" onClick={save}>
-                Сохранить
+                В черновик
               </Button>
             </div>
           </>
@@ -544,7 +546,9 @@ function PrivacySection({
               onCheckedChange={(v) =>
                 onCommit(
                   patchSettings(snap, { hide_client_address: v }),
-                  v ? "Адрес клиента скрыт" : "Адрес клиента передаётся",
+                  v
+                    ? "В черновике: скрывать адрес клиента"
+                    : "В черновике: передавать адрес клиента",
                 )
               }
             />
@@ -593,7 +597,7 @@ function PortsSection({
     }
     onCommit(
       patchSettings(snap, { safe_ports: parsed }),
-      "Порты сайтов сохранены",
+      "Порты сайтов добавлены в черновик",
     );
   }
   function saveConnect() {
@@ -605,7 +609,7 @@ function PortsSection({
     }
     onCommit(
       patchSettings(snap, { connect_ports: parsed }),
-      "Порты CONNECT сохранены",
+      "Порты CONNECT добавлены в черновик",
     );
   }
 
@@ -649,9 +653,9 @@ function PortsSection({
             <Button
               size="sm"
               onClick={saveSafe}
-              aria-label="Сохранить порты HTTP"
+              aria-label="В черновик: порты HTTP"
             >
-              Сохранить порты
+              В черновик
             </Button>
           </div>
         )}
@@ -684,9 +688,9 @@ function PortsSection({
             <Button
               size="sm"
               onClick={saveConnect}
-              aria-label="Сохранить порты CONNECT"
+              aria-label="В черновик: порты CONNECT"
             >
-              Сохранить порты
+              В черновик
             </Button>
           </div>
         )}
@@ -857,7 +861,7 @@ function DnsSection({
         positive_dns_ttl_seconds: p,
         negative_dns_ttl_seconds: n,
       }),
-      "Настройки DNS сохранены",
+      "Настройки DNS добавлены в черновик",
     );
   }
 
@@ -873,7 +877,7 @@ function DnsSection({
     }
     const res = await onCommit(
       patchSettings(snap, { dns_nameservers: parsed }),
-      "DNS-серверы сохранены",
+      "DNS-серверы добавлены в черновик",
     );
     if (!res.ok && res.code !== "revision_conflict") {
       setDnsErr(res.message ?? res.code ?? "Ошибка");
@@ -909,9 +913,9 @@ function DnsSection({
             <Button
               size="sm"
               onClick={saveDns}
-              aria-label="Сохранить DNS-серверы"
+              aria-label="В черновик: DNS-серверы"
             >
-              Сохранить
+              В черновик
             </Button>
           </div>
         )}
@@ -943,7 +947,7 @@ function DnsSection({
         {err && <div className="text-sm text-bad">{err}</div>}
         <div className="mt-2 flex items-center gap-2">
           <Button size="sm" onClick={save}>
-            Сохранить
+            В черновик
           </Button>
         </div>
       </CardContent>
@@ -1008,7 +1012,7 @@ function TimeoutsSection({
         request_timeout_seconds: rq,
         max_request_body_mb: b,
       }),
-      "Таймауты сохранены",
+      "Таймауты добавлены в черновик",
     );
   }
 
@@ -1068,7 +1072,7 @@ function TimeoutsSection({
         {err && <div className="text-sm text-bad">{err}</div>}
         <div className="mt-2 flex items-center gap-2">
           <Button size="sm" onClick={save}>
-            Сохранить
+            В черновик
           </Button>
         </div>
       </CardContent>
@@ -1108,7 +1112,7 @@ function CacheSection({
     }
     onCommit(
       patchSettings(snap, { cache_memory_mb: v }),
-      "Объём кеша сохранён",
+      "Объём кеша добавлен в черновик",
     );
   }
 
@@ -1126,7 +1130,9 @@ function CacheSection({
               onCheckedChange={(v) =>
                 onCommit(
                   patchSettings(snap, { cache_enabled: v }),
-                  v ? "Кеш включён" : "Кеш выключен",
+                  v
+                    ? "В черновике: включить кеш"
+                    : "В черновике: выключить кеш",
                 )
               }
             />
@@ -1157,7 +1163,7 @@ function CacheSection({
         {mem !== String(s.cache_memory_mb) && (
           <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={saveMem}>
-              Сохранить
+              В черновик
             </Button>
           </div>
         )}
@@ -1195,7 +1201,7 @@ function LogsSection({
     }
     onCommit(
       patchSettings(snap, { log_rotations: n }),
-      "Настройки журналов сохранены",
+      "Настройки журналов добавлены в черновик",
     );
   }
   return (
@@ -1224,7 +1230,7 @@ function LogsSection({
         {v !== String(s.log_rotations) && (
           <div className="mt-1.5 flex items-center gap-2">
             <Button size="sm" onClick={save}>
-              Сохранить
+              В черновик
             </Button>
           </div>
         )}
@@ -1275,7 +1281,6 @@ function ExpertSection({
         <CardContent>
           <SettingRow
             title="Использовать squid.conf вместо клиентов"
-            help={`Сейчас: ${enabled ? "включено" : "выключено"}`}
             control={
               <Switch
                 checked={enabled}
@@ -1283,7 +1288,9 @@ function ExpertSection({
                 onCheckedChange={(v) =>
                   onCommit(
                     setExpertConfig(snap, text, v ? "expert" : "structured"),
-                    v ? "Аварийный режим включён" : "Возврат к клиентам",
+                    v
+                      ? "В черновике: перейти в ручной режим"
+                      : "В черновике: вернуться к клиентам",
                   )
                 }
               />
@@ -1307,11 +1314,11 @@ function ExpertSection({
                     text,
                     enabled ? "expert" : "structured",
                   ),
-                  "squid.conf сохранён",
+                  "squid.conf добавлен в черновик",
                 )
               }
             >
-              Сохранить
+              В черновик
             </Button>
             <Button
               size="xs"
@@ -1323,7 +1330,7 @@ function ExpertSection({
                     expertTemplate,
                     enabled ? "expert" : "structured",
                   ),
-                  "Шаблон вставлен",
+                  "Шаблон squid.conf добавлен в черновик",
                 )
               }
             >

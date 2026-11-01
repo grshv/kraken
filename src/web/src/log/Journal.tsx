@@ -42,6 +42,11 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { KeyValue } from "@/components/kraken/blocks";
 import {
   DetailPane,
@@ -59,7 +64,7 @@ import {
   clientAllows,
 } from "../draft/edits";
 import type { Client, Event, Snapshot } from "../model";
-import { dateTime, pluralRu, revisionLabel } from "../model";
+import { compactPeriod, dateTime, pluralRu, revisionLabel } from "../model";
 import { managerScope, type SectionProps } from "../sections/sectionProps";
 import { DateRangePicker } from "./DateRangePicker";
 import { TrafficSummary } from "./TrafficSummary";
@@ -459,7 +464,7 @@ export function Journal(props: JournalProps) {
   const resultFacets = facets.data.result;
   const filterPane = journal && (
     <ListPane>
-      <div className="border-b p-3 [&>div]:w-full [&_button]:flex-1">
+      <div className="flex h-[60px] flex-none items-center border-b p-3 [&>div]:w-full [&_button]:flex-1">
         {viewControl}
       </div>
       <ListPaneHeader
@@ -552,7 +557,7 @@ export function Journal(props: JournalProps) {
     </Button>
   );
   const activeChips = (
-    <div className="flex flex-wrap items-center gap-1.5">
+    <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&>button]:shrink-0">
       {f.host &&
         chip("host", `Домен: ${f.host}`, () => patch({ host: undefined }))}
       {f.clients.map((id) =>
@@ -579,9 +584,10 @@ export function Journal(props: JournalProps) {
           "запросов",
         );
   const lagging = page?.gap || page?.ingestion?.stale;
+  const periodFull = `${dateTime(range.from.toISOString(), false)} — ${dateTime(range.to.toISOString(), false)} МСК`;
   const body = (
     <>
-      <div className="flex flex-wrap items-center gap-3 border-b px-4 py-3">
+      <div className="flex min-h-[60px] flex-none flex-wrap items-center gap-3 border-b bg-card px-4 py-3">
         {journal && <h2 className="mr-2 text-xl font-semibold">Журнал</h2>}
         {!journal && viewControl}
         <div className="relative ml-auto w-64">
@@ -631,7 +637,7 @@ export function Journal(props: JournalProps) {
         )}
       </div>
       {!journal && (
-        <div className="flex flex-wrap items-center gap-2 border-b px-4 py-3">
+        <div className="flex flex-wrap items-center gap-2 border-b bg-background px-4 py-3">
           {rangeControls}
           <ToggleGroup
             type="single"
@@ -667,9 +673,19 @@ export function Journal(props: JournalProps) {
           clientName={clientName}
         />
       )}
-      <div className="flex min-h-8 flex-wrap items-center gap-3 px-4 py-2 text-sm text-muted-foreground">
-        <span className="flex items-center gap-1">
-          {total} ·
+      <div
+        data-slot="request-summary"
+        className="flex h-10 flex-none items-center gap-4 border-b bg-surface-inset px-4 text-sm text-muted-foreground"
+      >
+        <span className="shrink-0 font-medium whitespace-nowrap text-foreground">
+          {total}
+          {view === "domains" &&
+            report?.truncated &&
+            " · показаны самые частые"}
+          {lagging && " · сбор журнала отстаёт"}
+        </span>
+        {(journal || f.host) && activeChips}
+        <span className="ml-auto flex min-w-0 max-w-[45%] shrink-0 items-center gap-1">
           <Button
             size="icon-xs"
             variant="ghost"
@@ -679,10 +695,21 @@ export function Journal(props: JournalProps) {
           >
             <ChevronLeft />
           </Button>
-          <span className="tabular-nums">
-            {dateTime(range.from.toISOString(), false)} —{" "}
-            {dateTime(range.to.toISOString(), false)} МСК
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="min-w-0 truncate tabular-nums"
+                aria-label={periodFull}
+                tabIndex={0}
+              >
+                {compactPeriod(
+                  range.from.toISOString(),
+                  range.to.toISOString(),
+                )}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent>{periodFull}</TooltipContent>
+          </Tooltip>
           <Button
             size="icon-xs"
             variant="ghost"
@@ -703,20 +730,6 @@ export function Journal(props: JournalProps) {
             </Button>
           )}
         </span>
-        <span>
-          {view === "domains" &&
-            report?.truncated &&
-            " · показаны самые частые"}
-          {lagging && " · сбор журнала отстаёт"}
-        </span>
-        {journal && activeChips}
-        {!journal && f.host && activeChips}
-        {view === "events" && items.length > 0 && (
-          <span className="ml-auto">
-            <kbd>j</kbd>/<kbd>k</kbd> — строки, <kbd>a</kbd> — разрешить,{" "}
-            <kbd>Esc</kbd> — закрыть
-          </span>
-        )}
       </div>
     </>
   );
@@ -835,7 +848,10 @@ export function Journal(props: JournalProps) {
         {panels(
           <div className="flex h-full min-h-0 min-w-0 flex-col">
             {body}
-            <div className="min-h-0 flex-1 overflow-auto" onKeyDown={onKeys}>
+            <div
+              className="min-h-0 flex-1 overflow-auto bg-surface-inset"
+              onKeyDown={onKeys}
+            >
               {table}
             </div>
           </div>,
@@ -846,11 +862,14 @@ export function Journal(props: JournalProps) {
   ) : (
     <div
       data-slot="client-requests"
-      className="flex min-h-[540px] flex-col rounded-lg border bg-background"
+      className="flex min-h-[540px] flex-col overflow-hidden rounded-lg border bg-surface-inset"
     >
       {body}
       {panels(
-        <div className="h-full min-w-0 overflow-auto" onKeyDown={onKeys}>
+        <div
+          className="h-full min-w-0 overflow-auto bg-surface-inset"
+          onKeyDown={onKeys}
+        >
           {table}
         </div>,
         200,
@@ -946,8 +965,8 @@ function RequestTable({
         ];
   const empty = view === "events" ? !items.length : !domains.length;
   return (
-    <Table className="min-w-[640px]">
-      <TableHeader>
+    <Table className="min-w-[640px] bg-surface-inset">
+      <TableHeader className="bg-muted">
         <TableRow>
           {heads.map((h, i) => (
             <TableHead
@@ -958,7 +977,7 @@ function RequestTable({
                   : h === "Объём"
                     ? "text-right"
                     : h === "Результат"
-                      ? "sticky right-0 bg-background"
+                      ? "sticky right-0 bg-muted"
                       : ""
               }
             >
@@ -998,7 +1017,7 @@ function RequestTable({
                 aria-label={`Запрос ${dateTime(e.timestamp)} ${e.destination}`}
                 onClick={() => onEvent(e)}
                 onKeyDown={activate(() => onEvent(e))}
-                className="group cursor-pointer"
+                className="group cursor-pointer hover:bg-hover data-[state=selected]:bg-sel"
               >
                 <TableCell className="whitespace-nowrap tabular-nums">
                   <Timestamp
@@ -1014,7 +1033,7 @@ function RequestTable({
                       : (e.client_name ?? clientName(e.client_id))}
                   </div>
                   {!client && (
-                    <div className="text-sm text-muted-foreground">
+                    <div className="font-mono text-xs text-muted-foreground">
                       {e.source_ip}
                     </div>
                   )}
@@ -1038,10 +1057,10 @@ function RequestTable({
                     {e.bytes_observed ? formatBytes(e.bytes_observed) : "—"}
                   </TableCell>
                 )}
-                <TableCell className="sticky right-0 w-44 bg-background group-hover:bg-muted group-data-[state=selected]:bg-muted">
+                <TableCell className="sticky right-0 w-44 bg-surface-inset group-hover:bg-hover group-data-[state=selected]:bg-sel">
                   <Outcome event={e} />
                   {denied && e.deny_reason && (
-                    <div className="text-sm whitespace-nowrap text-muted-foreground">
+                    <div className="mt-0.5 text-sm font-medium whitespace-nowrap text-bad">
                       {denyReasonLabel(e.deny_reason)}
                     </div>
                   )}
@@ -1059,7 +1078,7 @@ function RequestTable({
               aria-label={`Домен ${d.host}`}
               onClick={() => onDomain(d)}
               onKeyDown={activate(() => onDomain(d))}
-              className="group cursor-pointer"
+              className="group cursor-pointer hover:bg-hover data-[state=selected]:bg-sel"
             >
               <TableCell
                 className="max-w-[310px] truncate font-medium"
@@ -1215,14 +1234,6 @@ function EventDetails({
         <KeyValue
           items={[
             ["Действие", <Outcome event={e} />],
-            [
-              "Причина",
-              denied
-                ? reason
-                  ? denyReasonLabel(reason)
-                  : "Отказ Squid или сайта"
-                : "Разрешено правилами",
-            ],
             ["Метод", e.method],
           ]}
         />
@@ -1262,7 +1273,7 @@ function EventDetails({
         />
       </Section>
       {denied && (
-        <Section title="Почему отказано">
+        <Section title="Причина отказа">
           <p className="text-sm leading-relaxed">
             {explain
               ? whyText(explain, e, active)

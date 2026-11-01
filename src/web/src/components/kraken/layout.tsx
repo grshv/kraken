@@ -15,9 +15,9 @@ export function ListPane({
     <>
       <ResizablePanel
         id="list"
-        defaultSize={300}
+        defaultSize={260}
         minSize={220}
-        maxSize={440}
+        maxSize={340}
         groupResizeBehavior="preserve-pixel-size"
       >
         <aside
@@ -44,14 +44,21 @@ export function ListPaneHeader({
   description,
   action,
   children,
+  className,
 }: {
   title: React.ReactNode;
   description?: React.ReactNode;
   action?: React.ReactNode;
   children?: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <div className="flex flex-col gap-2 border-b px-3 pt-3 pb-2.5">
+    <div
+      className={cn(
+        "flex flex-none flex-col gap-3 border-b px-4 py-4",
+        className,
+      )}
+    >
       <div className="flex min-h-[26px] items-center gap-2">
         <span className="grow text-lg font-semibold">{title}</span>
         {action}
@@ -80,7 +87,7 @@ export function ListPaneBody({
 
 export function ListGroupLabel({ children }: { children: React.ReactNode }) {
   return (
-    <div className="px-3.5 pt-2.5 pb-1 text-sm font-medium text-muted-foreground">
+    <div className="px-4 pt-4 pb-2 text-sm font-medium text-muted-foreground">
       {children}
     </div>
   );
@@ -113,7 +120,7 @@ export function ListRow({
           aria-current={selected ? "true" : undefined}
           data-selected={selected ? "" : undefined}
           className={cn(
-            "grid h-auto w-full cursor-pointer items-center gap-x-2 gap-y-px rounded-none border-b px-3.5 py-2 text-left text-base font-normal whitespace-normal hover:bg-hover data-[selected]:bg-sel data-[selected]:text-sel-foreground data-[selected]:[&_.text-muted-foreground]:text-muted-on-sel",
+            "grid h-auto w-full cursor-pointer items-center gap-x-2 gap-y-0.5 rounded-none px-4 py-2.5 text-left text-base font-normal whitespace-normal hover:bg-hover dark:hover:bg-hover data-[selected]:bg-sel data-[selected]:text-sel-foreground data-[selected]:hover:bg-sel dark:data-[selected]:hover:bg-sel data-[selected]:hover:text-sel-foreground data-[selected]:[&_.text-muted-foreground]:text-muted-on-sel",
             leading
               ? "grid-cols-[auto_minmax(0,1fr)_auto]"
               : "grid-cols-[minmax(0,1fr)_auto]",
@@ -186,25 +193,48 @@ export function InspectorHeader({
   status,
   actions,
   meta,
+  compact = false,
 }: {
   crumbs?: React.ReactNode;
   title: React.ReactNode;
   status?: React.ReactNode;
   actions?: React.ReactNode;
   meta?: React.ReactNode;
+  compact?: boolean;
 }) {
   return (
-    <header className="flex flex-none flex-col gap-1.5 px-5 pt-3.5 pb-2.5">
+    <header
+      className={cn(
+        "flex flex-none flex-col gap-3 px-8",
+        compact ? "h-[62px] justify-center py-4" : "pt-7 pb-4",
+      )}
+    >
       {crumbs}
-      <div className="flex min-w-0 items-center gap-2">
-        <h1 className="m-0 truncate text-xl font-semibold tracking-tight">
+      <div className="flex min-w-0 items-center gap-3">
+        <h1
+          className={cn(
+            "m-0 truncate text-xl font-semibold tracking-tight",
+            compact && "max-w-[25%] shrink-0",
+          )}
+        >
           {title}
         </h1>
-        {status}
-        <span className="grow" />
-        {actions && <div className="flex items-center gap-2">{actions}</div>}
+        {status && (
+          <div className="flex shrink-0 items-center gap-2">{status}</div>
+        )}
+        {compact && meta && (
+          <div className="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+            {meta}
+          </div>
+        )}
+        {(!compact || !meta) && <span className="grow" />}
+        {actions && (
+          <div className="ml-auto flex shrink-0 items-center gap-2">
+            {actions}
+          </div>
+        )}
       </div>
-      {meta && (
+      {!compact && meta && (
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm text-muted-foreground">
           {meta}
         </div>
@@ -222,7 +252,7 @@ export function InspectorBody({
     <ScrollArea className="min-h-0 min-w-0 flex-1">
       <div
         className={cn(
-          "@container flex min-h-0 min-w-0 flex-col gap-3.5 px-5 pt-4 pb-5 [&>*]:shrink-0",
+          "@container flex min-h-0 min-w-0 flex-col gap-6 px-8 pt-6 pb-8 [&>*]:shrink-0",
           className,
         )}
         {...props}
@@ -250,10 +280,7 @@ export function DetailPane({
       <ScrollArea className="h-full">
         <aside
           data-slot="detail-pane"
-          className={cn(
-            "flex min-h-full flex-col gap-3 bg-card p-4",
-            className,
-          )}
+          className={cn("flex min-h-0 flex-col gap-3 bg-card p-4", className)}
           {...props}
         >
           {children}

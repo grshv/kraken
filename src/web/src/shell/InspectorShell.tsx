@@ -16,6 +16,15 @@ import {
 } from "@/components/ui/sidebar";
 import { Toaster } from "@/components/ui/sonner";
 import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+  BreadcrumbSeparator,
+} from "@/components/ui/breadcrumb";
+import { Separator } from "@/components/ui/separator";
+import { Kbd } from "@/components/ui/kbd";
+import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -56,9 +65,9 @@ export type ShellHandlers = {
   onAction: (id: string) => void;
 };
 
-// Inspector shell from the prototype: header (logo, ⌘K, status), a 48 px rail
-// of section icons with the profile menu at the bottom, the section's
-// resizable panels with banners above them, the draft tray, the command
+// Inspector shell from the prototype: a full-height 64 px rail with the mark,
+// section icons and the profile menu; the workspace header (section path,
+// ⌘K, status); the section's resizable panels with banners above them, the draft tray, the command
 // palette, the review sheet, the confirm dialog and toasts.
 export function InspectorShell({
   session,
@@ -157,20 +166,13 @@ export function InspectorShell({
     const current = navId === n.id;
     const badge = badges?.[n.id];
     return (
-      <SidebarMenuItem
-        key={n.id}
-        className={
-          current
-            ? "before:absolute before:top-2 before:bottom-2 before:-left-1.5 before:w-0.5 before:rounded-full before:bg-primary"
-            : undefined
-        }
-      >
+      <SidebarMenuItem key={n.id} className="relative">
         <Tooltip>
           <TooltipTrigger asChild>
             <SidebarMenuButton
               isActive={current}
               className={cn(
-                "relative size-9 shrink-0 justify-center rounded-md border-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[18px]",
+                "relative size-10 justify-center rounded-lg border-0 p-0 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground [&_svg]:size-[19px]",
                 current
                   ? "bg-sidebar-accent text-sidebar-accent-foreground"
                   : "bg-transparent text-sidebar-foreground",
@@ -183,7 +185,8 @@ export function InspectorShell({
               <Icon aria-hidden />
               {!!badge && (
                 <span
-                  className="absolute top-0.5 right-0.5 size-2 rounded-full bg-mod-fg"
+                  data-slot="new-events-indicator"
+                  className="absolute top-1 right-1 size-2 rounded-full bg-warn"
                   aria-hidden
                 />
               )}
@@ -197,64 +200,36 @@ export function InspectorShell({
       </SidebarMenuItem>
     );
   };
+  const currentLabel = items.find((n) => n.id === navId)?.label ?? "";
 
   return (
-    <div className="flex h-dvh min-w-[1024px] flex-col overflow-hidden bg-background text-foreground">
+    <div className="h-dvh min-w-[1024px] overflow-hidden bg-background text-foreground">
       <a className="skip-link" href="#main">
         К содержимому
       </a>
-      {/* Brand | search centred on the window | status. Equal side columns keep
-          the search in the middle whatever the list width. */}
-      <header className="grid h-[52px] shrink-0 grid-cols-[minmax(0,1fr)_minmax(0,520px)_minmax(0,1fr)] items-center gap-4 border-b border-header-border bg-header pr-4 text-header-foreground">
-        <div className="flex min-w-0 items-center">
-          <span className="grid w-12 shrink-0 place-items-center" aria-hidden>
-            <KrakenMark title="" className="size-[26px]" />
-          </span>
-          <strong className="pl-2 text-sm tracking-[.24em]">KRAKEN</strong>
-        </div>
-        <Button
-          variant="outline"
-          className="h-[34px] min-w-0 justify-start border-transparent bg-header-field font-normal text-header-muted shadow-none hover:bg-header-field hover:text-header-foreground"
-          onClick={() => setPaletteOpen(true)}
-        >
-          <Search aria-hidden />
-          Клиент, IP, домен или действие…
-          <span className="ml-auto text-xs">⌘K</span>
-        </Button>
-        <div className="flex items-center justify-end">
-          <StatusIndicator
-            status={status}
-            settings={settings}
-            request={request}
-            onOpenAudit={handlers.onOpenAudit}
-            onOpenSettings={
-              items.some((n) => n.id === "settings")
-                ? () =>
-                    onOpen
-                      ? onOpen("settings", "setting:ports")
-                      : onNavigate("settings")
-                : undefined
-            }
-          />
-        </div>
-      </header>
       <SidebarProvider
-        style={{ "--sidebar-width": "48px" } as React.CSSProperties}
-        className="min-h-0 flex-1"
+        style={{ "--sidebar-width": "64px" } as React.CSSProperties}
+        className="h-full min-h-0"
       >
         <Sidebar
           collapsible="none"
           role="navigation"
           aria-label="Разделы"
-          className="items-center gap-0.5 border-r py-2"
+          className="items-center border-r border-sidebar-border"
         >
-          <SidebarContent className="w-full items-center">
-            <SidebarMenu className="w-9 gap-1">
+          <div
+            className="grid h-16 w-full shrink-0 place-items-center"
+            title="Kraken"
+          >
+            <KrakenMark title="" className="size-7 text-foreground" />
+          </div>
+          <SidebarContent className="w-full items-center pt-3">
+            <SidebarMenu className="w-10 gap-2">
               {items.filter((n) => n.group === "main").map(railItem)}
             </SidebarMenu>
           </SidebarContent>
-          <SidebarFooter className="items-center p-0">
-            <SidebarMenu className="w-9 gap-1">
+          <SidebarFooter className="items-center gap-3 px-0 pb-4">
+            <SidebarMenu className="w-10 gap-2">
               {items.filter((n) => n.group === "bottom").map(railItem)}
             </SidebarMenu>
             <ProfileMenu
@@ -267,10 +242,54 @@ export function InspectorShell({
           </SidebarFooter>
         </Sidebar>
         <SidebarInset id="main" tabIndex={-1} className="min-h-0 min-w-0">
+          <header className="flex h-16 shrink-0 items-center gap-3 border-b border-header-border bg-header px-6 text-header-foreground">
+            <Breadcrumb aria-label="Текущий раздел" className="min-w-0">
+              <BreadcrumbList className="flex-nowrap gap-3 text-base">
+                <BreadcrumbItem className="text-header-muted">
+                  Kraken
+                </BreadcrumbItem>
+                <BreadcrumbSeparator className="text-header-muted/60">
+                  /
+                </BreadcrumbSeparator>
+                <BreadcrumbItem className="min-w-0">
+                  <BreadcrumbPage className="truncate">
+                    {currentLabel}
+                  </BreadcrumbPage>
+                </BreadcrumbItem>
+              </BreadcrumbList>
+            </Breadcrumb>
+            <span className="grow" />
+            <Button
+              variant="ghost"
+              size="sm"
+              className="gap-2 text-header-muted"
+              onClick={() => setPaletteOpen(true)}
+              aria-label="Клиент, IP, домен или действие… ⌘K"
+            >
+              <Search aria-hidden />
+              Поиск
+              <Kbd className="ml-2">⌘K</Kbd>
+            </Button>
+            <Separator orientation="vertical" className="mx-1 !h-4" />
+            <StatusIndicator
+              status={status}
+              settings={settings}
+              request={request}
+              onOpenAudit={handlers.onOpenAudit}
+              onOpenSettings={
+                items.some((n) => n.id === "settings")
+                  ? () =>
+                      onOpen
+                        ? onOpen("settings", "setting:ports")
+                        : onNavigate("settings")
+                  : undefined
+              }
+            />
+          </header>
           {status?.squid.state === "down" && (
             <Callout
               tone="bad"
-              className="rounded-none border-x-0 border-t-0 px-4 py-2 text-sm"
+              className="rounded-none border-x-0 border-t-0 px-6 py-3 text-sm"
             >
               Squid не отвечает. Трафик клиентов сейчас не проходит. Kraken
               перезапускает Squid с последней рабочей ревизией.

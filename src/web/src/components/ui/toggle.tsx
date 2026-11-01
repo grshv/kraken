@@ -16,7 +16,7 @@ const toggleVariants = cva(
         // Prototype filter chips: outlined badge, the pressed one filled.
         chip: "border border-border bg-transparent hover:bg-hover data-[state=on]:border-transparent data-[state=on]:bg-secondary data-[state=on]:text-secondary-foreground",
         // Prototype segmented control; the group gets bg-muted and padding.
-        seg: "rounded-none border-l border-border first:border-l-0 bg-transparent text-muted-foreground hover:bg-hover hover:text-foreground data-[state=on]:bg-secondary data-[state=on]:text-foreground",
+        seg: "rounded-sm border-0 bg-transparent text-muted-foreground hover:bg-hover hover:text-foreground data-[state=on]:bg-sel data-[state=on]:text-sel-foreground",
       },
       size: {
         default: "h-8 min-w-8 px-2",
