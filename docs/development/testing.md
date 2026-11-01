@@ -48,10 +48,10 @@ CI (GitHub Actions) разделён по частям; каждый workflow з
 | --- | --- | --- |
 | `web.yml` | `src/web`, `src/prototype` | сборка с CSP-хешами, vitest, `npm audit` production-зависимостей; сборка прототипа и совпадение `kraken-ui.html` с исходниками |
 | `go.yml` | Go-код в `src` | gofmt, `go vet`, `go test -race` (пользователь раннера непривилегированный, `/dev/shm` — tmpfs), `make scan-go` |
-| `squid.yml` | `deploy/squid` | сборка Squid из подписанного релиза на amd64 и arm64; из `main` — `ghcr.io/grshv/kraken-squid:<версия>` |
-| `image.yml` | `src`, `deploy` (кроме Squid), Makefile; теги `v*` | сборка образа на amd64 и arm64 с кэшем слоёв `ghcr.io/grshv/kraken-buildcache:<arch>`, `make integration`, `make scan-sbom`, SBOM артефактом; из `main` и тегов — multi-arch `ghcr.io/grshv/kraken` |
+| `squid.yml` | `deploy/squid` | сборка Squid из подписанного релиза на amd64 и arm64, образ панели с этим Squid и `make integration`; из `main` — `ghcr.io/grshv/kraken-squid:<версия>` и `<версия>-sha-<коммит>` с provenance attestation |
+| `image.yml` | `src`, `deploy` (кроме Squid), Makefile, `go.yml`, `web.yml`; теги `v*` | вызывает `go.yml` и `web.yml` (без прототипа); сборка образа на amd64 и arm64 с кэшем слоёв `ghcr.io/grshv/kraken-buildcache:<arch>`, `make integration`, `make scan-sbom`, SBOM артефактом; из `main` и тегов — multi-arch `ghcr.io/grshv/kraken` только после Go- и web-тестов, с provenance attestation на multi-arch digest и SBOM attestation на образ каждой архитектуры |
 | `codeql.yml` | `src`; еженедельно | CodeQL для Go и TypeScript (код-сканирование GitHub) |
-| `security.yml` | еженедельно | `make scan` по опубликованному `ghcr.io/grshv/kraken:main`: новые уязвимости появляются без изменений кода |
+| `security.yml` | еженедельно | `make scan-go`, `make scan-secrets`; по опубликованным `ghcr.io/grshv/kraken:main` и `:latest` (если релиз есть) — `gh attestation verify` с подписантом `image.yml` и `make scan-sbom`: новые уязвимости появляются без изменений кода |
 | `docs.yml` | Markdown, `docs`, `api`, справка | `make docs-check`, `git diff --check` |
 
 GitHub дополнительно сканирует секреты с push protection и выдаёт Dependabot

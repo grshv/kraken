@@ -2,7 +2,9 @@ name: Image
 # Assembles the panel image from the web bundle, the Go binary, Pebble and the
 # pinned Squid image, natively on amd64 and arm64; runs the integration tests
 # on real Squid and scans the image SBOM. On main and v* tags the tested
-# images go to GHCR as one multi-arch tag. Runs only when the image changes.
+# images go to GHCR as one multi-arch tag, but only after the Go and web
+# tests of the same commit pass, and with signed provenance and SBOM
+# attestations. Runs only when the image changes.
 on:
   push:
     branches: [main]
@@ -14,6 +16,8 @@ on:
       - "!deploy/squid/**"
       - "Makefile"
       - ".github/workflows/image.yml"
+      - ".github/workflows/go.yml"
+      - ".github/workflows/web.yml"
   pull_request:
     paths: *paths
   workflow_dispatch:
@@ -27,6 +31,12 @@ env:
   CACHE_IMAGE: ghcr.io/${{ github.repository }}-buildcache
   PUBLISH: ${{ github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v')) }}
 jobs:
+  go:
+    uses: ./.github/workflows/go.yml
+  web:
+    uses: ./.github/workflows/web.yml
+    with:
+      skip_prototype: true
   build:
     name: build-${{ matrix.arch }}
     strategy:
@@ -42,6 +52,8 @@ jobs:
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -74,22 +86,40 @@ jobs:
           name: sbom-${{ matrix.arch }}
           path: dist/scan/sbom.cdx.json
           if-no-files-found: error
+      # The per-arch tag is an intermediate: users pull the multi-arch tags
+      # that the publish job creates only after the Go and web tests pass.
       - name: Push per-arch image
+        id: push
         if: env.PUBLISH == 'true'
         run: |
           ref="$REGISTRY_IMAGE:sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
           docker tag kraken:dev "$ref"
-          docker push "$ref"
+          docker push "$ref" | tee push.log
+          digest=$(sed -n 's/.*digest: \(sha256:[a-f0-9]\{64\}\).*/\1/p' push.log | tail -n1)
+          test -n "$digest"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Attest the SBOM of the per-arch image
+        if: env.PUBLISH == 'true'
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY_IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: dist/scan/sbom.cdx.json
+          push-to-registry: true
+          create-storage-record: false
   publish:
-    needs: build
+    needs: [go, web, build]
     if: github.event_name != 'pull_request' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
       contents: read
       packages: write
+      id-token: write
+      attestations: write
     steps:
       - name: Multi-arch tags
+        id: tags
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -103,3 +133,13 @@ jobs:
           fi
           docker buildx imagetools create "${tags[@]}" "$REGISTRY_IMAGE:$sha-amd64" "$REGISTRY_IMAGE:$sha-arm64"
           docker buildx imagetools inspect "$REGISTRY_IMAGE:$sha"
+          digest=$(docker buildx imagetools inspect "$REGISTRY_IMAGE:$sha" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Attest build provenance of the multi-arch image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.REGISTRY_IMAGE }}
+          subject-digest: ${{ steps.tags.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false

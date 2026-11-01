@@ -13,10 +13,19 @@ on:
   pull_request:
     paths: *paths
   workflow_dispatch:
+  # image.yml calls this workflow for the web bundle only: the panel image is
+  # published after it. The prototype is not shipped in the image.
+  workflow_call:
+    inputs:
+      skip_prototype:
+        type: boolean
+        default: false
 permissions:
   contents: read
 concurrency:
-  group: web-${{ github.ref }}
+  # A call from image.yml runs under the caller's name, so it does not cancel
+  # the standalone run of the same commit.
+  group: web-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   web:
@@ -38,6 +47,7 @@ jobs:
       - name: Audit production dependencies
         run: npm --prefix src/web audit --omit=dev --audit-level=high
   prototype:
+    if: ${{ !inputs.skip_prototype }}
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:

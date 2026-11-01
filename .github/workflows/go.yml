@@ -15,10 +15,14 @@ on:
   pull_request:
     paths: *paths
   workflow_dispatch:
+  # image.yml calls this workflow: the panel image is published only after it.
+  workflow_call:
 permissions:
   contents: read
 concurrency:
-  group: go-${{ github.ref }}
+  # A call from image.yml runs under the caller's name, so it does not cancel
+  # the standalone run of the same commit.
+  group: go-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   test:

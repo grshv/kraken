@@ -29,7 +29,13 @@
    Node и toolchain в runtime отсутствуют. Compose берёт образ из `KRAKEN_IMAGE`
    (по умолчанию `kraken:dev`): `KRAKEN_IMAGE=ghcr.io/grshv/kraken:main docker
    compose -f deploy/compose.yaml up -d --no-build`. Пакеты GHCR публичные,
-   вход не нужен.
+   вход не нужен. Образ публикуется только после Go-, web- и integration-тестов
+   своего коммита и несёт подписанные Sigstore attestations GitHub: provenance
+   на multi-arch digest и SBOM (CycloneDX) на образ каждой архитектуры.
+   Происхождение проверяется до установки:
+   `gh attestation verify oci://ghcr.io/grshv/kraken:main --repo grshv/kraken
+   --signer-workflow grshv/kraken/.github/workflows/image.yml`; для фиксации
+   версии в Compose брать тег `sha-<коммит>` или digest.
 2. Создать один постоянный том для `/var/lib/kraken` (раскладка — «Файлы и права»).
    Внешние TLS-файлы подключить вне image/Git.
 3. Права на volume и внешние ключи — по разделу «Файлы и права».
@@ -110,8 +116,8 @@ Health показывает состояния раздельно. Watchdog не
 Обновление приложения или Squid меняет общий image и может разорвать CONNECT:
 нужно окно. Для первой установки достаточно записать source commit, image ID/digest,
 architecture, schema compatibility и известные ограничения в коротких release notes.
-Отдельный manifest service, SBOM/provenance platform не требуются; артефакты SBOM
-и подписи добавляются под требования распространения, не выдаются за уже созданные.
+Отдельный manifest service и SBOM/provenance platform не требуются: SBOM и
+provenance публикуются attestations GitHub рядом с образом в GHCR.
 Откат image согласуется со схемой DB и secret refs. HA не предусмотрено.
 
 ## Привязка панели в контейнере
