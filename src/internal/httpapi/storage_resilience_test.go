@@ -16,9 +16,11 @@ import (
 
 // TestConcurrentReadsLoginsAndDraftPUTs verifies the reader pool keeps reads
 // (audit, status) fast and error-free under concurrent logins and draft writes.
-// A login is mostly Argon2id CPU time, which under -race on a CI runner alone
-// takes hundreds of milliseconds, so the bound is relative: twice an
-// uncontended login plus 500 ms. Waiting on a database lock costs seconds.
+// A login is mostly Argon2id CPU time, which under -race on a busy CI runner
+// (other packages, an image build) varies from hundreds of milliseconds to
+// over a second, so CPU time is not bounded here. The bound is the storage
+// deadline: a login that waited for the writer runs into store.OpTimeout
+// and fails with 503, which the status check also catches.
 func TestConcurrentReadsLoginsAndDraftPUTs(t *testing.T) {
 	_, h := fixtureServer(t)
 	cookie, csrf := loginTest(t, h)
@@ -35,7 +37,7 @@ func TestConcurrentReadsLoginsAndDraftPUTs(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("uncontended login: %d %s", code, body)
 	}
-	limit := 2*solo + 500*time.Millisecond
+	limit := store.OpTimeout
 	t.Logf("uncontended login %v, limit under load %v", solo, limit)
 	w := request(h, "GET", "/configuration/draft", nil, cookie, "", "")
 	var d Draft

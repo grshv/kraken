@@ -55,18 +55,19 @@ jobs:
           verify=$!
           docker buildx build --progress=plain --cache-from "type=registry,ref=$cache" --load -t kraken:dev \
             --label org.opencontainers.image.revision=${{ github.sha }} -f deploy/Dockerfile .
-          if ! wait "$verify"; then
-            tail -n 200 verify.log
-            echo "::error::verify stage failed (go test -race / go vet)"
-            exit 1
-          fi
-          grep -E '^#[0-9]+ [0-9.]+ (ok|---|FAIL)' verify.log | tail -n 40 || true
+          # Save a freshly compiled Squid even if the tests below fail.
           if [ "$PUBLISH" = true ]; then
             docker buildx build --progress=plain --target squid \
               --cache-from "type=registry,ref=$cache" \
               --cache-to "type=registry,ref=$cache,mode=max,image-manifest=true,oci-mediatypes=true" \
               -f deploy/Dockerfile .
           fi
+          if ! wait "$verify"; then
+            tail -n 200 verify.log
+            echo "::error::verify stage failed (go test -race / go vet)"
+            exit 1
+          fi
+          grep -E '^#[0-9]+ [0-9.]+ (ok|---|FAIL)' verify.log | tail -n 40 || true
       - name: Integration tests on real Squid
         run: make integration
       - name: Vulnerability and secret scan
