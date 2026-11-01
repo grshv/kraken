@@ -1,4 +1,5 @@
 # syntax=docker/dockerfile:1
+ARG SQUID_IMAGE=ghcr.io/grshv/kraken-squid:7.7@sha256:4387158324b1b9b33838acdbb274394d9ba7b2acb0c3c80661945cde508e983d
 FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS web
 WORKDIR /build/web
 COPY src/web/package*.json ./
@@ -15,42 +16,16 @@ COPY --from=web /build/web/dist ./web/dist
 RUN CGO_ENABLED=0 go build -trimpath -o /out/kraken ./cmd/control
 RUN GOBIN=/out CGO_ENABLED=0 go install github.com/canonical/pebble/cmd/pebble@v1.33.2
 
-# Tests run unprivileged like the panel (UID 10013): root would ignore the
-# read-only directories that failure tests rely on. Run-directory tests take
-# their tmpfs from /dev/shm themselves.
-FROM build AS verify
-RUN useradd -m -u 10013 tester && chown -R tester /build
-USER tester
-ENV GOCACHE=/home/tester/.cache/go-build
-RUN go test -race ./... && go vet ./...
-
-# Squid is built from the upstream release tarball (ADR 0019): unpatched, with
-# only installation paths, --with-openssl, the default user and
-# --disable-strict-error-checking. The compiler and headers stay out of runtime.
-# One RUN installs the toolchain, builds and removes the toolchain and sources,
-# so the stage is a single small layer (/out): CI caches it in the registry
-# and compiles Squid only when the version or this step changes.
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS squid
-ARG SQUID_VERSION=7.7
-ARG SQUID_SHA256=1a748b91722259e986f17d85e0da9d9403054a50bc20f78394ff90e46ef55601
-RUN apk add --no-cache --virtual .squid-build build-base perl openssl-dev libcap-dev libtool linux-headers curl \
-    && tag="SQUID_$(echo "$SQUID_VERSION" | tr '.' '_')" \
-    && curl -fsSL -o /squid.tar.bz2 "https://github.com/squid-cache/squid/releases/download/${tag}/squid-${SQUID_VERSION}.tar.bz2" \
-    && echo "${SQUID_SHA256}  /squid.tar.bz2" | sha256sum -c - \
-    && mkdir /src && tar -xjf /squid.tar.bz2 -C /src \
-    && cd /src/squid-${SQUID_VERSION} \
-    && ./configure --prefix=/usr --sysconfdir=/etc/squid --localstatedir=/var --libexecdir=/usr/lib/squid --datadir=/usr/share/squid --with-default-user=proxy --with-openssl --disable-strict-error-checking \
-    && make -j"$(nproc)" \
-    && make install-strip DESTDIR=/out \
-    && rm -rf /out/var \
-    && cd / && rm -rf /src /squid.tar.bz2 && apk del --no-cache .squid-build
+# Squid comes as its own image (deploy/squid, ADR 0020), built only when it
+# changes and pinned here by digest; `make squid-image` builds it locally.
+FROM ${SQUID_IMAGE} AS squid
 
 FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
 # The source label links the GHCR package to the repository; CI adds the revision.
 LABEL org.opencontainers.image.title="Kraken" \
       org.opencontainers.image.description="Web panel for outbound client access through Squid" \
       org.opencontainers.image.source="https://github.com/grshv/kraken"
-COPY --from=squid /out/ /
+COPY --from=squid / /
 COPY --from=build /out/kraken /usr/local/bin/kraken
 COPY --from=build /out/pebble /usr/local/bin/pebble
 COPY deploy/pebble/001-services.yaml /var/lib/pebble/default/layers/001-services.yaml

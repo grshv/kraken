@@ -1,0 +1,98 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:best-practices", ":semanticCommits"],
+  "timezone": "Europe/Moscow",
+  "schedule": ["before 9am on monday"],
+  "labels": ["dependencies"],
+  "prConcurrentLimit": 6,
+  "vulnerabilityAlerts": {
+    "labels": ["dependencies", "security"],
+    "schedule": ["at any time"]
+  },
+  "osvVulnerabilityAlerts": true,
+  "packageRules": [
+    {
+      "description": "Go modules and the Go toolchain together; go.sum stays tidy",
+      "matchManagers": ["gomod"],
+      "groupName": "Go modules",
+      "postUpdateOptions": ["gomodTidy", "gomodUpdateImportPaths"]
+    },
+    {
+      "description": "Web dependencies (minor and patch) in one PR",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["src/web/**"],
+      "matchUpdateTypes": ["minor", "patch"],
+      "groupName": "web npm"
+    },
+    {
+      "description": "Prototype dependencies: one PR, all update types",
+      "matchManagers": ["npm"],
+      "matchFileNames": ["src/prototype/**"],
+      "groupName": "prototype npm"
+    },
+    {
+      "description": "GitHub Actions in one PR",
+      "matchManagers": ["github-actions"],
+      "groupName": "GitHub Actions"
+    },
+    {
+      "description": "Base images of both Dockerfiles in one PR: Squid and the panel stay on the same Alpine release",
+      "matchManagers": ["dockerfile"],
+      "groupName": "container base images"
+    },
+    {
+      "description": "Squid release: its own PR; deploy/squid rebuilds the Squid image",
+      "matchDepNames": ["squid-cache/squid"],
+      "groupName": null,
+      "labels": ["dependencies", "squid"]
+    },
+    {
+      "description": "Pinned Squid image in the panel Dockerfile follows published kraken-squid tags",
+      "matchDepNames": ["ghcr.io/grshv/kraken-squid"],
+      "groupName": null,
+      "labels": ["dependencies", "squid"]
+    },
+    {
+      "description": "Scanner and tool images pinned in the Makefile",
+      "matchFileNames": ["Makefile"],
+      "groupName": "scanners"
+    }
+  ],
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Squid release tag in deploy/squid/Dockerfile",
+      "managerFilePatterns": ["/^deploy/squid/Dockerfile$/"],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+) versioning=(?<versioning>\\S+)\\s+ARG SQUID_TAG=(?<currentValue>\\S+)"
+      ]
+    },
+    {
+      "customType": "regex",
+      "description": "Squid image pinned by digest in deploy/Dockerfile",
+      "managerFilePatterns": ["/^deploy/Dockerfile$/"],
+      "matchStrings": [
+        "ARG SQUID_IMAGE=(?<depName>[^:\\s]+):(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "Scanner images pinned by tag and digest in the Makefile",
+      "managerFilePatterns": ["/^Makefile$/"],
+      "matchStrings": [
+        ":= (?<depName>[a-z0-9./-]+):(?<currentValue>v?[0-9][^@\\s]*)@(?<currentDigest>sha256:[a-f0-9]+)"
+      ],
+      "datasourceTemplate": "docker"
+    },
+    {
+      "customType": "regex",
+      "description": "govulncheck version in the Makefile",
+      "managerFilePatterns": ["/^Makefile$/"],
+      "matchStrings": [
+        "GOVULNCHECK := (?<depName>golang\\.org/x/vuln)/cmd/govulncheck@(?<currentValue>v[0-9.]+)"
+      ],
+      "datasourceTemplate": "go"
+    }
+  ]
+}

@@ -21,8 +21,9 @@ Kraken — web-панель управления исходящим доступ
 | --- | --- |
 | `make docs-check` | Ссылки, реестр ADR, структура docs, OpenAPI, пример политики, статьи справки (Go: `src/tools/docs-check`) |
 | `make check` | docs-check, сборка web, `npm test` (vitest), `go test -race ./...`, `go vet`, `gofmt`, `git diff --check` |
+| `make squid-image` | Локальный образ Squid `kraken-squid:local` из `deploy/squid` (подпись релиза проверяется); для `make image SQUID_IMAGE=kraken-squid:local` |
 | `make image` / `make integration` | Сборка контейнера / Go-тесты `-tags integration` на реальном Squid (нужен image; фильтр `RUN=TestOps`, `PARALLEL=1` — последовательно) |
-| `make scan` | govulncheck исходников и `pebble`, SBOM образа + web + Squid под grype (падает на high), gitleaks по истории; нужен image, результат в `dist/scan` |
+| `make scan` | `scan-go` (govulncheck исходников), `scan-sbom` (`pebble` и SBOM образа + web + Squid под grype, падает на high; нужен image), `scan-secrets` (gitleaks по истории); результат в `dist/scan` |
 
 Оператор управляет экземпляром через CLI `kraken` внутри контейнера
 (`docker exec -it <контейнер> kraken …`): первый администратор, сброс пароля,

@@ -7,8 +7,8 @@
 //   - Squid, built from upstream sources without package metadata, added as a
 //     component with its CPE so scanners match it against NVD.
 //
-// The Squid version is read from ARG SQUID_VERSION in the Dockerfile, so the
-// SBOM cannot drift from what the image builds.
+// The Squid version is read from ARG SQUID_TAG (SQUID_<major>_<minor>) in
+// deploy/squid/Dockerfile, so the SBOM cannot drift from what the image builds.
 package main
 
 import (
@@ -25,7 +25,7 @@ import (
 func main() {
 	image := flag.String("image", "", "CycloneDX JSON of the final image")
 	web := flag.String("web", "", "CycloneDX JSON of the web dependencies")
-	dockerfile := flag.String("dockerfile", "", "Dockerfile with ARG SQUID_VERSION")
+	dockerfile := flag.String("dockerfile", "", "Squid Dockerfile with ARG SQUID_TAG")
 	out := flag.String("out", "", "merged CycloneDX JSON")
 	flag.Parse()
 	if *image == "" || *web == "" || *dockerfile == "" || *out == "" {
@@ -79,9 +79,10 @@ func readBOM(path string) (bom, error) {
 	return v, nil
 }
 
-var argSquid = regexp.MustCompile(`^ARG\s+SQUID_VERSION=([0-9]+(?:\.[0-9]+)+)\s*$`)
+var argSquid = regexp.MustCompile(`^ARG\s+SQUID_TAG=SQUID_([0-9]+(?:_[0-9]+)+)\s*$`)
 
-// squidVersion returns the single ARG SQUID_VERSION of the Dockerfile.
+// squidVersion returns the version of the single ARG SQUID_TAG of the
+// Dockerfile: SQUID_7_7 is 7.7.
 func squidVersion(path string) (string, error) {
 	f, e := os.Open(path)
 	if e != nil {
@@ -92,14 +93,14 @@ func squidVersion(path string) (string, error) {
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		if m := argSquid.FindStringSubmatch(strings.TrimSpace(sc.Text())); m != nil {
-			found = append(found, m[1])
+			found = append(found, strings.ReplaceAll(m[1], "_", "."))
 		}
 	}
 	if e := sc.Err(); e != nil {
 		return "", e
 	}
 	if len(found) != 1 {
-		return "", fmt.Errorf("%s: want one ARG SQUID_VERSION=<x.y>, found %d", path, len(found))
+		return "", fmt.Errorf("%s: want one ARG SQUID_TAG=SQUID_<x>_<y>, found %d", path, len(found))
 	}
 	return found[0], nil
 }

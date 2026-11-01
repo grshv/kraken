@@ -28,7 +28,7 @@ const webBOM = `{"bomFormat":"CycloneDX","specVersion":"1.6",
 
 func TestMergeAddsWebAndSquidOnce(t *testing.T) {
 	dir := t.TempDir()
-	df := write(t, "Dockerfile", "FROM alpine\nARG SQUID_VERSION=7.7\nARG SQUID_SHA256=x\n")
+	df := write(t, "Dockerfile", "FROM alpine\n# renovate: datasource=github-releases\nARG SQUID_TAG=SQUID_7_7\n")
 	out := filepath.Join(dir, "sbom.json")
 	if e := run(write(t, "image.json", imageBOM), write(t, "web.json", webBOM), df, out); e != nil {
 		t.Fatal(e)
@@ -69,8 +69,9 @@ func TestMergeAddsWebAndSquidOnce(t *testing.T) {
 func TestSquidVersionMustBeSingleAndNumeric(t *testing.T) {
 	for _, body := range []string{
 		"FROM alpine\n",
-		"ARG SQUID_VERSION=7.7\nARG SQUID_VERSION=7.8\n",
-		"ARG SQUID_VERSION=latest\n",
+		"ARG SQUID_TAG=SQUID_7_7\nARG SQUID_TAG=SQUID_7_8\n",
+		"ARG SQUID_TAG=latest\n",
+		"ARG SQUID_VERSION=7.7\n",
 	} {
 		if v, e := squidVersion(write(t, "Dockerfile", body)); e == nil {
 			t.Fatalf("%q: want error, got %s", body, v)
@@ -79,7 +80,7 @@ func TestSquidVersionMustBeSingleAndNumeric(t *testing.T) {
 }
 
 func TestRejectsNonCycloneDX(t *testing.T) {
-	df := write(t, "Dockerfile", "ARG SQUID_VERSION=7.7\n")
+	df := write(t, "Dockerfile", "ARG SQUID_TAG=SQUID_7_7\n")
 	spdx := write(t, "spdx.json", `{"spdxVersion":"SPDX-2.3"}`)
 	if e := run(spdx, write(t, "web.json", webBOM), df, filepath.Join(t.TempDir(), "o.json")); e == nil {
 		t.Fatal("SPDX accepted as CycloneDX")
@@ -87,11 +88,9 @@ func TestRejectsNonCycloneDX(t *testing.T) {
 }
 
 func TestRealDockerfileHasSquidVersion(t *testing.T) {
-	const path = "../../../deploy/Dockerfile"
+	const path = "../../../deploy/squid/Dockerfile"
 	if _, e := os.Stat(path); errors.Is(e, os.ErrNotExist) {
-		// The verify stage of the image sees only src/; make scan reads the
-		// real Dockerfile there and fails without a single ARG SQUID_VERSION.
-		t.Skip("deploy/Dockerfile is outside the build context")
+		t.Skip("deploy/squid/Dockerfile is not in this checkout")
 	}
 	if _, e := squidVersion(path); e != nil {
 		t.Fatal(e)

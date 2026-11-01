@@ -1,12 +1,21 @@
 name: Image
-# Builds, tests and scans the image natively on amd64 and arm64. On main and on
-# v* tags the tested per-arch images go to GHCR and are joined into one
-# multi-arch tag. Pull requests and other branches only build and test.
+# Assembles the panel image from the web bundle, the Go binary, Pebble and the
+# pinned Squid image, natively on amd64 and arm64; runs the integration tests
+# on real Squid and scans the image SBOM. On main and v* tags the tested
+# images go to GHCR as one multi-arch tag. Runs only when the image changes.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
     tags: ["v*"]
+    paths: &paths
+      - "src/**"
+      - "!src/prototype/**"
+      - "deploy/**"
+      - "!deploy/squid/**"
+      - "Makefile"
+      - ".github/workflows/image.yml"
   pull_request:
+    paths: *paths
   workflow_dispatch:
 permissions:
   contents: read
@@ -29,49 +38,36 @@ jobs:
           - arch: arm64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-          fetch-depth: 0 # gitleaks in make scan reads the whole history
       - name: Log in to GHCR
         env:
           TOKEN: ${{ secrets.GITHUB_TOKEN }}
         # Without a login the build still runs, only without the layer cache.
         run: echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || true
-      - name: Go tests and image in one BuildKit builder
-        # verify (go test -race, go vet) and the image build run in parallel on
-        # one builder, so the shared build stage runs once. The Squid stage (one
-        # small layer) comes from a registry cache per architecture and compiles
-        # only when its version or build step changes; main and tags refresh it.
+      - name: Build image
+        # All stages are cached per architecture in the registry (public
+        # packages); main and tags refresh the cache.
         run: |
           docker buildx create --name kraken --driver docker-container --use >/dev/null
-          cache="$CACHE_IMAGE:squid-${{ matrix.arch }}"
-          docker buildx build --progress=plain --target verify -f deploy/Dockerfile . > verify.log 2>&1 &
-          verify=$!
-          docker buildx build --progress=plain --cache-from "type=registry,ref=$cache" --load -t kraken:dev \
-            --label org.opencontainers.image.revision=${{ github.sha }} -f deploy/Dockerfile .
-          # Save a freshly compiled Squid even if the tests below fail.
+          cache="$CACHE_IMAGE:${{ matrix.arch }}"
+          to=()
           if [ "$PUBLISH" = true ]; then
-            docker buildx build --progress=plain --target squid \
-              --cache-from "type=registry,ref=$cache" \
-              --cache-to "type=registry,ref=$cache,mode=max,image-manifest=true,oci-mediatypes=true" \
-              -f deploy/Dockerfile .
+            to=(--cache-to "type=registry,ref=$cache,mode=max,image-manifest=true,oci-mediatypes=true")
           fi
-          if ! wait "$verify"; then
-            tail -n 200 verify.log
-            echo "::error::verify stage failed (go test -race / go vet)"
-            exit 1
-          fi
-          grep -E '^#[0-9]+ [0-9.]+ (ok|---|FAIL)' verify.log | tail -n 40 || true
+          docker buildx build --progress=plain --cache-from "type=registry,ref=$cache" "${to[@]}" \
+            --load -t kraken:dev --label org.opencontainers.image.revision=${{ github.sha }} \
+            -f deploy/Dockerfile .
       - name: Integration tests on real Squid
         run: make integration
-      - name: Vulnerability and secret scan
-        run: make scan
+      - name: Image SBOM and vulnerability scan
+        run: make scan-sbom
       - name: Keep SBOM
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:

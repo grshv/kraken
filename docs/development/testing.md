@@ -41,15 +41,22 @@ React-мок проверяется отдельно: `npm --prefix src/prototyp
 реального Dockerfile, не-CycloneDX и повторённая или нечисловая версия отклоняются.
 `make scan` — проверка уязвимостей и секретов, а не тест поведения; описана в
 [local-development](../operations/local-development.md#проверки-разработчика).
-CI: `.github/workflows/docs.yml` запускает docs-check; `image.yml` на каждой из
-архитектур amd64 и arm64 (нативные раннеры) собирает verify-стадию (`go test -race`
-и `go vet` от непривилегированного UID 10013, иначе root обходит проверки прав;
-тесты каталога запуска берут tmpfs из `/dev/shm`) и образ — параллельно в одном
-сборщике BuildKit; стадия Squid (один слой) берётся из кэша в
-`ghcr.io/grshv/kraken-buildcache:squid-<arch>` и компилируется только при смене
-версии или шага сборки, кэш обновляют прогоны `main` и тегов; гоняет
-`make integration` и `make scan`, сохраняет SBOM артефактом. Для `main` и тегов `v*`
-проверенные образы уходят в GHCR и собираются в один multi-arch тег.
+CI (GitHub Actions) разделён по частям; каждый workflow запускается на push в
+`main` и в PR только при изменении своих файлов:
+
+| Workflow | Когда | Что проверяет |
+| --- | --- | --- |
+| `web.yml` | `src/web`, `src/prototype` | сборка с CSP-хешами, vitest, `npm audit` production-зависимостей; сборка прототипа и совпадение `kraken-ui.html` с исходниками |
+| `go.yml` | Go-код в `src` | gofmt, `go vet`, `go test -race` (пользователь раннера непривилегированный, `/dev/shm` — tmpfs), `make scan-go` |
+| `squid.yml` | `deploy/squid` | сборка Squid из подписанного релиза на amd64 и arm64; из `main` — `ghcr.io/grshv/kraken-squid:<версия>` |
+| `image.yml` | `src`, `deploy` (кроме Squid), Makefile; теги `v*` | сборка образа на amd64 и arm64 с кэшем слоёв `ghcr.io/grshv/kraken-buildcache:<arch>`, `make integration`, `make scan-sbom`, SBOM артефактом; из `main` и тегов — multi-arch `ghcr.io/grshv/kraken` |
+| `codeql.yml` | `src`; еженедельно | CodeQL для Go и TypeScript (код-сканирование GitHub) |
+| `security.yml` | еженедельно | `make scan` по опубликованному `ghcr.io/grshv/kraken:main`: новые уязвимости появляются без изменений кода |
+| `docs.yml` | Markdown, `docs`, `api`, справка | `make docs-check`, `git diff --check` |
+
+GitHub дополнительно сканирует секреты с push protection и выдаёт Dependabot
+alerts; обновления зависимостей и предупреждения об уязвимостях превращает в PR
+Renovate (`renovate.json`).
 
 ## Go-тесты по пакетам
 

@@ -23,11 +23,13 @@
 1. Образ: готовый `ghcr.io/grshv/kraken` (amd64 и arm64; `main` — последний
    проверенный коммит main, `X.Y.Z` и `latest` — релизы по тегу `vX.Y.Z`, `sha-<коммит>`)
    или локальная сборка `make image`. Multi-stage build: frontend → embed в Go;
-   Squid из upstream-релиза; бинарники и Pebble plan копируются в pinned Alpine.
+   Squid — готовый образ `ghcr.io/grshv/kraken-squid` по digest (собран из
+   подписанного upstream-релиза, ADR 0020); бинарники и Pebble plan копируются в
+   pinned Alpine.
    Node и toolchain в runtime отсутствуют. Compose берёт образ из `KRAKEN_IMAGE`
    (по умолчанию `kraken:dev`): `KRAKEN_IMAGE=ghcr.io/grshv/kraken:main docker
-   compose -f deploy/compose.yaml up -d --no-build`. Пакет GHCR приватного
-   репозитория требует `docker login ghcr.io` токеном с `read:packages`.
+   compose -f deploy/compose.yaml up -d --no-build`. Пакеты GHCR публичные,
+   вход не нужен.
 2. Создать один постоянный том для `/var/lib/kraken` (раскладка — «Файлы и права»).
    Внешние TLS-файлы подключить вне image/Git.
 3. Права на volume и внешние ключи — по разделу «Файлы и права».

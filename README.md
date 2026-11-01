@@ -1,5 +1,13 @@
 # Kraken
 
+[![Web](https://github.com/grshv/kraken/actions/workflows/web.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/web.yml)
+[![Go](https://github.com/grshv/kraken/actions/workflows/go.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/go.yml)
+[![Image](https://github.com/grshv/kraken/actions/workflows/image.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/image.yml)
+[![Squid image](https://github.com/grshv/kraken/actions/workflows/squid.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/squid.yml)
+[![CodeQL](https://github.com/grshv/kraken/actions/workflows/codeql.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/codeql.yml)
+[![Security](https://github.com/grshv/kraken/actions/workflows/security.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/security.yml)
+[![Documentation](https://github.com/grshv/kraken/actions/workflows/docs.yml/badge.svg)](https://github.com/grshv/kraken/actions/workflows/docs.yml)
+
 Web-панель для управления исходящим доступом клиентов через Squid. Клиент — устройство,
 адрес, сеть или группа; каждому открывается весь веб, только разрешённые домены или
 ничего. Журнал показывает, кто куда ходил, почему получил отказ и что поправить.
@@ -69,19 +77,21 @@ docker compose -f deploy/compose.yaml down        # том с данными с�
 | `src/prototype` | React-мок согласованного интерфейса и его сборка в автономный HTML |
 | `src/migrations`, `src/tests`, `src/tools` | Миграции SQLite, integration-тесты на реальном Squid, docs-check и SBOM |
 | `api` | OpenAPI и контракт runtime |
-| `deploy` | Dockerfile, Compose, слой Pebble, правила grype |
+| `deploy` | Dockerfile панели, `deploy/squid` (образ Squid), Compose, слой Pebble, правила grype |
 | `docs` | Требования, архитектура, ADR, эксплуатация, статус |
 | `examples` | Пример снимка конфигурации и настройки клиентов |
 
 ```sh
 make check         # docs-check, сборка и тесты web, go test -race, vet, gofmt, diff-check
-make image         # контейнер kraken:dev
+make image         # контейнер kraken:dev (Squid — образ ghcr.io/grshv/kraken-squid по digest)
+make squid-image   # Squid из подписанного релиза локально; затем make image SQUID_IMAGE=kraken-squid:local
 make integration   # Go-тесты на реальном Squid в одноразовых контейнерах (нужен image)
 make scan          # govulncheck, SBOM образа + web + Squid под grype, gitleaks (нужен image)
 ```
 
 Go-модуль — `src/` (Go 1.27), npm — `src/web`; версии зафиксированы в `go.mod` и
-lockfile. Правила изменений, инварианты и какой документ обновлять вместе с кодом —
+lockfile, базовые образы и actions — по digest и SHA; обновления предлагает Renovate.
+CI разделён по частям и запускается только при их изменении ([testing](docs/development/testing.md)). Правила изменений, инварианты и какой документ обновлять вместе с кодом —
 в [AGENTS.md](AGENTS.md).
 
 ## Документация

@@ -1,0 +1,34 @@
+name: Security
+# New vulnerabilities appear without code changes: every week the published
+# images (panel and Squid via the panel's SBOM), the Go sources and the whole
+# git history are scanned again.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  scan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - name: Published image
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker pull "ghcr.io/${{ github.repository }}:main"
+      - name: govulncheck, image SBOM under grype, gitleaks
+        run: make scan IMAGE=ghcr.io/${{ github.repository }}:main

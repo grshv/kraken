@@ -112,13 +112,18 @@ identities синтетические. Доступ к интернету нуж
 не для проверки HTTP origins. Web unit-тесты (`npm --prefix src/web run test`)
 гоняют vitest без браузера и образа; браузерных e2e нет.
 
+Образ Squid по умолчанию берётся из `ghcr.io/grshv/kraken-squid` (закреплён digest в
+`ARG SQUID_IMAGE`). Чтобы собрать Squid локально: `make squid-image`, затем
+`make image SQUID_IMAGE=kraken-squid:local`; релиз проверяется подписью ключей из
+`deploy/squid/squid-keys.asc`.
+
 `make scan` (нужен собранный `kraken:dev`, другой тег — `IMAGE=`) проверяет
 каждую стадию сборки там, где её содержимое видно: `scan-go` — govulncheck по
-исходникам Go с достижимостью вызовов и по бинарнику `pebble` из образа;
-`scan-sbom` — syft строит CycloneDX финального образа (пакеты Alpine, Go-модули
+исходникам Go с достижимостью вызовов (образ не нужен); `scan-sbom` — govulncheck по
+бинарнику `pebble` из образа, затем syft строит CycloneDX финального образа (пакеты Alpine, Go-модули
 `kraken` и `pebble`) и production-зависимостей `src/web/package-lock.json`
 (они вшиты в бандл и в образе не видны), `src/tools/sbom` сливает их и добавляет
-Squid с CPE `squid-cache:squid:<ARG SQUID_VERSION>` (собран из исходников, без
+Squid с CPE `squid-cache:squid:<версия из ARG SQUID_TAG в deploy/squid>` (собран из исходников, без
 метаданных пакета), grype проверяет общий SBOM и падает на high; `scan-secrets` —
 gitleaks по всей git-истории. Сканеры запускаются из образов, закреплённых по digest;
 образ передаётся syft архивом, без Docker socket. Принятые находки с причиной —

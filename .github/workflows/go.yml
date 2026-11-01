@@ -1,0 +1,55 @@
+name: Go
+# Go code: vet, gofmt, race tests and govulncheck over the sources. The web
+# bundle is built first only because the binary embeds it (web/dist).
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "src/**"
+      - "!src/web/**"
+      - "src/web/*.go"
+      - "src/web/package-lock.json"
+      - "!src/prototype/**"
+      - "Makefile"
+      - ".github/workflows/go.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: go-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - name: Web bundle for go:embed
+        run: |
+          npm --prefix src/web ci --no-audit --no-fund
+          npm --prefix src/web run build
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - name: gofmt
+        run: test -z "$(gofmt -l src)" || { gofmt -l src; exit 1; }
+      - name: go vet
+        working-directory: src
+        run: go vet ./...
+      # The runner user is unprivileged (permission-failure tests need that)
+      # and /dev/shm is tmpfs (run-directory tests need that).
+      - name: go test -race
+        working-directory: src
+        run: go test -race ./...
+      - name: govulncheck
+        run: make scan-go
