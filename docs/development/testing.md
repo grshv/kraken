@@ -88,6 +88,7 @@ CI: `.github/workflows/docs.yml` запускает docs-check, `runtime.yml` �
 | `settings/edits` | `effectiveSettings` (defaults при отсутствии), `patchSettings` (merge без мутации), `setBlockedDomains`, `setUpstream` (вкл/выкл через null), `setExpertConfig` (mode + текст) |
 | `policies/suggestions` | предложения из `/notifications?kind=denied_domain`: пустой ответ отличается от сбоя и повреждённого ответа; чужой клиент, неописанный источник, игнорируемое и нулевое уведомление не предлагаются; уже разрешённый (свой домен или поддомен политики) и запрещённый для всех домен исключаются; выключенный клиент, «весь веб», «нет доступа» и expert не расширяются |
 | `model` (`compactPeriod`) | одна дата внутри суток, обе даты между сутками по МСК, год только на границе годов, прочерк для неверного времени |
+| `shell/passwordFocus` | `releasePasswordFocus` снимает фокус только с поля пароля перед сменой экрана (вход, смена пароля), иначе Chrome на macOS оставляет Secure Input; другие элементы и пустой фокус не трогает |
 
 Браузерных e2e нет: владелец исключил Playwright, ключевые потоки проверяются
 на уровне API в integration.

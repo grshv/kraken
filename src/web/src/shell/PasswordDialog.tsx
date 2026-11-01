@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Field } from "@/components/kraken/blocks";
+import { releasePasswordFocus } from "./passwordFocus";
 
 // passwordProblem checks the new password client-side with the same rules as
 // the server (12..1024 bytes, differs from the current one, typed twice).
@@ -71,6 +72,7 @@ export function PasswordDialog({
             setError("");
             try {
               await onSubmit(current, next);
+              releasePasswordFocus();
               close(false);
             } catch (err) {
               setError((err as Error).message);

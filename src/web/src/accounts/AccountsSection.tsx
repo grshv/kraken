@@ -57,6 +57,7 @@ import { RecentActions } from "./RecentActions";
 import { ProxyKpis, ProxySources, useProxyActivity } from "./ProxyActivity";
 import type { SectionProps } from "../sections/sectionProps";
 import type { NavId } from "../shell/nav";
+import { releasePasswordFocus } from "../shell/passwordFocus";
 
 // API shapes mirrored from openapi.json (User, ProxyAccount, ManagerScope).
 type User = { username: string; role: "admin" | "manager"; enabled: boolean };
@@ -98,8 +99,10 @@ export function AccountsSection(props: SectionProps) {
     intent,
     onIntentHandled,
   } = props;
-  const [users, setUsers] = useState<User[] | null>(null);
-  const [accounts, setAccounts] = useState<ProxyAccount[] | null>(null);
+  const [users, setUsers] = useState<User[] | null | undefined>(undefined);
+  const [accounts, setAccounts] = useState<ProxyAccount[] | null | undefined>(
+    undefined,
+  );
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState<"panel" | "proxy" | null>(null);
@@ -155,7 +158,8 @@ export function AccountsSection(props: SectionProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManageUsers, users, accounts, session.username, selected]);
 
-  // Fatal surface only when a required list failed to load.
+  // Fatal surface only when a required list failed to load (null); undefined
+  // is still loading and must not flash the error.
   const fatal = (canManageUsers && users === null) || accounts === null;
 
   if (fatal && !creating)
@@ -546,6 +550,7 @@ function PanelUserDetail({
       return;
     }
     await patch({ password: pwd }, "Пароль изменён, сессии отозваны");
+    releasePasswordFocus();
     setPwd("");
     setPwdOpen(false);
   }
@@ -1081,8 +1086,10 @@ function ProxyAccountDetail({
               if (
                 pwd &&
                 (await patch({ password: pwd }, "Пароль прокси изменён"))
-              )
+              ) {
+                releasePasswordFocus();
                 setPwdOpen(false);
+              }
             }}
           >
             <Label htmlFor="proxy-new-password">Новый пароль</Label>

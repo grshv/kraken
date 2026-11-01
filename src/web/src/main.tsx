@@ -37,6 +37,7 @@ import type { CommitResult, SectionIntent } from "./sections/sectionProps";
 import { ErrorState } from "./shell/ErrorState";
 import "./theme.css";
 import "./style.css";
+import { releasePasswordFocus } from "./shell/passwordFocus";
 
 // SessionExpired is signalled by api() on any protected 401; the App drops to
 // the login view and lets the next /session refresh establish a fresh token.
@@ -286,6 +287,7 @@ function App() {
         username: form.get("username"),
         password: form.get("password"),
       });
+      releasePasswordFocus();
       setCsrf(s.csrf_token);
       setSession(s);
       await load(s);
@@ -753,7 +755,8 @@ function LoginView({
 // Radix dialogs lock page scrolling with a <style> whose text depends on the
 // scrollbar width; it carries the page nonce so the CSP admits it.
 setNonce(
-  document.querySelector('meta[name="csp-nonce"]')?.getAttribute("content") ?? "",
+  document.querySelector('meta[name="csp-nonce"]')?.getAttribute("content") ??
+    "",
 );
 
 createRoot(document.getElementById("root")!).render(
