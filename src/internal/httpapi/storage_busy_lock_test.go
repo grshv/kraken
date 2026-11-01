@@ -80,6 +80,9 @@ func TestGETsUnderWriteLockStayFast(t *testing.T) {
 		"/activity",
 		"/statistics",
 	}
+	// A reader blocked by the writer waits until store.OpTimeout (3 s); 1.5 s
+	// leaves room for -race on a loaded CI runner and still catches that.
+	const readBound = 1500 * time.Millisecond
 	t0 := time.Now()
 	for _, p := range endpoints {
 		start := time.Now()
@@ -88,7 +91,7 @@ func TestGETsUnderWriteLockStayFast(t *testing.T) {
 		if w.Code != 200 {
 			t.Errorf("GET %s under write lock: expected 200, got %d %s", p, w.Code, w.Body.String())
 		}
-		if elapsed > 500*time.Millisecond {
+		if elapsed > readBound {
 			t.Errorf("GET %s under write lock took %v; reader pool not isolated", p, elapsed)
 		}
 	}
@@ -100,7 +103,7 @@ func TestGETsUnderWriteLockStayFast(t *testing.T) {
 		if w.Code != 200 {
 			t.Errorf("manager GET /configuration/draft under write lock: expected 200, got %d", w.Code)
 		}
-		if elapsed > 500*time.Millisecond {
+		if elapsed > readBound {
 			t.Errorf("manager GET under write lock took %v", elapsed)
 		}
 	}

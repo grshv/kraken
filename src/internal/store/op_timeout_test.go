@@ -85,7 +85,9 @@ func TestReadUnderHeldLockIsFast(t *testing.T) {
 	if e := st.Get(context.Background(), "draft", &v); e != nil {
 		t.Fatalf("reader blocked under write lock: %v", e)
 	}
-	if elapsed := time.Since(start); elapsed > 200*time.Millisecond {
+	// Blocked, the read would wait for OpTimeout (3 s); 1 s leaves room for a
+	// loaded CI runner under -race.
+	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("read took %v under held write lock; reader pool not isolated", elapsed)
 	}
 }

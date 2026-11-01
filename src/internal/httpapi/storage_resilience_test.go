@@ -16,10 +16,27 @@ import (
 
 // TestConcurrentReadsLoginsAndDraftPUTs verifies the reader pool keeps reads
 // (audit, status) fast and error-free under concurrent logins and draft writes.
-// Logins must complete under 500 ms even with -race overhead.
+// A login is mostly Argon2id CPU time, which under -race on a CI runner alone
+// takes hundreds of milliseconds, so the bound is relative: twice an
+// uncontended login plus 500 ms. Waiting on a database lock costs seconds.
 func TestConcurrentReadsLoginsAndDraftPUTs(t *testing.T) {
 	_, h := fixtureServer(t)
 	cookie, csrf := loginTest(t, h)
+	login := func() (int, string, time.Duration) {
+		t0 := time.Now()
+		aw := request(h, "GET", "/session", nil, nil, "", "")
+		var v map[string]any
+		json.Unmarshal(aw.Body.Bytes(), &v)
+		ac := aw.Result().Cookies()[0]
+		lw := request(h, "POST", "/session", map[string]string{"username": "admin", "password": "test-password-only-123"}, ac, v["csrf_token"].(string), "https://panel.test")
+		return lw.Code, lw.Body.String(), time.Since(t0)
+	}
+	code, body, solo := login()
+	if code != 200 {
+		t.Fatalf("uncontended login: %d %s", code, body)
+	}
+	limit := 2*solo + 500*time.Millisecond
+	t.Logf("uncontended login %v, limit under load %v", solo, limit)
 	w := request(h, "GET", "/configuration/draft", nil, cookie, "", "")
 	var d Draft
 	json.Unmarshal(w.Body.Bytes(), &d)
@@ -55,19 +72,13 @@ func TestConcurrentReadsLoginsAndDraftPUTs(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			<-start
-			t0 := time.Now()
-			aw := request(h, "GET", "/session", nil, nil, "", "")
-			var v map[string]any
-			json.Unmarshal(aw.Body.Bytes(), &v)
-			ac := aw.Result().Cookies()[0]
-			lw := request(h, "POST", "/session", map[string]string{"username": "admin", "password": "test-password-only-123"}, ac, v["csrf_token"].(string), "https://panel.test")
-			elapsed := time.Since(t0)
-			if lw.Code != 200 {
-				errs <- fmt.Errorf("login %d failed: %d %s", id, lw.Code, lw.Body.String())
+			code, body, elapsed := login()
+			if code != 200 {
+				errs <- fmt.Errorf("login %d failed: %d %s", id, code, body)
 				return
 			}
-			if elapsed > 500*time.Millisecond {
-				errs <- fmt.Errorf("login %d too slow: %v", id, elapsed)
+			if elapsed > limit {
+				errs <- fmt.Errorf("login %d too slow: %v (limit %v)", id, elapsed, limit)
 				return
 			}
 		}(i)
