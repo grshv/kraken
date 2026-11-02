@@ -42,12 +42,12 @@ integration:
 # goes to syft as an archive, so no Docker socket enters a container.
 SCAN_DIR := dist/scan
 IMAGE ?= kraken:dev
-GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.6.0
+GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 # go run pkg@version builds the tool with the Go its own module asks for; pin
 # the toolchain of src/go.mod so govulncheck can load our packages.
 GO_TOOLCHAIN := go$(shell awk '/^go /{print $$2}' src/go.mod)
-SYFT := anchore/syft:v1.55.0@sha256:4cc92b64ca74ffca4c94d4c8fcc01f217731375300be14d0b6eeb2e82eaa110a
-GRYPE := anchore/grype:v0.121.0@sha256:621d56d1d68106b787022c81546f7e0a36202a25d1239f0c20195fab8c16f7ea
+SYFT := anchore/syft:v1.56.0@sha256:697ae864af1299cfa43c54b161cea3dd65c6d54de82e3dba66ea3dccb3acc313
+GRYPE := anchore/grype:v0.121.1@sha256:6b06708b036f74b2cd70e94b706b4586af96d1932e6ac46255940b2e39dd44a9
 GITLEAKS := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 scan: scan-go scan-sbom scan-secrets
