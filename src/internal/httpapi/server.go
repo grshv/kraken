@@ -371,11 +371,10 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("Referrer-Policy", "no-referrer")
-		// includeSubDomains; preload: management panel is hosted on a dedicated
-		// origin without other HTTP subdomains. preload listing is opt-in and
-		// only effective once the operator submits the host to the HSTS preload
-		// list; the directive itself is harmless for closed single-host deploys.
-		w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains; preload")
+		// HSTS covers only this host: includeSubDomains would pin sibling hosts
+		// (every *.localhost or *.corp name) to HTTPS, and preload is meaningless
+		// for internal names. The panel certificate comes from the local CA.
+		w.Header().Set("Strict-Transport-Security", "max-age=31536000")
 		// A fresh nonce per response; the page handler writes it into index.html.
 		nonce := csp.NewNonce()
 		r = r.WithContext(csp.WithNonce(r.Context(), nonce))

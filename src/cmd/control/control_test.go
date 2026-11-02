@@ -14,12 +14,13 @@ func TestRequiresPrivilegeDrop(t *testing.T) {
 		{"sessions", true},
 		{"status", true},
 		{"backup", true},
-		{"dev-cert", true},
+		{"cert", true},
 		{"check", true},
 		{"service-update", true},
 		{"help", true},
 		{"squid-start", false},
 		{"proxy-auth", false},
+		{"entrypoint", false},
 		{"unknown-command", true},
 	}
 	for _, c := range cases {

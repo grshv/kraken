@@ -54,5 +54,7 @@ RUN apk add --no-cache libstdc++ libssl3 libcrypto3 libcap libltdl setpriv \
 ENV PEBBLE=/var/lib/pebble/default
 EXPOSE 8443 3128 3129
 VOLUME /var/lib/kraken
-ENTRYPOINT ["/usr/local/bin/pebble"]
+# PID 1 prepares a foreign-owned state directory (fresh bind mount) with
+# CAP_CHOWN, then execs Pebble with CMD as its arguments.
+ENTRYPOINT ["/usr/local/bin/kraken", "entrypoint"]
 CMD ["run", "--verbose"]

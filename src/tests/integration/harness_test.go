@@ -44,9 +44,10 @@ const (
 
 // krakenSecOpts are the Docker security options every kraken container runs
 // with, matching deploy/compose.yaml: all capabilities dropped except
+// CHOWN (the entrypoint prepares a foreign-owned state directory) and
 // SETUID/SETGID/KILL (needed to switch UIDs via setpriv and signal Squid)
 // plus no-new-privileges (ADR 0019).
-var krakenSecOpts = []string{"--cap-drop", "ALL", "--cap-add", "SETUID", "--cap-add", "SETGID", "--cap-add", "KILL", "--security-opt", "no-new-privileges"}
+var krakenSecOpts = []string{"--cap-drop", "ALL", "--cap-add", "CHOWN", "--cap-add", "SETUID", "--cap-add", "SETGID", "--cap-add", "KILL", "--security-opt", "no-new-privileges"}
 
 func env(key, def string) string {
 	if v := os.Getenv(key); v != "" {
@@ -883,7 +884,7 @@ type instance struct {
 }
 
 // launchInstance brings up a disposable kraken instance: isolated network and
-// volume, dev-cert, bootstrap, then a proxy container with a published host
+// volume, issued certificates, bootstrap, then a proxy container with a published host
 // port. Returns the panel client already logged in with squid up.
 func launchInstance(t *testing.T, r *resources, fixturesDir, subnet, base string) instance {
 	t.Helper()
@@ -892,7 +893,7 @@ func launchInstance(t *testing.T, r *resources, fixturesDir, subnet, base string
 	volume := r.addVolume(name + "-data")
 	docker(t, "network", "create", "--subnet", subnet, network)
 	docker(t, "volume", "create", volume)
-	docker(t, append(append([]string{"run", "--rm", "--user", controlUser, "-v", volume + ":/var/lib/kraken"}, krakenSecOpts...), "--entrypoint", "/usr/local/bin/kraken", testImage(), "dev-cert")...)
+	docker(t, append(append([]string{"run", "--rm", "--user", controlUser, "-v", volume + ":/var/lib/kraken"}, krakenSecOpts...), "-e", "KRAKEN_CERT_NAMES=proxy", "--entrypoint", "/usr/local/bin/kraken", testImage(), "cert", "renew")...)
 	password := randPassword(24)
 	dockerIn(t, password+"\n", append(append([]string{"run", "--rm", "-i", "--user", controlUser, "-v", volume + ":/var/lib/kraken"}, krakenSecOpts...), "--entrypoint", "/usr/local/bin/kraken", testImage(), "bootstrap", "--password-stdin")...)
 	proxy := r.addContainer(name + "-proxy")
@@ -904,8 +905,8 @@ func launchInstance(t *testing.T, r *resources, fixturesDir, subnet, base string
 			"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key"}, krakenSecOpts...), testImage())
 	})
 	origin := "https://localhost:" + port
-	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", fixturesDir+"/panel.crt")
-	docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", fixturesDir+"/proxy.crt")
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/ca.crt", fixturesDir+"/panel.crt")
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/ca.crt", fixturesDir+"/proxy.crt")
 	panel := newPanel(origin, fixturesDir+"/panel.crt", password)
 	panel.login(t, password)
 	panel.waitUp(t, 60)
@@ -955,7 +956,7 @@ func launchOpsInstance(t *testing.T, r *resources, fixtures, subnet, base, image
 	volume := r.addVolume(name + "-v")
 	docker(t, "network", "create", "--subnet", subnet, network)
 	docker(t, "volume", "create", volume)
-	docker(t, append(append([]string{"run", "--rm", "--user", controlUser, "-v", volume + ":/var/lib/kraken"}, krakenSecOpts...), "--entrypoint", "/usr/local/bin/kraken", image, "dev-cert")...)
+	docker(t, append(append([]string{"run", "--rm", "--user", controlUser, "-v", volume + ":/var/lib/kraken"}, krakenSecOpts...), "-e", "KRAKEN_CERT_NAMES=proxy", "--entrypoint", "/usr/local/bin/kraken", image, "cert", "renew")...)
 	password := randPassword(24)
 	dockerIn(t, password+"\n", append(append([]string{"run", "--rm", "-i", "--user", controlUser, "-v", volume + ":/var/lib/kraken"}, krakenSecOpts...), "--entrypoint", "/usr/local/bin/kraken", image, "bootstrap", "--password-stdin")...)
 	proxy := r.addContainer(name + "-p")
@@ -967,9 +968,9 @@ func launchOpsInstance(t *testing.T, r *resources, fixtures, subnet, base, image
 			"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key"}, krakenSecOpts...), image)
 	})
 	origin := "https://localhost:" + port
-	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", fixtures+"/panel.crt")
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/ca.crt", fixtures+"/panel.crt")
 	if copyProxy {
-		docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", fixtures+"/proxy.crt")
+		docker(t, "cp", proxy+":/var/lib/kraken/certs/ca.crt", fixtures+"/proxy.crt")
 	}
 	panel := newPanel(origin, fixtures+"/panel.crt", password)
 	panel.login(t, password)

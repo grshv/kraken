@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"kraken.local/kraken/internal/policy"
@@ -91,5 +92,48 @@ func TestServiceUpdateParseFailurePreservesAppliedAndDraft(t *testing.T) {
 	saved, err := s.loadOperation(ctx, op.ID)
 	if err != nil || saved.Status != "rejected" {
 		t.Fatal(saved, err)
+	}
+}
+
+// Changing installation options (an existing install gets the issued proxy
+// certificate) must be detected and applied; an unchanged one needs nothing.
+func TestServiceUpdateNeededFollowsInstallationOptions(t *testing.T) {
+	s, _ := fixtureServer(t)
+	ctx := context.Background()
+	needed, err := ServiceUpdateNeeded(s.Runtime)
+	if err != nil || needed {
+		t.Fatalf("fresh install: needed=%v err=%v", needed, err)
+	}
+	s.Runtime.Options.ProxyCert, s.Runtime.Options.ProxyKey = "/c/proxy.crt", "/c/proxy.key"
+	needed, err = ServiceUpdateNeeded(s.Runtime)
+	if err != nil || !needed {
+		t.Fatalf("changed listen: needed=%v err=%v", needed, err)
+	}
+	op, err := ApplyServiceUpdate(ctx, s.Store, s.Runtime, s.Image)
+	if err != nil || op.Status != "succeeded" {
+		t.Fatal(op, err)
+	}
+	current, err := s.Runtime.ReadManifest()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(current.Config, "\nhttps_port 3129 tls-cert=/c/proxy.crt tls-key=/c/proxy.key\n") {
+		t.Fatal("proxy TLS listener not applied")
+	}
+	if needed, err = ServiceUpdateNeeded(s.Runtime); err != nil || needed {
+		t.Fatalf("after update: needed=%v err=%v", needed, err)
+	}
+	s.Runtime.Options.ProxyKey = ""
+	if _, err = ServiceUpdateNeeded(s.Runtime); err == nil {
+		t.Fatal("certificate without key accepted")
+	}
+}
+
+// An image upgrade (other compiler) stays a manual, visible service update.
+func TestServiceUpdateNeededLeavesCompilerUpgradeToOperator(t *testing.T) {
+	s, _ := oldServiceFixture(t)
+	s.Runtime.Options.ProxyCert, s.Runtime.Options.ProxyKey = "/c/proxy.crt", "/c/proxy.key"
+	if needed, err := ServiceUpdateNeeded(s.Runtime); err != nil || needed {
+		t.Fatalf("compiler upgrade auto-applied: needed=%v err=%v", needed, err)
 	}
 }

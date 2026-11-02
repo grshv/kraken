@@ -28,7 +28,7 @@ Kraken — web-панель управления исходящим доступ
 Оператор управляет экземпляром через CLI `kraken` внутри контейнера
 (`docker exec -it <контейнер> kraken …`): первый администратор, сброс пароля,
 пользователи (`user list|enable|disable|role`), отзыв сессий (`sessions revoke`),
-состояние (`status`), бэкап (`backup`), сертификат (`dev-cert`), проверка
+состояние (`status`), бэкап (`backup`), сертификаты (`cert ca|renew|install`), проверка
 (`check`, `service-update`). `serve` и `squid-start` запускаются под Pebble.
 `make` — только разработка: проверки, сборка образа, integration. Python в проекте не
 используется.

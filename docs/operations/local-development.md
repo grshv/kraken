@@ -7,7 +7,9 @@
 `make image`, затем `KRAKEN_IMAGE=kraken:dev docker compose -f deploy/compose.yaml up -d`
 (или `KRAKEN_IMAGE=kraken:dev` в `deploy/.env`: Compose читает `.env` рядом с
 `compose.yaml`, не из корня). Compose service: `kraken`.
-Панель публикуется на `127.0.0.1:8443`, HTTP proxy на `127.0.0.1:3128`.
+Панель публикуется на `127.0.0.1:8443`, HTTP proxy на `127.0.0.1:3128`, TLS proxy на
+`127.0.0.1:3129`. Сертификаты при первом старте выпускаются сами; CA для доверия —
+`docker exec kraken kraken cert ca > /tmp/kraken-ca.crt`.
 Изначально Squid закрыт для всех неизвестных клиентов; регистрация через браузер отсутствует.
 Первого администратора создаёт CLI внутри контейнера, пароль вводится без echo
 или передаётся по `--password-stdin`, никогда аргументом/env:
@@ -39,38 +41,30 @@ Compose named volume `/var/lib/kraken`: `data/` (управляющая SQLite �
 `control.sqlite3`), срок сырых событий — `KRAKEN_EVENTS_RETENTION_DAYS` (90),
 бюджет — `KRAKEN_EVENTS_BUDGET_MB` (5120).
 
-`kraken dev-cert` (внутри контейнера) не заменяет существующие ключи; создаёт
-development-сертификаты панели (`panel.*`, только для 10013) и прокси (`proxy.*`,
-SAN `proxy`, `localhost`, читает группа `proxy`). Для первого запуска без своих
-сертификатов выполните:
+При первом старте `serve` выпускает CA установки и сертификаты панели и прокси
+(SAN — `localhost`, origin, listen-адреса и `KRAKEN_CERT_NAMES`); раскладка и права — в
+[authentication-and-certificates](../security/authentication-and-certificates.md#серверные-сертификаты).
+CA для HTTP клиента:
 
 ```sh
-docker exec -it kraken kraken dev-cert
+docker exec kraken kraken cert ca > /tmp/kraken-ca.crt
+curl --cacert /tmp/kraken-ca.crt https://localhost:8443/
 ```
 
-Public certificate панели можно получить командой:
-
-```sh
-docker compose -f deploy/compose.yaml cp kraken:/var/lib/kraken/certs/panel.crt /tmp/kraken-panel.crt
-```
-
-Для HTTP клиента используйте `--cacert /tmp/kraken-panel.crt`; не отключайте
-проверку TLS. Системный trust store при установке проекта автоматически не меняется.
+Не отключайте проверку TLS. Системный trust store при установке проекта автоматически
+не меняется. Каталог хоста вместо тома: `KRAKEN_DATA=./data` в `deploy/.env`.
 
 ## Реальные сертификаты
 
-Для своего panel certificate добавьте Compose override с read-only mounts,
-`KRAKEN_PANEL_CERT`, `KRAKEN_PANEL_KEY` и соответствующим `KRAKEN_PUBLIC_ORIGIN`.
-Имя должно совпадать с SAN. UID 10013 должен читать key; не делайте ключ общедоступным.
-Для proxy TLS подготовлен [override](../../deploy/compose.tls.yaml): пути к файлам
-передаются `KRAKEN_PROXY_CERT_FILE`/`KRAKEN_PROXY_KEY_FILE`, server ref — `proxy-server`.
+Свой сертификат вместо выпущенного ставит CLI; имя должно совпадать с SAN, server ref
+прокси — `proxy-server`:
 
 ```sh
-KRAKEN_PROXY_CERT_FILE=/absolute/path/proxy.crt KRAKEN_PROXY_KEY_FILE=/absolute/path/proxy.key \
-  docker compose -f deploy/compose.yaml -f deploy/compose.tls.yaml config --quiet
+cat proxy.crt proxy.key | docker exec -i kraken kraken cert install proxy
+docker compose -f deploy/compose.yaml restart kraken
 ```
 
-Затем поднимите ту же конфигурацию с `up -d`. TLS listener — 3129. Клиент с TLS-профилем
+TLS listener — 3129. Клиент с TLS-профилем
 не получает доступ через HTTP listener. Серверный сертификат защищает
 подключение к прокси; HTTPS сайтов остаётся сквозным CONNECT.
 Ротация/смена установленных путей требует проверки и пересоздания контейнера;
@@ -154,8 +148,8 @@ Manager видит только свою область. CLI `kraken password-re
 работает с выбранным пользователем и отзывает его sessions; `kraken user list`,
 `user enable|disable`, `user role` и `sessions revoke` — те же операции, что в API.
 
-Для парольного клиента сначала установите server cert/key для proxy TLS через
-имеющийся compose.tls.yaml, затем создайте отдельный proxy login в панели и
+Для парольного клиента TLS listener прокси уже работает с выпущенным сертификатом
+(свой — `kraken cert install proxy`); создайте отдельный proxy login в панели и
 назначьте его клиенту. Auth-bound client требует TLS transport, а клиентское
 приложение должно проверять server certificate proxy. Пароль не входит в draft,
 preview/config или историю; в DB только PHC verifier. Смена/блокировка proxy login

@@ -18,6 +18,10 @@ Runtime module не является security boundary: он в том же exec
 | Direct egress обходит ACL | Firewall/SG вне контроля VM, IPv6/UDP учтены | Негативный клиентский тест |
 | Web exploit меняет proxy | Минимальные права, typed config, отсутствие shell API | Injection и permissions review; остаточный риск признаётся |
 | Захват host через Docker | Нет socket/API, privileged, host PID/network/mounts | Проверка итогового deployment |
+| Подготовка тома меняет чужие файлы | Root PID 1 с одним `CAP_CHOWN` трогает только каталог с раскладкой Kraken; посторонние имена верхнего уровня, symlink, hard link и special files — отказ без изменений; без `DAC_OVERRIDE`/`FOWNER` ([ADR 0021](../adr/0021-install-volume-and-certificates.md)) | `TestDeployFreshForeignVolume`, `TestDeployRefusesForeignDirectory` |
+| Подмена своего сертификата | `kraken cert install` только из stdin локального CLI: пара ключ–сертификат, срок, `serverAuth`, SAN; при ошибке файлы не меняются | Тесты `cert install` с негативными случаями; `TestOpsCertReplace` |
+| Ключ CA установки подписывает чужой сайт | Критичные name constraints только на имена установки, `pathlen 0`; ключ CA 0600 UID 10013 рядом с ключом панели, тех же прав | Тесты `tlscert`: поддельный leaf на чужое имя не проходит проверку |
+| HSTS блокирует соседние хосты | `max-age` без `includeSubDomains` и `preload` | Тест заголовков |
 | Config/command injection | Строгая модель, фиксированные argv, без shell | CRLF/metacharacters/traversal fixtures |
 | SSRF и DNS rebinding | Destination ACL, fixed probes, egress firewall | Metadata/private/rebinding deny |
 | XSS в логах | Экранирование, CSP, bounded parser | HTML как текст |

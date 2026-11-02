@@ -2,19 +2,11 @@ package main
 
 import (
 	"context"
-	"crypto/ecdsa"
-	"crypto/elliptic"
-	"crypto/rand"
 	"crypto/tls"
-	"crypto/x509"
-	"crypto/x509/pkix"
-	"encoding/pem"
 	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
-	"math/big"
-	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -31,6 +23,7 @@ import (
 	local "kraken.local/kraken/internal/runtime"
 	"kraken.local/kraken/internal/store"
 	"kraken.local/kraken/internal/telemetry"
+	"kraken.local/kraken/internal/tlscert"
 	"kraken.local/kraken/web"
 
 	"golang.org/x/term"
@@ -68,7 +61,9 @@ func writeProxyAccounts(st *store.Store, m *local.Manager) error {
 }
 
 func manager() *local.Manager {
-	m := local.New(runDir(), env("KRAKEN_SQUID_BINARY", "/usr/sbin/squid"), env("KRAKEN_ACCESS_LOG", filepath.Join(stateDir(), "log", "access.log")), os.Getenv("KRAKEN_PROXY_CERT"), os.Getenv("KRAKEN_PROXY_KEY"), baseImage)
+	// The proxy TLS listener uses the issued certificate unless external
+	// files are configured.
+	m := local.New(runDir(), env("KRAKEN_SQUID_BINARY", "/usr/sbin/squid"), env("KRAKEN_ACCESS_LOG", filepath.Join(stateDir(), "log", "access.log")), env("KRAKEN_PROXY_CERT", filepath.Join(certDir(), tlscert.ProxyCert)), env("KRAKEN_PROXY_KEY", filepath.Join(certDir(), tlscert.ProxyKey)), baseImage)
 	return m
 }
 func main() {
@@ -85,6 +80,9 @@ func run() error {
 		return nil
 	}
 	cmd := os.Args[1]
+	if cmd == "entrypoint" {
+		return runEntrypoint(os.Args[2:])
+	}
 	// Every CLI subcommand except squid-start and proxy-auth drops root to the
 	// kraken user (UID/GID 10013, no supplementary groups) before opening any
 	// file. docker exec runs as root by default; the panel and Squid keep their
@@ -166,8 +164,8 @@ func run() error {
 		ctx, c := context.WithTimeout(ctx, 2*time.Second)
 		defer c()
 		return m.Verify(ctx, v.Hash)
-	case "dev-cert":
-		return devCert()
+	case "cert":
+		return runCert(os.Args[2:])
 	case "bootstrap", "password-reset":
 		f := flag.NewFlagSet(cmd, flag.ContinueOnError)
 		username := f.String("username", "admin", "administrator username")
@@ -203,6 +201,9 @@ func run() error {
 		// manager-auth include, the proxy-accounts export, apply.lock) never
 		// persist and are regenerated from the control database on every start.
 		if e := local.PrepareRunDir(runDir()); e != nil {
+			return e
+		}
+		if e := ensureCertificates(); e != nil {
 			return e
 		}
 		if e := os.MkdirAll(filepath.Dir(m.Options.LogPath), 0750); e != nil {
@@ -254,6 +255,7 @@ func run() error {
 			}
 			time.Sleep(500 * time.Millisecond)
 		}
+		autoServiceUpdate(ctx, st, m)
 		telDir := env("KRAKEN_TELEMETRY_DIR", filepath.Join(filepath.Dir(env("KRAKEN_DATABASE_PATH", defaultDBPath())), "telemetry"))
 		retentionDays, _ := strconv.Atoi(env("KRAKEN_EVENTS_RETENTION_DAYS", "90"))
 		budgetMB, _ := strconv.Atoi(env("KRAKEN_EVENTS_BUDGET_MB", "5120"))
@@ -271,7 +273,9 @@ func run() error {
 		if e != nil {
 			return e
 		}
-		s.PanelCert = env("KRAKEN_PANEL_CERT", filepath.Join(stateDir(), "certs", "panel.crt"))
+		panelCert := env("KRAKEN_PANEL_CERT", filepath.Join(certDir(), tlscert.PanelCert))
+		panelKey := env("KRAKEN_PANEL_KEY", filepath.Join(certDir(), tlscert.PanelKey))
+		s.PanelCert = panelCert
 		s.StyleHashes = web.StyleHashes()
 		// RotateGate prevents log rotation while the collector is behind: a
 		// rotate during backlog loses still-unread records. Rotation proceeds
@@ -370,7 +374,7 @@ func run() error {
 			}
 		}()
 		slog.Info("HTTPS panel listening", "address", server.Addr)
-		e = server.ListenAndServeTLS(env("KRAKEN_PANEL_CERT", filepath.Join(stateDir(), "certs", "panel.crt")), env("KRAKEN_PANEL_KEY", filepath.Join(stateDir(), "certs", "panel.key")))
+		e = server.ListenAndServeTLS(panelCert, panelKey)
 		s.Wait()
 		if errors.Is(e, http.ErrServerClosed) {
 			return nil
@@ -387,77 +391,6 @@ func run() error {
 	default:
 		return fmt.Errorf("unknown command: %s; run 'kraken help'", cmd)
 	}
-}
-func devCert() error {
-	dir := env("KRAKEN_CERT_DIR", filepath.Join(stateDir(), "certs"))
-	if e := os.MkdirAll(dir, 0750); e != nil {
-		return e
-	}
-	for _, n := range []string{"panel.crt", "panel.key", "proxy.crt", "proxy.key"} {
-		if _, e := os.Stat(filepath.Join(dir, n)); !errors.Is(e, os.ErrNotExist) {
-			return errors.New("certificate files already exist")
-		}
-	}
-	key, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if e != nil {
-		return e
-	}
-	serial, e := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if e != nil {
-		return e
-	}
-	template := x509.Certificate{SerialNumber: serial, Subject: pkix.Name{CommonName: "Kraken local development"}, DNSNames: []string{"localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1"), net.ParseIP("::1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
-	cert, e := x509.CreateCertificate(rand.Reader, &template, &template, &key.PublicKey, key)
-	if e != nil {
-		return e
-	}
-	der, e := x509.MarshalPKCS8PrivateKey(key)
-	if e != nil {
-		return e
-	}
-	if e = local.Atomic(filepath.Join(dir, "panel.key"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der})); e != nil {
-		return e
-	}
-	if e = local.Atomic(filepath.Join(dir, "panel.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: cert})); e != nil {
-		return e
-	}
-	// Separate self-signed proxy certificate: SAN covers the in-network alias
-	// "proxy" plus localhost so panel-driven HTTPS-CONNECT tests can pin it.
-	proxyKey, e := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-	if e != nil {
-		return e
-	}
-	proxySerial, e := rand.Int(rand.Reader, new(big.Int).Lsh(big.NewInt(1), 128))
-	if e != nil {
-		return e
-	}
-	proxyTemplate := x509.Certificate{SerialNumber: proxySerial, Subject: pkix.Name{CommonName: "Kraken proxy"}, DNSNames: []string{"proxy", "localhost"}, IPAddresses: []net.IP{net.ParseIP("127.0.0.1")}, NotBefore: time.Now().Add(-time.Minute), NotAfter: time.Now().Add(30 * 24 * time.Hour), KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}}
-	proxyCert, e := x509.CreateCertificate(rand.Reader, &proxyTemplate, &proxyTemplate, &proxyKey.PublicKey, proxyKey)
-	if e != nil {
-		return e
-	}
-	proxyDER, e := x509.MarshalPKCS8PrivateKey(proxyKey)
-	if e != nil {
-		return e
-	}
-	// proxy.* is group_readable (0640, group proxy) so Squid can read it; the
-	// setgid runtime/certs directories already inherit group=proxy, the
-	// explicit chown keeps correctness if that inheritance is unavailable.
-	if e = local.AtomicMode(filepath.Join(dir, "proxy.key"), pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: proxyDER}), 0640); e != nil {
-		return e
-	}
-	if e = local.AtomicMode(filepath.Join(dir, "proxy.crt"), pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: proxyCert}), 0640); e != nil {
-		return e
-	}
-	for _, n := range []string{"proxy.key", "proxy.crt"} {
-		p := filepath.Join(dir, n)
-		if e = os.Chmod(p, 0640); e != nil {
-			return e
-		}
-		_ = os.Chown(p, -1, 13)
-	}
-	fmt.Println("Created self-signed localhost certificate (development only)")
-	return nil
 }
 
 // errQuiet is returned after a command has already printed a Russian message
@@ -490,7 +423,7 @@ const (
 // doing any work. squid-start and proxy-auth keep their dedicated credentials.
 func requiresPrivilegeDrop(cmd string) bool {
 	switch cmd {
-	case "squid-start", "proxy-auth":
+	case "squid-start", "proxy-auth", "entrypoint":
 		return false
 	}
 	return true
@@ -524,7 +457,9 @@ func printHelp() {
   sessions         Отзыв сессий: revoke [--user <имя>]
   status           Ревизия, Squid, пользователи, место на /var/lib/kraken
   backup           Онлайн-копия данных в tar
-  dev-cert         Самоподписанные dev-сертификаты (только разработка)
+  cert ca          Вывести сертификат локального CA для импорта в доверенные
+  cert renew       Перевыпустить сертификаты панели и прокси под текущие имена
+  cert install     Установить свой сертификат: cert install panel|proxy < cert-and-key.pem
   check            Проверка образа и работающего Squid
   service-update   Служебное обновление squid.conf из LKG
   squid-start      Запуск Squid (под пользователем proxy)

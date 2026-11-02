@@ -94,12 +94,12 @@ func TestBaseImage(t *testing.T) {
 		}
 	})
 
-	t.Run("capabilities limited to SETUID SETGID KILL", func(t *testing.T) {
+	t.Run("capabilities limited to CHOWN SETUID SETGID KILL", func(t *testing.T) {
 		st, e := dockerExec(inst.proxy, "cat", "/proc/1/status")
 		if e != nil {
 			t.Fatal(e)
 		}
-		const allowed = uint64(1<<5 | 1<<6 | 1<<7) // KILL, SETGID, SETUID
+		const allowed = uint64(1<<0 | 1<<5 | 1<<6 | 1<<7) // CHOWN, KILL, SETGID, SETUID
 		if b := capMask(t, st, "CapBnd"); b&^allowed != 0 {
 			t.Errorf("bounding set %x exceeds %x", b, allowed)
 		}

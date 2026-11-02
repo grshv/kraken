@@ -14,118 +14,157 @@
 
 <p align="center">
   <a href="https://github.com/grshv/kraken/actions/workflows/image.yml"><img src="https://github.com/grshv/kraken/actions/workflows/image.yml/badge.svg" alt="Image"></a>
-  <a href="https://github.com/grshv/kraken/actions/workflows/squid.yml"><img src="https://github.com/grshv/kraken/actions/workflows/squid.yml/badge.svg" alt="Squid image"></a>
   <a href="https://github.com/grshv/kraken/actions/workflows/security.yml"><img src="https://github.com/grshv/kraken/actions/workflows/security.yml/badge.svg" alt="Security"></a>
-  <a href="https://github.com/grshv/kraken/actions/workflows/codeql.yml"><img src="https://github.com/grshv/kraken/actions/workflows/codeql.yml/badge.svg" alt="CodeQL"></a>
   <a href="https://github.com/grshv/kraken/pkgs/container/kraken"><img src="https://img.shields.io/badge/ghcr.io-grshv%2Fkraken-2b3137?logo=docker&logoColor=white" alt="ghcr.io/grshv/kraken"></a>
 </p>
 
 <p align="center">
   <a href="#быстрый-старт">Быстрый старт</a> ·
-  <a href="docs/README.md">Документация</a> ·
-  <a href="docs/status.md">Статус</a> ·
-  <a href="docs/operations/runbooks.md">Runbooks</a>
+  <a href="#настройка">Настройка</a> ·
+  <a href="#обслуживание">Обслуживание</a> ·
+  <a href="docs/README.md">Документация</a>
 </p>
 
 <p align="center">
   <img src="docs/images/clients.png" alt="Обзор клиента: доступ, политики и журнал запросов" width="900">
 </p>
 
-Клиент — устройство, адрес, сеть или группа; каждому открывается весь веб, только
-разрешённые домены или ничего. Журнал показывает, кто куда ходил, почему получил отказ
-и что поправить.
+Клиент — устройство, адрес, сеть или группа. Каждому открыт весь веб, только
+разрешённые домены или ничего, а журнал показывает, кто куда ходил и почему получил
+отказ.
 
-- **Доступ закрыт по умолчанию.** Внутренние адреса, metadata, manager Squid и опасные
-  порты запрещены всегда, даже в режиме «весь веб».
-- **Черновик отдельно от трафика.** Правки копятся в черновике; применение — отдельная
-  операция с проверкой squid.conf, журналом и автоматическим откатом.
-- **Диагностика отказов.** Журнал запросов и доменов за период до 30 дней, причина
-  каждого отказа и действие «разрешить» прямо из журнала.
-- **Роли.** Администратор и менеджер с областью назначенных клиентов и сетей; логины
-  прокси через TLS.
-- **HTTPS без расшифровки.** Сайты идут сквозным CONNECT с исходным сертификатом.
+## Возможности
 
-Один контейнер: Alpine, Squid из upstream-релиза, Pebble и Go-бинарник со встроенным
-React UI. Без Docker socket, privileged mode и shell API. Личный проект; что
-реализовано и проверено — в [статусе](docs/status.md).
+- 🔒 **Закрыто по умолчанию.** Внутренние адреса и опасные порты запрещены всегда,
+  даже в режиме «весь веб».
+- 📝 **Черновик отдельно от трафика.** Правки копятся и применяются одной операцией
+  с проверкой и автоматическим откатом.
+- 🔎 **Понятные отказы.** Журнал за 30 дней, причина каждого отказа и кнопка
+  «разрешить» прямо из записи.
+- 👥 **Роли.** Администратор и менеджер, которому видны только его клиенты.
+- 🔑 **Логины прокси.** Пароль передаётся только по TLS.
+- 🌐 **HTTPS без расшифровки.** Сайты открываются со своими сертификатами.
 
 ## Быстрый старт
 
-Нужны Docker Engine с Compose и свободные `localhost:8443` и `localhost:3128`.
-Клонировать репозиторий не нужно: Compose берёт готовый образ
-`ghcr.io/grshv/kraken` (amd64 и arm64) из GHCR.
+Нужен Docker с Compose.
 
 ```sh
-mkdir kraken && cd kraken
 curl -fsSLO https://raw.githubusercontent.com/grshv/kraken/main/deploy/compose.yaml
 docker compose up -d
-docker exec -it kraken kraken dev-cert                        # самоподписанный сертификат
-docker exec -it kraken kraken bootstrap --username admin      # первый администратор
+docker exec -it kraken kraken bootstrap --username admin
 ```
 
-Панель — [https://localhost:8443](https://localhost:8443), прокси — `localhost:3128`.
-Пароль вводится без эха и передаётся через stdin; пароля по умолчанию нет, в БД хранится
-только Argon2id. Порты публикуются на loopback; для клиентов из сети положите рядом с
-`compose.yaml` файл `.env` (см. [.env.example](.env.example)) и закройте лишнее firewall.
-TLS к прокси с логинами — [`deploy/compose.tls.yaml`](deploy/compose.tls.yaml) и
-[локальная установка](docs/operations/local-development.md).
+Последняя команда создаёт администратора и спрашивает пароль. Готово:
+
+| | Адрес |
+| --- | --- |
+| Панель | <https://localhost:8443> |
+| Прокси | `localhost:3128`, с логином — `localhost:3129` (TLS) |
+
+Kraken сам выпускает сертификат для панели и прокси. Чтобы браузер ему доверял,
+импортируйте сертификат центра (CA) установки:
 
 ```sh
-docker compose logs -f
-docker compose pull && docker compose up -d   # обновление образа
-docker compose down                           # том с данными сохраняется
+docker exec kraken kraken cert ca > kraken-ca.crt
 ```
 
-`main` — последний проверенный коммит; для фиксированной версии задайте в `.env`
-`KRAKEN_IMAGE=ghcr.io/grshv/kraken:sha-<коммит>` (после первого релиза — `X.Y.Z`).
-Образ публикуется только после тестов и подписан attestation GitHub; происхождение
-проверяет `gh attestation verify oci://ghcr.io/grshv/kraken:main --repo grshv/kraken`.
-Обновление разрывает открытые соединения прокси — порядок в [runbooks](docs/operations/runbooks.md).
+<details>
+<summary>Как импортировать на macOS, Linux и Windows</summary>
+
+- **macOS:** `sudo security add-trusted-cert -d -r trustRoot -k /Library/Keychains/System.keychain kraken-ca.crt`
+- **Debian/Ubuntu:** `sudo cp kraken-ca.crt /usr/local/share/ca-certificates/ && sudo update-ca-certificates`
+- **Windows:** `certutil -addstore -f Root kraken-ca.crt` (от администратора)
+
+Firefox использует своё хранилище: «Настройки → Приватность → Сертификаты → Импорт».
+CA подписывает только имена этой установки и не может выдать сертификат чужому сайту.
+
+</details>
+
+## Настройка
+
+По умолчанию всё доступно только с этой машины. Чтобы открыть панель и прокси для
+сети, положите рядом с `compose.yaml` файл `.env` ([пример](.env.example)):
+
+```ini
+KRAKEN_PUBLIC_ORIGIN=https://10.0.0.5:8443
+KRAKEN_MANAGEMENT_BIND=10.0.0.5
+KRAKEN_PROXY_BIND=10.0.0.5
+```
+
+и выполните `docker compose up -d`. Лишние порты закройте firewall.
+
+| Переменная | Что задаёт |
+| --- | --- |
+| `KRAKEN_PUBLIC_ORIGIN` | Адрес, по которому открывают панель |
+| `KRAKEN_MANAGEMENT_BIND` | IP хоста для панели |
+| `KRAKEN_PROXY_BIND` | IP хоста для прокси |
+| `KRAKEN_CERT_NAMES` | Дополнительные имена в сертификате, например DNS-имя прокси |
+| `KRAKEN_DATA` | Каталог для данных вместо тома Docker, например `./data` |
+
+<details>
+<summary>Несколько адресов в разных сетях</summary>
+
+Добавьте `compose.override.yaml` рядом с `compose.yaml`. Compose подхватит его сам:
+
+```yaml
+services:
+  kraken:
+    ports:
+      - "192.168.10.5:8443:8443"   # панель во второй сети
+      - "10.30.0.5:3128:3128"      # прокси во второй сети
+      - "10.30.0.5:3129:3129"
+    environment:
+      KRAKEN_CERT_NAMES: 192.168.10.5,10.30.0.5
+```
+
+Затем перевыпустите сертификат под новые адреса:
+
+```sh
+docker exec kraken kraken cert renew && docker compose restart kraken
+```
+
+</details>
+
+<details>
+<summary>Свой сертификат вместо выпущенного</summary>
+
+```sh
+cat panel.crt panel.key | docker exec -i kraken kraken cert install panel
+cat proxy.crt proxy.key | docker exec -i kraken kraken cert install proxy
+docker compose restart kraken
+```
+
+Команда проверяет, что ключ подходит к сертификату и срок действия не истёк.
+
+</details>
 
 ## Обслуживание
 
-Оператор управляет экземпляром через CLI внутри контейнера: `docker exec -it kraken kraken <команда>`.
+```sh
+docker compose pull && docker compose up -d   # обновление
+docker compose logs -f                        # логи
+```
+
+Остальное — командой `docker exec -it kraken kraken <команда>`:
 
 | Команда | Что делает |
 | --- | --- |
-| `bootstrap`, `password-reset` | Первый администратор; смена пароля с отзывом сессий (работает и при остановленной панели) |
-| `user list\|enable\|disable\|role`, `sessions revoke` | Пользователи панели и их сессии |
-| `status`, `check` | Ревизия, Squid, место на томе; проверка образа и работающего Squid |
-| `backup` | Онлайн-копия БД, конфигурации и сертификатов в tar |
-| `service-update`, `dev-cert` | Служебное обновление squid.conf из последней рабочей ревизии; dev-сертификат |
+| `bootstrap`, `password-reset` | Первый администратор, смена пароля |
+| `user`, `sessions` | Пользователи панели и их сессии |
+| `status`, `check` | Состояние и проверка Squid |
+| `backup` | Копия данных и сертификатов |
+| `cert ca`, `cert renew`, `cert install` | Сертификаты |
 
-Аварии, восстановление из копии и обновление образа — в [runbooks](docs/operations/runbooks.md).
-
-## Разработка
-
-| Каталог | Содержимое |
-| --- | --- |
-| `src/cmd`, `src/internal` | Go: HTTP API, runtime Squid, политика, хранилище, телеметрия |
-| `src/web` | React/TypeScript UI на shadcn/ui, встраивается в бинарник |
-| `src/prototype` | React-мок согласованного интерфейса и его сборка в автономный HTML |
-| `src/migrations`, `src/tests`, `src/tools` | Миграции SQLite, integration-тесты на реальном Squid, docs-check и SBOM |
-| `api` | OpenAPI и контракт runtime |
-| `deploy` | Dockerfile панели, `deploy/squid` (образ Squid), Compose, слой Pebble, правила grype |
-| `docs` | Требования, архитектура, ADR, эксплуатация, статус |
-| `examples` | Пример снимка конфигурации и настройки клиентов |
-
-```sh
-make check         # docs-check, сборка и тесты web, go test -race, vet, gofmt, diff-check
-make image         # контейнер kraken:dev (Squid — образ ghcr.io/grshv/kraken-squid по digest);
-                   # запуск: KRAKEN_IMAGE=kraken:dev docker compose -f deploy/compose.yaml up -d
-make squid-image   # Squid из подписанного релиза локально; затем make image SQUID_IMAGE=kraken-squid:local
-make integration   # Go-тесты на реальном Squid в одноразовых контейнерах (нужен image)
-make scan          # govulncheck, SBOM образа + web + Squid под grype, gitleaks (нужен image)
-```
-
-Go-модуль — `src/` (Go 1.27), npm — `src/web`; версии зафиксированы в `go.mod` и
-lockfile, базовые образы и actions — по digest и SHA; обновления предлагает Renovate.
-CI разделён по частям и запускается только при их изменении ([testing](docs/development/testing.md)). Правила изменений, инварианты и какой документ обновлять вместе с кодом —
-в [AGENTS.md](AGENTS.md).
+Обновление на время разрывает открытые соединения прокси. Восстановление из копии и
+аварии описаны в [runbooks](docs/operations/runbooks.md).
 
 ## Документация
 
-- [Статус](docs/status.md) — что реализовано, проверено и осталось.
-- [Карта документов](docs/README.md) — требования, интерфейс, архитектура, ADR, эксплуатация.
-- [Модель угроз](docs/security/threat-model.md) и [вход, пароли, сертификаты](docs/security/authentication-and-certificates.md).
-- [OpenAPI](api/openapi.json) и [контракт runtime](api/runtime-contract.md).
+- [Установка и сеть](docs/operations/deployment.md)
+- [Сертификаты и пароли](docs/security/authentication-and-certificates.md)
+- [Модель угроз](docs/security/threat-model.md)
+- [Что сделано и что осталось](docs/status.md)
+- [Разработка](CONTRIBUTING.md)
+
+Личный проект, лицензия не выбрана.

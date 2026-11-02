@@ -14,6 +14,26 @@ import (
 	"kraken.local/kraken/internal/store"
 )
 
+// ServiceUpdateNeeded reports whether the applied snapshot renders to a
+// different squid.conf with the current installation options, for example
+// after KRAKEN_PROXY_LISTEN or the proxy certificate changed. A bundle from
+// another compiler version (image upgrade) is not reported: that update stays
+// an explicit operator step (runtime_update_available, kraken service-update).
+func ServiceUpdateNeeded(rt *local.Manager) (bool, error) {
+	manifest, err := rt.ReadManifest()
+	if err != nil {
+		return false, err
+	}
+	if manifest.Compiler != policy.CompilerVersion {
+		return false, nil
+	}
+	config, err := policy.Render(manifest.Snapshot, rt.Options)
+	if err != nil {
+		return false, err
+	}
+	return config != manifest.Config, nil
+}
+
 // ApplyServiceUpdate is a local CLI operation. Its only policy source is the
 // currently confirmed runtime manifest; it never reads or changes the draft.
 // Runtime.Apply owns the cross-process lock, expected revision check, complete

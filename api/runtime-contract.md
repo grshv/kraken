@@ -45,7 +45,8 @@ Squid не образуют общую транзакцию, расхожден�
 
 Межпроцессный flock `apply.lock` в tmpfs сериализует применение в `serve` и в CLI
 (`kraken service-update`). `serve` при старте восстанавливает journal и пишет конфиг
-Squid из LKG; `squid-start` ждёт готовых файлов в tmpfs. Gate не требует доступной
+Squid из LKG; `squid-start` ждёт готовых файлов в tmpfs. После online recovery `serve` применяет
+service-update, если настройки установки меняют рендер applied snapshot того же compiler. Gate не требует доступной
 web-сессии или HTTP сервера. При незавершённой операции восстанавливается LKG;
 если recovery нельзя доказать, неизвестный candidate не запускается.
 После restart web worker согласует DB с journal до новых mutations.

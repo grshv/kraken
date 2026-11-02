@@ -222,3 +222,10 @@ LKG snapshot и operation/audit (`local-cli`, `service_update`). Команда 
 и не меняет draft, использует обычный Runtime.Apply с expected revision, file lock,
 parse, durable journal, verify и rollback. Ошибка busy/recovery/conflict видна CLI;
 повторное применение уже актуального service config отклоняется как no-op.
+
+Тот же service-update `serve` выполняет сам при старте, если applied snapshot тем же
+compiler рендерится иначе с текущими настройками установки (пути сертификата
+прокси: так существующая установка получает TLS-listener). Bundle другого compiler (обновление образа) остаётся
+явным шагом оператора через `runtime_update_available`. Ошибка автоматического
+применения не останавливает панель: остаётся прежний конфиг, причина в логе и
+в сохранённой operation.

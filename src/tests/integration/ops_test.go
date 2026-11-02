@@ -62,7 +62,7 @@ func TestOpsBackupRestore(t *testing.T) {
 	volb := r.addVolume(randName("sc-ops") + "-v1b")
 	docker(t, "network", "create", "--subnet", opsSubnets[idx], net)
 	docker(t, "volume", "create", vol)
-	docker(t, append(append([]string{"run", "--rm", "--user", controlUser, "-v", vol + ":/var/lib/kraken"}, krakenSecOpts...), "--entrypoint", "/usr/local/bin/kraken", testImage(), "dev-cert")...)
+	docker(t, append(append([]string{"run", "--rm", "--user", controlUser, "-v", vol + ":/var/lib/kraken"}, krakenSecOpts...), "-e", "KRAKEN_CERT_NAMES=proxy", "--entrypoint", "/usr/local/bin/kraken", testImage(), "cert", "renew")...)
 	password := randPassword(24)
 	dockerIn(t, password+"\n", append(append([]string{"run", "--rm", "-i", "--user", controlUser, "-v", vol + ":/var/lib/kraken"}, krakenSecOpts...), "--entrypoint", "/usr/local/bin/kraken", testImage(), "bootstrap", "--password-stdin")...)
 	proxy := r.addContainer(randName("sc-ops") + "-p1")
@@ -75,8 +75,8 @@ func TestOpsBackupRestore(t *testing.T) {
 			"-e", "KRAKEN_PROXY_CERT=/var/lib/kraken/certs/proxy.crt", "-e", "KRAKEN_PROXY_KEY=/var/lib/kraken/certs/proxy.key"}, krakenSecOpts...), testImage())
 	})
 	origin := "https://localhost:" + port
-	docker(t, "cp", proxy+":/var/lib/kraken/certs/panel.crt", filepath.Join(s1, "panel.crt"))
-	docker(t, "cp", proxy+":/var/lib/kraken/certs/proxy.crt", filepath.Join(s1, "proxy.crt"))
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/ca.crt", filepath.Join(s1, "panel.crt"))
+	docker(t, "cp", proxy+":/var/lib/kraken/certs/ca.crt", filepath.Join(s1, "proxy.crt"))
 	genOriginCert(t, s1)
 	originC, client := startOriginClient(t, &r, net, s1, randName("sc-ops-s1"), base)
 
@@ -210,8 +210,8 @@ func TestOpsCertReplace(t *testing.T) {
 	r.track(t)
 	const idx = 1
 	inst := launchOpsInstance(t, &r, s2, opsSubnets[idx], opsBases[idx], testImage(), false)
-	docker(t, "cp", inst.proxy+":/var/lib/kraken/certs/panel.crt", filepath.Join(s2, "old-panel.crt"))
-	docker(t, "cp", inst.proxy+":/var/lib/kraken/certs/proxy.crt", filepath.Join(s2, "old-proxy.crt"))
+	docker(t, "cp", inst.proxy+":/var/lib/kraken/certs/ca.crt", filepath.Join(s2, "old-panel.crt"))
+	docker(t, "cp", inst.proxy+":/var/lib/kraken/certs/ca.crt", filepath.Join(s2, "old-proxy.crt"))
 	genOpsCerts(t, s2)
 	client := r.addContainer(randName("sc-ops") + "-c2")
 	base := opsBases[idx]
@@ -227,14 +227,17 @@ func TestOpsCertReplace(t *testing.T) {
 		}
 	})
 
-	// Runbook cert replacement: stop, swap files preserving rights, start.
-	docker(t, "stop", "-t", "30", inst.proxy)
-	docker(t, "run", "--rm", "-v", inst.volume+":/var/lib/kraken", "-v", s2+":/new:ro", "--entrypoint", "sh", testImage(), "-c",
-		"cp /new/new-panel.key /var/lib/kraken/certs/panel.key && chown 10013:10013 /var/lib/kraken/certs/panel.key && chmod 600 /var/lib/kraken/certs/panel.key && "+
-			"cp /new/new-panel.crt /var/lib/kraken/certs/panel.crt && chown 10013:10013 /var/lib/kraken/certs/panel.crt && chmod 600 /var/lib/kraken/certs/panel.crt && "+
-			"cp /new/new-proxy.key /var/lib/kraken/certs/proxy.key && chown 10013:13 /var/lib/kraken/certs/proxy.key && chmod 640 /var/lib/kraken/certs/proxy.key && "+
-			"cp /new/new-proxy.crt /var/lib/kraken/certs/proxy.crt && chown 10013:13 /var/lib/kraken/certs/proxy.crt && chmod 640 /var/lib/kraken/certs/proxy.crt")
-	docker(t, "start", inst.proxy)
+	// Runbook cert replacement: kraken cert install reads certificate and key
+	// from stdin and sets owners and modes; a restart loads them.
+	for _, purpose := range []string{"panel", "proxy"} {
+		crt, e1 := os.ReadFile(filepath.Join(s2, "new-"+purpose+".crt"))
+		key, e2 := os.ReadFile(filepath.Join(s2, "new-"+purpose+".key"))
+		if e1 != nil || e2 != nil {
+			t.Fatal(e1, e2)
+		}
+		dockerIn(t, string(crt)+string(key), "exec", "-i", inst.proxy, "kraken", "cert", "install", purpose)
+	}
+	docker(t, "restart", "-t", "30", inst.proxy)
 	panelN := newPanel(inst.panel.origin, filepath.Join(s2, "new-ca.crt"), inst.password)
 	waitFor(t, 90, func() error {
 		if err := panelN.refreshCSRF(); err != nil {
@@ -392,7 +395,7 @@ func TestOpsDiskFull(t *testing.T) {
 		"setpriv --reuid=kraken --regid=proxy --init-groups -- install -d -m 2750 /var/lib/kraken/certs && " +
 		"setpriv --reuid=proxy --regid=proxy --init-groups -- install -d -m 2750 /var/lib/kraken/log && " +
 		"setpriv --reuid=kraken --regid=proxy --init-groups -- chmod 0750 /var/lib/kraken && " +
-		"setpriv --reuid=kraken --regid=kraken --init-groups -- /usr/local/bin/kraken dev-cert && " +
+		"setpriv --reuid=kraken --regid=kraken --init-groups -- env KRAKEN_CERT_NAMES=proxy /usr/local/bin/kraken cert renew && " +
 		"exec sleep infinity"
 	port := runPortMapped(t, func(p string) []string {
 		return append(append([]string{"run", "-d", "--name", proxy, "--network", net, "--network-alias", "proxy", "--ip", base + ".2",
@@ -414,7 +417,7 @@ func TestOpsDiskFull(t *testing.T) {
 	// Start pebble detached inside the running container so the tmpfs survives.
 	docker(t, "exec", "-d", proxy, "sh", "-c", "pebble run --verbose >/tmp/pebble.log 2>&1")
 	// docker cp cannot read from a tmpfs mount on this runtime; extract PEM.
-	panelCRT := docker(t, "exec", "--user", controlUser, proxy, "cat", "/var/lib/kraken/certs/panel.crt")
+	panelCRT := docker(t, "exec", "--user", controlUser, proxy, "cat", "/var/lib/kraken/certs/ca.crt")
 	writeFile(filepath.Join(s4, "panel.crt"), []byte(panelCRT+"\n"))
 	genOriginCert(t, s4)
 	_, client := startOriginClient(t, &r, net, s4, randName("sc-ops-s4"), base)
