@@ -1,0 +1,11 @@
+.git
+src/web/node_modules
+src/web/dist
+.env
+.env.*
+secrets
+*.key
+*.pem
+data
+bin
+dist

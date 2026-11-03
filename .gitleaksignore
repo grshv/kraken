@@ -1,0 +1,2 @@
+# False positives of make scan-secrets (gitleaks), by fingerprint
+# <commit>:<file>:<rule>:<line>. None at the moment.

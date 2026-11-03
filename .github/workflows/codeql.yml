@@ -1,0 +1,70 @@
+name: CodeQL
+# GitHub code scanning for Go and TypeScript. Free for public repositories;
+# skipped while the repository is private (it needs GitHub Code Security).
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "src/**"
+      - ".github/workflows/codeql.yml"
+  pull_request:
+    paths: *paths
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: codeql-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    if: ${{ !github.event.repository.private }}
+    name: analyze-${{ matrix.language }}
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - language: go
+            build-mode: manual
+          - language: javascript-typescript
+            build-mode: none
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - if: matrix.language == 'go'
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "26"
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+      - if: matrix.language == 'go'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - uses: github/codeql-action/init@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: ${{ matrix.build-mode }}
+          # Test assertions on fixture data are not product code; queries such
+          # as URL sanitization misread them. Go tests are not built anyway.
+          config: |
+            paths-ignore:
+              - "**/*.test.ts"
+              - "**/*.test.tsx"
+      - if: matrix.language == 'go'
+        name: Build (the binary embeds the web bundle)
+        run: |
+          npm --prefix src/web ci --no-audit --no-fund
+          npm --prefix src/web run build
+          cd src && go build ./...
+      - uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          category: /language:${{ matrix.language }}

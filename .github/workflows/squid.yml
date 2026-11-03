@@ -1,0 +1,104 @@
+name: Squid image
+# deploy/squid builds Squid from the signed upstream release (ADR 0012) into
+# ghcr.io/<owner>/kraken-squid:<version>, natively on amd64 and arm64. It runs
+# only when deploy/squid changes; the panel image pins the result by digest.
+# Before anything is published the new Squid is built into the panel image
+# and passes the integration tests, so the digest update that follows (a
+# Renovate PR) carries an already tested combination.
+on:
+  push:
+    branches: [main]
+    paths: &paths
+      - "deploy/squid/**"
+      - ".github/workflows/squid.yml"
+  pull_request:
+    paths: *paths
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: squid-${{ github.ref }}
+  cancel-in-progress: true
+env:
+  SQUID_REPO: ghcr.io/${{ github.repository }}-squid
+  PUBLISH: ${{ github.event_name != 'pull_request' && github.ref == 'refs/heads/main' }}
+jobs:
+  build:
+    name: build-${{ matrix.arch }}
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-26.04
+          - arch: arm64
+            runner: ubuntu-26.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build Squid
+        run: |
+          docker buildx build --progress=plain --load -t kraken-squid:local \
+            --label org.opencontainers.image.revision=${{ github.sha }} deploy/squid
+      - name: Panel image with this Squid
+        run: make image SQUID_IMAGE=kraken-squid:local
+      - name: Integration tests on real Squid
+        # The panel carries the Squid just built, not the pinned one.
+        run: |
+          export KRAKEN_TEST_SQUID_VERSION=$(sed -n 's/^ARG SQUID_TAG=SQUID_//p' deploy/squid/Dockerfile | tr '_' '.')
+          test -n "$KRAKEN_TEST_SQUID_VERSION"
+          make integration
+      # Per-arch tags carry the commit, so the multi-arch tag never mixes
+      # architectures from different runs.
+      - name: Push per-arch image
+        if: env.PUBLISH == 'true'
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          version=$(sed -n 's/^ARG SQUID_TAG=SQUID_//p' deploy/squid/Dockerfile | tr '_' '.')
+          test -n "$version"
+          ref="$SQUID_REPO:$version-sha-${GITHUB_SHA::12}-${{ matrix.arch }}"
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          docker tag kraken-squid:local "$ref"
+          docker push "$ref"
+  publish:
+    needs: build
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Multi-arch tags
+        id: tags
+        env:
+          TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "$TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+          version=$(sed -n 's/^ARG SQUID_TAG=SQUID_//p' deploy/squid/Dockerfile | tr '_' '.')
+          test -n "$version"
+          build="$SQUID_REPO:$version-sha-${GITHUB_SHA::12}"
+          docker buildx imagetools create -t "$build" -t "$SQUID_REPO:$version" \
+            "$build-amd64" "$build-arm64"
+          docker buildx imagetools inspect "$build"
+          digest=$(docker buildx imagetools inspect "$build" --format '{{json .Manifest}}' | jq -r .digest)
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Attest build provenance of the multi-arch image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.SQUID_REPO }}
+          subject-digest: ${{ steps.tags.outputs.digest }}
+          push-to-registry: true
+          create-storage-record: false

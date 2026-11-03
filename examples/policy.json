@@ -1,0 +1,57 @@
+{
+  "schema_version": 2,
+  "clients": [
+    {
+      "id": "00000000-0000-4000-8000-000000000001",
+      "name": "build-vm",
+      "source_networks": [
+        "192.0.2.11/32"
+      ],
+      "enabled": true,
+      "access": "all_web",
+      "tls_profile_id": "00000000-0000-4000-8000-000000000021",
+      "policy_ids": [],
+      "destinations": []
+    },
+    {
+      "id": "00000000-0000-4000-8000-000000000002",
+      "name": "apt-vm",
+      "source_networks": [
+        "192.0.2.12/32"
+      ],
+      "enabled": true,
+      "access": "list",
+      "tls_profile_id": "00000000-0000-4000-8000-000000000021",
+      "policy_ids": [
+        "00000000-0000-4000-8000-000000000012"
+      ],
+      "destinations": [
+        {
+          "domain": "mirror.example.test",
+          "include_subdomains": false
+        }
+      ]
+    }
+  ],
+  "policies": [
+    {
+      "id": "00000000-0000-4000-8000-000000000012",
+      "name": "Approved repositories",
+      "destinations": [
+        {
+          "domain": "packages.example.test",
+          "include_subdomains": false
+        }
+      ]
+    }
+  ],
+  "tls_profiles": [
+    {
+      "id": "00000000-0000-4000-8000-000000000021",
+      "name": "TLS proxy with opaque tunnel",
+      "mode": "tunnel",
+      "proxy_transport": "tls",
+      "cert_ref": "proxy-server-v1"
+    }
+  ]
+}

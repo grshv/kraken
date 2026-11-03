@@ -1,0 +1,46 @@
+name: kraken
+# Settings come from .env next to this file (see .env.example); without .env
+# everything is published on 127.0.0.1 only. Several host addresses: list
+# extra ports in compose.override.yaml (Compose loads it automatically).
+services:
+  kraken:
+    # Latest release (multi-arch). Pin a version with KRAKEN_IMAGE, for example
+    # ghcr.io/grshv/kraken:0.1.0; a local build (make image) is kraken:dev.
+    image: ${KRAKEN_IMAGE:-ghcr.io/grshv/kraken:latest}
+    container_name: kraken
+    ports:
+      - "${KRAKEN_MANAGEMENT_BIND:-127.0.0.1}:8443:8443"
+      - "${KRAKEN_PROXY_BIND:-127.0.0.1}:3128:3128"
+      - "${KRAKEN_PROXY_BIND:-127.0.0.1}:3129:3129"
+    environment:
+      KRAKEN_PUBLIC_ORIGIN: ${KRAKEN_PUBLIC_ORIGIN:-https://localhost:8443}
+      # The bind addresses and extra names go into the issued certificates.
+      KRAKEN_MANAGEMENT_BIND: ${KRAKEN_MANAGEMENT_BIND:-127.0.0.1}
+      KRAKEN_PROXY_BIND: ${KRAKEN_PROXY_BIND:-127.0.0.1}
+      KRAKEN_CERT_NAMES: ${KRAKEN_CERT_NAMES:-}
+    volumes:
+      # Named volume by default; KRAKEN_DATA=./data uses a host directory.
+      - ${KRAKEN_DATA:-control-data}:/var/lib/kraken
+    restart: unless-stopped
+    stop_grace_period: 160s
+    cap_drop:
+      - ALL
+    cap_add:
+      # CHOWN: the entrypoint (root) prepares a fresh host directory for
+      # UIDs 10013/13. SETUID/SETGID/KILL: Pebble starts services as proxy
+      # and kraken. Services themselves keep no capabilities.
+      - CHOWN
+      - SETUID
+      - SETGID
+      - KILL
+    security_opt:
+      - no-new-privileges:true
+    pids_limit: 128
+    mem_limit: 512m
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  control-data:

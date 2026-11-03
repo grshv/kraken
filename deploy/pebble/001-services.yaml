@@ -1,0 +1,26 @@
+summary: Kraken appliance
+services:
+  squid:
+    override: replace
+    summary: Local Squid behind recovery gate
+    command: /usr/local/bin/kraken squid-start
+    startup: enabled
+    user: proxy
+    group: proxy
+    on-success: restart
+    on-failure: restart
+    kill-delay: 10s
+  control:
+    override: replace
+    summary: HTTPS panel with embedded UI
+    # ADR 0009 wants the panel running as user kraken / group kraken with
+    # the proxy supplementary group so it can read shared logs and cache.log.
+    # Pebble 1.33.2 sets the service credential via syscall.Credential which
+    # triggers Go exec's setgroups(nil), clearing supplementary groups; the
+    # pure-Go user lookup also bypasses /etc/group. setpriv drops to kraken
+    # and initialises supplementary groups from NSS before exec'ing the panel.
+    command: /bin/setpriv --reuid=kraken --regid=kraken --init-groups -- /usr/local/bin/kraken serve
+    startup: enabled
+    on-success: restart
+    on-failure: restart
+    kill-delay: 150s

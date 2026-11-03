@@ -1,0 +1,96 @@
+@import "@fontsource/ibm-plex-sans/400.css";
+@import "@fontsource/ibm-plex-sans/500.css";
+@import "@fontsource/ibm-plex-sans/600.css";
+
+/* Shell styles live in cascade layers so shadcn/Tailwind utilities on components win. */
+@layer base {
+  /* Lucide icons default to 16 px; components and size-* utilities override. */
+  svg.lucide {
+    width: 16px;
+    height: 16px;
+    flex: none;
+  }
+  :root {
+    font-family: var(--font-sans);
+    font-synthesis: none;
+    -webkit-font-smoothing: antialiased;
+    /* One face for prose and machine values; tabular figures keep IPs, times and
+       counts aligned in columns. */
+    font-variant-numeric: tabular-nums;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    font-size: var(--text-base);
+    line-height: 1.45;
+    color: var(--foreground);
+    background: var(--page);
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    color: inherit;
+  }
+  h1,
+  h2,
+  h3,
+  p {
+    margin: 0;
+  }
+  h1,
+  h2,
+  h3,
+  strong {
+    font-weight: 600;
+  }
+  a {
+    color: var(--primary);
+    text-decoration: none;
+  }
+  a:hover {
+    text-decoration: underline;
+  }
+}
+
+@layer components {
+  /* ---------- utilities ---------- */
+  code,
+  pre {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  .grow {
+    flex: 1;
+    min-width: 0;
+  }
+
+  /* ---------- skip link ---------- */
+  .skip-link {
+    position: fixed;
+    left: 16px;
+    top: -80px;
+    z-index: 100;
+    padding: 10px 16px;
+    border-radius: 6px;
+    color: var(--primary-foreground);
+    background: var(--primary);
+  }
+  .skip-link:focus {
+    top: 12px;
+  }
+
+  /* ---------- reduced motion ---------- */
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}

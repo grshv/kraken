@@ -1,0 +1,71 @@
+name: Security
+# New vulnerabilities appear without code changes: every week the published
+# images (panel and Squid via the panel's SBOM) of main and of the last
+# release, the Go sources and the whole git history are scanned again. The
+# published images must also carry the provenance signed by image.yml.
+on:
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  sources:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - name: govulncheck over the sources
+        run: make scan-go
+      - name: gitleaks over the history
+        run: make scan-secrets
+  image:
+    name: image-${{ matrix.tag }}
+    strategy:
+      fail-fast: false
+      matrix:
+        tag: [main, latest]
+    runs-on: ubuntu-26.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      packages: read
+      attestations: read
+    env:
+      IMAGE: ghcr.io/${{ github.repository }}:${{ matrix.tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
+      - name: Published image
+        id: pull
+        # latest appears with the first v* tag; until then there is nothing to scan.
+        run: |
+          if [ "${{ matrix.tag }}" = latest ] && ! docker buildx imagetools inspect "$IMAGE" >/dev/null 2>&1; then
+            echo "No $IMAGE yet: no release has been published"
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          docker pull "$IMAGE"
+          echo "present=true" >> "$GITHUB_OUTPUT"
+      - name: Provenance signed by image.yml
+        if: steps.pull.outputs.present == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh attestation verify "oci://$IMAGE" --repo "${{ github.repository }}" \
+            --signer-workflow "${{ github.repository }}/.github/workflows/image.yml"
+      - name: Image SBOM under grype
+        if: steps.pull.outputs.present == 'true'
+        run: make scan-sbom IMAGE="$IMAGE"
