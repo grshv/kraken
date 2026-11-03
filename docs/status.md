@@ -38,6 +38,9 @@
 | `make scan-go`, `scan-sbom` | 0 достижимых уязвимостей Go; grype — только Medium CVE-2025-60876 в busybox Alpine без исправления; Squid 7.8 без находок |
 | `make scan-secrets` | Секретов нет в сжатой истории |
 | actionlint | Не запускался |
+| CI на коммите релиза | Image, Documentation, CodeQL — успешно (запущены вручную: path-фильтры не срабатывают на сжатой истории) |
+| Публикация `v0.1.0` | `ghcr.io/grshv/kraken:0.1.0` и `latest`, digest `sha256:036dee7f44124fdba26dee9f69480fa55c503c46629e7338993713c0136cfdf8`; `gh attestation verify` принимает; `kraken version` — `0.1.0` |
+| `security` по `main` и `latest` | Успешно |
 
 ## Не подтверждено
 
