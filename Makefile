@@ -46,8 +46,8 @@ GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.9.0
 # go run pkg@version builds the tool with the Go its own module asks for; pin
 # the toolchain of src/go.mod so govulncheck can load our packages.
 GO_TOOLCHAIN := go$(shell awk '/^go /{print $$2}' src/go.mod)
-SYFT := anchore/syft:v1.56.0@sha256:697ae864af1299cfa43c54b161cea3dd65c6d54de82e3dba66ea3dccb3acc313
-GRYPE := anchore/grype:v0.121.1@sha256:6b06708b036f74b2cd70e94b706b4586af96d1932e6ac46255940b2e39dd44a9
+SYFT := anchore/syft:v1.57.1@sha256:03215d0e98b661d0ecbc8575dbc14d65be1743b5de5df6410aecb7e80f95b060
+GRYPE := anchore/grype:v0.121.3@sha256:13113eeceab017260370cf540e1d25442c59665fd07d1b09b66d63bb0c282887
 GITLEAKS := zricethezav/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
 
 scan: scan-go scan-sbom scan-secrets
