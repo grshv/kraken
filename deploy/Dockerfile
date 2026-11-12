@@ -2,15 +2,15 @@
 ARG SQUID_IMAGE=ghcr.io/grshv/kraken-squid:7.8@sha256:94ee7cfc48ba667a455c1b210c40c197511e4958951d4e071b170d932d2a4ea8
 # Runtime base. With SQUID_IMAGE it forms the image identity compiled into the
 # binary: a revision rolls back only on the image it was applied on.
-ARG ALPINE_IMAGE=alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
-FROM node:26-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS web
+ARG ALPINE_IMAGE=alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+FROM node:26-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS web
 WORKDIR /build/web
 COPY src/web/package*.json ./
 RUN npm ci
 COPY src/web/ ./
 RUN npm run build
 
-FROM golang:1.27.3-trixie@sha256:c65ecfe613b539ac74c62a4c3b2c27e8f8a6076384c8f27e8a3c0f3be17cc385 AS build
+FROM golang:1.27.4-trixie@sha256:b54b2639de8c1bfe538ec5ffc45f29b1932235ac5f6d63c059853646677112d9 AS build
 WORKDIR /build
 COPY src/go.mod src/go.sum ./
 RUN go mod download
