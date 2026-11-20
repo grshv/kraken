@@ -1,11 +1,11 @@
-# syntax=docker/dockerfile:1@sha256:4edf897a3ffa55b89f906fc8cc78afdb3f1834cc9c7083565e611a8a7d5fe99e
+# syntax=docker/dockerfile:1@sha256:572cebbc2b15e6f84c077742952674889cb63cd5e9b80abdffcbe587b6f19183
 # Squid built from the upstream release (ADR 0012): unpatched, with
 # only installation paths, --with-openssl, the default user and
 # --disable-strict-error-checking. The release tarball is accepted only with a
 # valid signature by the Squid release keys in squid-keys.asc, so a version
 # bump needs no checksum edit. The result is a scratch image holding the
 # installed tree; the panel image copies it onto the same Alpine release.
-FROM alpine:3.24@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a AS build
+FROM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS build
 # renovate: datasource=github-releases depName=squid-cache/squid versioning=regex:^SQUID_(?<major>\d+)_(?<minor>\d+)$
 ARG SQUID_TAG=SQUID_7_8
 COPY squid-keys.asc /tmp/squid-keys.asc
